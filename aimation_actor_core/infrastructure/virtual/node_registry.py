@@ -10,6 +10,11 @@ from __future__ import annotations
 from aimation_actor_core.domain.pipeline.node import INode
 from aimation_actor_core.domain.pipeline.registry import NodeRegistry
 from aimation_actor_core.domain.pipeline.schema import NodeSchema
+from aimation_actor_core.infrastructure.virtual.nodes import (
+    FrameRangeNode,
+    MergeNode,
+    PassThroughNode,
+)
 
 
 class StaticNodeRegistry(NodeRegistry):
@@ -31,3 +36,17 @@ class StaticNodeRegistry(NodeRegistry):
 
     def contains(self, node_type: str) -> bool:
         return node_type in self._nodes
+
+
+def seeded_node_registry() -> StaticNodeRegistry:
+    """Build a :class:`StaticNodeRegistry` pre-seeded with the three seed nodes.
+
+    Used by the composition root to wire the static allowlist for
+    ``GET /nodes/types`` and graph execution (SDD §4.3 — static registration,
+    never from user input).
+    """
+    registry = StaticNodeRegistry()
+    registry.register(PassThroughNode())
+    registry.register(MergeNode())
+    registry.register(FrameRangeNode())
+    return registry
