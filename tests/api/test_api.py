@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from aimation_actor_core.infrastructure.virtual import StaticNodeRegistry
 from aimation_actor_core.main import create_app
 from aimation_actor_core.shared.config import Settings
 
@@ -49,6 +50,16 @@ class TestNodes:
         assert r.status_code == 200
         types = {schema["type"] for schema in r.json()}
         assert types == {"pass-through", "merge", "frame-range"}
+
+    def test_list_node_types_empty_registry(self) -> None:
+        # Unseeded registry: GET /nodes/types returns an empty list without error
+        # (node-registry spec "Empty registry returns empty list").
+        app = create_app(settings=Settings(session_token=TEST_TOKEN))
+        app.state.node_registry = StaticNodeRegistry()
+        c = TestClient(app)
+        r = c.get("/nodes/types", headers=_auth())
+        assert r.status_code == 200
+        assert r.json() == []
 
 
 class TestSessions:
