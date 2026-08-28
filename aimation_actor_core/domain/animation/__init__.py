@@ -6,6 +6,7 @@ Re-exports the animation domain contracts so consumers import from
 
 from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform3D
 from aimation_actor_core.domain.animation.hierarchy import HierarchyError
+from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
 from aimation_actor_core.domain.animation.neutral_motion import (
     ContactFeed,
     FootContact,
@@ -22,6 +23,8 @@ __all__ = [
     "FootContact",
     "Frame",
     "HierarchyError",
+    "Keypoint",
+    "Keypoints2D",
     "KeyPose",
     "NeutralMeta",
     "NeutralMotion",

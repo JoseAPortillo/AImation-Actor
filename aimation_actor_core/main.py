@@ -86,11 +86,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health", tags=["health"], summary="Health check")
     async def health() -> dict[str, str]:
         """Return service health and loaded model status."""
+        # Detect pose backend availability
+        try:
+            import onnxruntime  # type: ignore[import-not-found]  # noqa: F401
+
+            pose_backend = "onnx"
+        except ImportError:
+            pose_backend = "synthetic"
+
         return {
             "status": "ok",
             "instance_id": app.state.instance_id,
             "models": "none",
             "video": "loaded",
+            "pose": pose_backend,
         }
 
     return app
