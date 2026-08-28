@@ -34,13 +34,13 @@ Node types MUST be registered at import/composition-root time. User-supplied inp
 
 ### Requirement: Seed nodes
 
-The composition root MUST seed the registry with three nodes: `pass-through`, `merge`, and `frame-range`. Each MUST declare a valid `NodeSchema` (typed input/output ports).
+The composition root MUST seed the registry with four nodes: `pass-through`, `merge`, `frame-range`, and `video-source`. Each MUST declare a valid `NodeSchema` (typed input/output ports). `video-source` MUST be the OpenCV frame-extraction node (category `SOURCE`).
 
 #### Scenario: Seed nodes are present
 
 - GIVEN the application's DI container is built
 - WHEN the registry's schemas are listed
-- THEN `pass-through`, `merge`, and `frame-range` are present
+- THEN `pass-through`, `merge`, `frame-range`, and `video-source` are present
 
 #### Scenario: Seed nodes declare typed ports
 
