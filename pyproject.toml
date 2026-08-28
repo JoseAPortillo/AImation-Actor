@@ -48,3 +48,34 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ANN"]
 ignore = ["B008"]
+
+# Enforce the modular-monolith layer rules from SDD §2.3.
+# main.py lives at the package root (not inside api/), so the composition root
+# may import infrastructure directly without violating these contracts.
+[tool.importlinter]
+root_package = "aimation_actor_core"
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "SDD §2.3 — api must not import infrastructure directly"
+type = "forbidden"
+source_modules = ["aimation_actor_core.api"]
+forbidden_modules = ["aimation_actor_core.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "SDD §2.3 — domain is pure, may not import api or infrastructure"
+type = "forbidden"
+source_modules = ["aimation_actor_core.domain"]
+forbidden_modules = ["aimation_actor_core.api", "aimation_actor_core.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "SDD §2.3 — infrastructure must not import api"
+type = "forbidden"
+source_modules = ["aimation_actor_core.infrastructure"]
+forbidden_modules = ["aimation_actor_core.api"]
+
+[[tool.importlinter.contracts]]
+name = "SDD §2.3 — shared imports nothing internal"
+type = "forbidden"
+source_modules = ["aimation_actor_core.shared"]
+forbidden_modules = ["aimation_actor_core.api", "aimation_actor_core.domain", "aimation_actor_core.infrastructure"]
