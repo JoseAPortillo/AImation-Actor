@@ -43,11 +43,12 @@ class TestAuth:
 
 
 class TestNodes:
-    def test_list_node_types_empty_catalog(self) -> None:
+    def test_list_node_types_lists_seed_nodes(self) -> None:
         c = _client()
         r = c.get("/nodes/types", headers=_auth())
         assert r.status_code == 200
-        assert r.json() == []
+        types = {schema["type"] for schema in r.json()}
+        assert types == {"pass-through", "merge", "frame-range"}
 
 
 class TestSessions:
@@ -72,9 +73,7 @@ class TestSessions:
         assert hb.status_code == 200
         assert hb.json()["session_id"] == session_id
 
-        pushed = c.post(
-            f"/sessions/{session_id}/push_result", headers=_auth(), json={"motion": 1}
-        )
+        pushed = c.post(f"/sessions/{session_id}/push_result", headers=_auth(), json={"motion": 1})
         assert pushed.status_code == 202
         assert pushed.json()["accepted"] is True
 
@@ -109,9 +108,7 @@ class TestSessions:
 class TestJobs:
     def test_video_to_motion_submit_and_poll(self) -> None:
         c = _client()
-        submit = c.post(
-            "/jobs/video-to-motion", headers=_auth(), json={"video": "ref.mp4"}
-        )
+        submit = c.post("/jobs/video-to-motion", headers=_auth(), json={"video": "ref.mp4"})
         assert submit.status_code == 202
         job = submit.json()
         job_id = job["job_id"]
@@ -129,15 +126,77 @@ class TestJobs:
         assert logs.status_code == 200
         assert isinstance(logs.json(), list)
 
-    def test_graph_execute_maps_to_kind(self) -> None:
+    def test_graph_execute_end_to_end_succeeds(self) -> None:
         c = _client()
         r = c.post(
             "/jobs/graph/execute",
             headers=_auth(),
-            json={"graph": {"nodes": [], "edges": []}, "target_session": "s1"},
+            json={
+                "version": "0.1",
+                "nodes": [
+                    {"id": "src", "type": "frame-range", "params": {"start": 0, "end": 3}},
+                    {"id": "pt1", "type": "pass-through"},
+                    {"id": "pt2", "type": "pass-through"},
+                ],
+                "edges": [
+                    {
+                        "id": "e1",
+                        "source": {"node": "src", "port": "frames"},
+                        "target": {"node": "pt1", "port": "input"},
+                    },
+                    {
+                        "id": "e2",
+                        "source": {"node": "pt1", "port": "output"},
+                        "target": {"node": "pt2", "port": "input"},
+                    },
+                ],
+            },
         )
-        assert r.status_code == 202
-        assert r.json()["kind"] == "graph-execute"
+        assert r.status_code == 200
+        job = r.json()
+        assert job["kind"] == "graph-execute"
+        assert job["status"] == "succeeded"
+        assert len(job["logs"]) == 3
+        assert job["result"]["outputs"]["pt2"]["output"] == [0, 1, 2]
+
+    def test_graph_execute_unknown_type_fails(self) -> None:
+        c = _client()
+        r = c.post(
+            "/jobs/graph/execute",
+            headers=_auth(),
+            json={"version": "0.1", "nodes": [{"id": "a", "type": "alien-node"}], "edges": []},
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "failed"
+        assert r.json()["error"]
+
+    def test_graph_execute_cycle_fails(self) -> None:
+        c = _client()
+        r = c.post(
+            "/jobs/graph/execute",
+            headers=_auth(),
+            json={
+                "version": "0.1",
+                "nodes": [
+                    {"id": "a", "type": "pass-through"},
+                    {"id": "b", "type": "pass-through"},
+                ],
+                "edges": [
+                    {
+                        "id": "e1",
+                        "source": {"node": "a", "port": "output"},
+                        "target": {"node": "b", "port": "input"},
+                    },
+                    {
+                        "id": "e2",
+                        "source": {"node": "b", "port": "output"},
+                        "target": {"node": "a", "port": "input"},
+                    },
+                ],
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "failed"
 
     def test_unknown_job_404(self) -> None:
         c = _client()

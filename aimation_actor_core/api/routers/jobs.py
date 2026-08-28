@@ -12,13 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from aimation_actor_core.api.deps import get_job_store, require_token
 from aimation_actor_core.domain.job.job import Job, JobKind, JobStatus, JobStore
+from aimation_actor_core.domain.pipeline.graph import Graph
 
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_token)])
 
 
-def _submit(
-    store: JobStore, kind: JobKind, payload: dict[str, Any]
-) -> Job:
+def _submit(store: JobStore, kind: JobKind, payload: dict[str, Any]) -> Job:
     return store.submit(kind, payload)
 
 
@@ -53,15 +52,20 @@ def blocking_to_motion(
 @router.post(
     "/graph/execute",
     response_model=Job,
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_200_OK,
     summary="Execute a complete node graph",
 )
 def graph_execute(
-    payload: dict[str, Any],
+    graph: Graph,
     store: JobStore = Depends(get_job_store),
 ) -> Job:
-    """Submit a full node-graph execution job (plan §9.3, example payload)."""
-    return _submit(store, JobKind.GRAPH_EXECUTE, payload)
+    """Validate and execute a node graph to a terminal state inline (ADR-002).
+
+    The validated :class:`Graph` is serialized and delegated to the injected
+    :class:`JobStore`, which re-validates and drives it against the node
+    registry.
+    """
+    return store.submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
 
 
 @router.get("/{job_id}", response_model=Job, summary="Job status")

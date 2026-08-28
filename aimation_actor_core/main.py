@@ -17,7 +17,8 @@ from aimation_actor_core.api.routers import jobs, nodes, sessions
 from aimation_actor_core.infrastructure.virtual import (
     InMemoryJobStore,
     InMemorySessionStore,
-    StaticNodeRegistry,
+    SynchronousGraphExecutor,
+    seeded_node_registry,
 )
 from aimation_actor_core.shared.config import Settings, get_settings
 from aimation_actor_core.shared.errors import AImationError, ModelIntegrityError
@@ -42,10 +43,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.instance_id = str(uuid.uuid4())
 
     # Dependency injection (SDD §2.4): concrete adapters assembled here, never
-    # referenced by the API layer.
+    # referenced by the API layer. The node registry is seeded with the three
+    # built-in nodes, and the synchronous executor is injected into the job
+    # store for GRAPH_EXECUTE jobs (ADR-002).
     app.state.session_store = InMemorySessionStore()
-    app.state.job_store = InMemoryJobStore()
-    app.state.node_registry = StaticNodeRegistry()
+    node_registry = seeded_node_registry()
+    app.state.node_registry = node_registry
+    app.state.job_store = InMemoryJobStore(
+        executor=SynchronousGraphExecutor(),
+        registry=node_registry,
+    )
 
     # Restrictive CORS — only the Tauri origins (SDD §4.3).
     app.add_middleware(
