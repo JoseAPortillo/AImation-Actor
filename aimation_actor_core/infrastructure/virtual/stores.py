@@ -29,6 +29,28 @@ from aimation_actor_core.infrastructure.virtual.executor import (
 _TERMINAL_STATUSES = frozenset({JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED})
 
 
+def _json_safe(value: Any) -> Any:  # noqa: ANN401 - generic coercion of arbitrary node outputs
+    """Recursively convert numpy/opaque values into JSON-serializable primitives.
+
+    Real AI node outputs (e.g. ``video-source`` frames) carry ``numpy.ndarray``
+    payloads. These are not JSON-serializable by pydantic, so graph-execute job
+    results are flattened here before storage — the pixel payload is converted
+    to a nested list, and numpy scalars to Python natives. Keeps
+    ``/jobs/graph/execute`` JSON-safe for any node output.
+    """
+    return _coerce(value)
+
+
+def _coerce(value: Any) -> Any:  # noqa: ANN401 - generic coercion of arbitrary node outputs
+    if hasattr(value, "tolist"):
+        return _coerce(value.tolist())
+    if isinstance(value, dict):
+        return {k: _coerce(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_coerce(v) for v in value]
+    return value
+
+
 class InMemorySessionStore(SessionStore):
     """Thread-safe in-memory session registry."""
 
@@ -135,7 +157,7 @@ class InMemoryJobStore(JobStore):
             job_id=job.job_id,
             kind=JobKind.GRAPH_EXECUTE,
             status=JobStatus.SUCCEEDED,
-            result={"outputs": result.outputs},
+            result={"outputs": _json_safe(result.outputs)},
             logs=result.logs,
         )
         self._jobs[job.job_id] = succeeded

@@ -33,18 +33,14 @@ def validate(skeleton: Skeleton) -> None:
 
     for name, bone in bones.items():
         if bone.parent not in bones and bone.parent is not None:
-            raise HierarchyError(
-                f"bone '{name}' references unknown parent '{bone.parent}'"
-            )
+            raise HierarchyError(f"bone '{name}' references unknown parent '{bone.parent}'")
     for name, bone in bones.items():
         if bone.parent == name:
             raise HierarchyError(f"bone '{name}' is its own parent (self-loop)")
 
     roots = [name for name, bone in bones.items() if bone.parent is None]
     if len(roots) != 1:
-        raise HierarchyError(
-            f"skeleton must have exactly one root, found {len(roots)}: {roots}"
-        )
+        raise HierarchyError(f"skeleton must have exactly one root, found {len(roots)}: {roots}")
 
     root = roots[0]
     visited: set[str] = set()
@@ -54,13 +50,9 @@ def validate(skeleton: Skeleton) -> None:
         if current in visited:
             raise HierarchyError(f"cycle detected at bone '{current}'")
         visited.add(current)
-        children = [
-            name for name, bone in bones.items() if bone.parent == current
-        ]
+        children = [name for name, bone in bones.items() if bone.parent == current]
         stack.extend(children)
 
     if len(visited) != len(bones):
         orphaned = sorted(set(bones) - visited)
-        raise HierarchyError(
-            f"bones not reachable from root (cycle or orphan): {orphaned}"
-        )
+        raise HierarchyError(f"bones not reachable from root (cycle or orphan): {orphaned}")

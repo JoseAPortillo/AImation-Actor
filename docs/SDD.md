@@ -177,14 +177,11 @@ Every node must implement:
 class INode(Protocol):
     @staticmethod
     def get_schema() -> NodeSchema: ...
-    
+
     async def execute(
-        self, 
-        inputs: dict[str, Any], 
-        params: dict[str, Any],
-        context: ExecutionContext
+        self, inputs: dict[str, Any], params: dict[str, Any], context: ExecutionContext
     ) -> dict[str, Any]: ...
-    
+
     async def validate(self, params: dict[str, Any]) -> ValidationResult: ...
 ```
 

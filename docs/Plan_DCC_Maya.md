@@ -79,14 +79,14 @@ Plugin Unload / Timeout → Deregister
 
 ```python
 {
-    "session_id": "uuid-v4",          # Generated per Maya session
+    "session_id": "uuid-v4",  # Generated per Maya session
     "dcc_type": "maya",
-    "dcc_version": "2025.0",          # cmds.about(version=True)
+    "dcc_version": "2025.0",  # cmds.about(version=True)
     "plugin_version": "0.3.1",
     "registered_at": "ISO8601",
     "capabilities": ["shadow_rig", "bake", "viewport_capture", "keyframe_capture"],
-    "scene_name": "shot_010_anim.ma", # Sanitized basename only
-    "token": "<instance-token>"       # Read from secure local file / env var
+    "scene_name": "shot_010_anim.ma",  # Sanitized basename only
+    "token": "<instance-token>",  # Read from secure local file / env var
 }
 ```
 
@@ -136,10 +136,7 @@ Extracts keyframes from selected objects within frame range.
 
 ```python
 def sample_keyframes(
-    objects: list[str], 
-    start_frame: int, 
-    end_frame: int,
-    preserve_keyposes: bool = True
+    objects: list[str], start_frame: int, end_frame: int, preserve_keyposes: bool = True
 ) -> list[KeyframeData]:
     """
     Returns list of {frame, weight, poses} for blocking-to-motion.
@@ -180,15 +177,15 @@ class ShadowRigBuilder:
         Applies animation from neutral_motion frames.
         Attaches metadata node with traceability info.
         Returns: root joint name
-        
+
         NON-DESTRUCTIVE: Does not modify existing scene hierarchy.
         REVERSIBLE: delete_shadow_rig() fully cleans up.
         """
-    
+
     def delete(self, root_joint: str) -> None:
         """Complete cleanup: joints, constraints, metadata, namespace."""
-    
-    def transfer_to_controls(self, shadow_root: str, control_map: dict[str,str]) -> None:
+
+    def transfer_to_controls(self, shadow_root: str, control_map: dict[str, str]) -> None:
         """Copies animation from shadow joints to target controls via constraint bake."""
 ```
 
@@ -223,10 +220,10 @@ Custom network node storing:
 ```python
 def bake_animation(
     targets: list[str],
-    frame_range: tuple[int,int],
+    frame_range: tuple[int, int],
     preserve_keyposes: bool = True,
     smart_euler_filter: bool = True,
-    sample_rate: float = 1.0
+    sample_rate: float = 1.0,
 ) -> BakeResult:
     """
     Bakes animation to target controls/joints.

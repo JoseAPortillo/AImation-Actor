@@ -7,9 +7,14 @@ populated once at the composition root and injected where a
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from aimation_actor_core.domain.pipeline.node import INode
 from aimation_actor_core.domain.pipeline.registry import NodeRegistry
 from aimation_actor_core.domain.pipeline.schema import NodeSchema
+from aimation_actor_core.infrastructure.video.frame_extractor import (
+    FrameExtractorNode,
+)
 from aimation_actor_core.infrastructure.virtual.nodes import (
     FrameRangeNode,
     MergeNode,
@@ -38,8 +43,12 @@ class StaticNodeRegistry(NodeRegistry):
         return node_type in self._nodes
 
 
-def seeded_node_registry() -> StaticNodeRegistry:
-    """Build a :class:`StaticNodeRegistry` pre-seeded with the three seed nodes.
+def seeded_node_registry(media_root: Path = Path("media")) -> StaticNodeRegistry:
+    """Build a :class:`StaticNodeRegistry` pre-seeded with the built-in nodes.
+
+    Registers the three virtual seed nodes plus the real AI preprocessing
+    node ``video-source``. ``media_root`` allowlists the video paths that
+    ``video-source`` may read (path allowlist, SDD §4.3).
 
     Used by the composition root to wire the static allowlist for
     ``GET /nodes/types`` and graph execution (SDD §4.3 — static registration,
@@ -49,4 +58,5 @@ def seeded_node_registry() -> StaticNodeRegistry:
     registry.register(PassThroughNode())
     registry.register(MergeNode())
     registry.register(FrameRangeNode())
+    registry.register(FrameExtractorNode(media_root=media_root))
     return registry

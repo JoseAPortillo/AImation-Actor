@@ -72,9 +72,7 @@ class JobStore(Protocol):
     protocol only fixes the storage/shape contract.
     """
 
-    def submit(
-        self, kind: JobKind, payload: dict[str, Any]
-    ) -> Job:
+    def submit(self, kind: JobKind, payload: dict[str, Any]) -> Job:
         """Create and schedule a job, returning its initial snapshot."""
         ...
 

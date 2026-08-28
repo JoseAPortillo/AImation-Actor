@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # built-in nodes, and the synchronous executor is injected into the job
     # store for GRAPH_EXECUTE jobs (ADR-002).
     app.state.session_store = InMemorySessionStore()
-    node_registry = seeded_node_registry()
+    node_registry = seeded_node_registry(media_root=settings.media_root)
     app.state.node_registry = node_registry
     app.state.job_store = InMemoryJobStore(
         executor=SynchronousGraphExecutor(),
@@ -90,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "status": "ok",
             "instance_id": app.state.instance_id,
             "models": "none",
+            "video": "loaded",
         }
 
     return app

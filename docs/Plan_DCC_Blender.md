@@ -85,14 +85,14 @@ Add-on Disable / Timeout → Deregister
 
 ```python
 {
-    "session_id": "uuid-v4",          # Generated per Blender session
+    "session_id": "uuid-v4",  # Generated per Blender session
     "dcc_type": "blender",
-    "dcc_version": "4.2.0",           # bpy.app.version_string
+    "dcc_version": "4.2.0",  # bpy.app.version_string
     "plugin_version": "0.3.1",
     "registered_at": "ISO8601",
     "capabilities": ["shadow_rig", "bake", "viewport_capture", "keyframe_capture"],
-    "scene_name": "shot_010_anim.blend", # Sanitized basename only
-    "token": "<instance-token>"       # Read from secure local file / env var
+    "scene_name": "shot_010_anim.blend",  # Sanitized basename only
+    "token": "<instance-token>",  # Read from secure local file / env var
 }
 ```
 
@@ -151,7 +151,7 @@ def sample_keyframes(
     targets: list[bpy.types.ID],
     start_frame: int,
     end_frame: int,
-    preserve_keyposes: bool = True
+    preserve_keyposes: bool = True,
 ) -> list[KeyframeData]:
     """
     Returns list of {frame, weight, poses}.
@@ -189,21 +189,25 @@ Collection: "AI_ShadowRig"
 
 ```python
 class ShadowRigBuilder:
-    def create(self, neutral_motion: NeutralMotion, target_armature: str | None = None) -> bpy.types.Object:
+    def create(
+        self, neutral_motion: NeutralMotion, target_armature: str | None = None
+    ) -> bpy.types.Object:
         """
         Creates shadow armature matching neutral skeleton hierarchy.
         Applies animation from neutral_motion as new Action.
         Attaches metadata empty with custom props.
         Returns: armature object
-        
+
         NON-DESTRUCTIVE: New collection, no links to existing rigs.
         REVERSIBLE: delete_shadow_rig() fully cleans up.
         """
-    
+
     def delete(self, armature_obj: bpy.types.Object) -> None:
         """Complete cleanup: armature, action, metadata empty, collection."""
-    
-    def transfer_to_controls(self, shadow_armature: bpy.types.Object, control_map: dict[str,str]) -> None:
+
+    def transfer_to_controls(
+        self, shadow_armature: bpy.types.Object, control_map: dict[str, str]
+    ) -> None:
         """Copies animation via Copy Transforms constraints + bake."""
 ```
 
@@ -240,10 +244,10 @@ Custom properties on metadata empty:
 def bake_animation(
     context: bpy.types.Context,
     targets: list[bpy.types.ID],
-    frame_range: tuple[int,int],
+    frame_range: tuple[int, int],
     preserve_keyposes: bool = True,
     smart_euler_filter: bool = True,
-    visual_keying: bool = True
+    visual_keying: bool = True,
 ) -> BakeResult:
     """
     Bakes animation to target bones/objects.

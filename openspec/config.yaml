@@ -1,0 +1,40 @@
+schema: spec-driven
+
+context: |
+  Project: AImation_Actor (aimation-actor-core v0.1.0)
+  Stack: Python 3.11, FastAPI, Pydantic v2, Uvicorn
+  Architecture: Modular monolith — domain/api/infrastructure/shared layers
+  Testing: pytest + pytest-asyncio + httpx + hypothesis + import-linter
+  Quality: mypy strict, ruff (lint + format), import-linter layer contracts
+  Branch: feat/graph-executor
+  Artifact store: hybrid (openspec files + Engram memories)
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Reference SDD section and threat model for security-relevant proposals
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Keep domain layer free of framework and external dependencies
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - Enforce module dependency rules: api cannot import infrastructure; domain is pure
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns in aimation_actor_core
+      - Add type hints and Google Style docstrings for public APIs
+      - Never add external dependencies to the domain layer
+    tdd: true
+    test_command: ".\\venv\\Scripts\\python.exe -m pytest"
+  verify:
+    test_command: ".\\venv\\Scripts\\python.exe -m pytest"
+    build_command: ".\\venv\\Scripts\\python.exe -m importlinter --show-timings"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Preserve ADR references and threat model lineage

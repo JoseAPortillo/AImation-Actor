@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from aimation_actor_core.infrastructure.virtual import StaticNodeRegistry
@@ -27,6 +32,12 @@ class TestAuth:
         assert r.status_code == 200
         assert r.json()["status"] == "ok"
 
+    def test_health_reports_video_loaded(self) -> None:
+        c = _client()
+        r = c.get("/health")
+        assert r.status_code == 200
+        assert r.json()["video"] == "loaded"
+
     def test_protected_endpoint_rejects_no_token(self) -> None:
         c = _client()
         r = c.get("/nodes/types")
@@ -49,7 +60,8 @@ class TestNodes:
         r = c.get("/nodes/types", headers=_auth())
         assert r.status_code == 200
         types = {schema["type"] for schema in r.json()}
-        assert types == {"pass-through", "merge", "frame-range"}
+        # Three virtual seed nodes plus the real AI video-source preprocessing node.
+        assert types == {"pass-through", "merge", "frame-range", "video-source"}
 
     def test_list_node_types_empty_registry(self) -> None:
         # Unseeded registry: GET /nodes/types returns an empty list without error
@@ -208,6 +220,51 @@ class TestJobs:
         )
         assert r.status_code == 200
         assert r.json()["status"] == "failed"
+
+    def test_graph_execute_video_source_end_to_end(self, tmp_path: Path) -> None:
+        # Build a synthetic video fixture under a tmp media_root, then run
+        # video-source through the graph executor end-to-end.
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        clip = media_root / "clip.avi"
+        writer = cv2.VideoWriter(
+            str(clip),
+            cv2.VideoWriter_fourcc(*"MJPG"),
+            25,
+            (32, 32),
+        )
+        try:
+            for i in range(5):
+                writer.write(np.full((32, 32, 3), i * 10, dtype=np.uint8))
+        finally:
+            writer.release()
+
+        app = create_app(settings=Settings(session_token=TEST_TOKEN, media_root=media_root))
+        c = TestClient(app)
+        r = c.post(
+            "/jobs/graph/execute",
+            headers=_auth(),
+            json={
+                "version": "0.1",
+                "nodes": [
+                    {"id": "src", "type": "video-source", "params": {"video_path": "clip.avi"}},
+                    {"id": "pt", "type": "pass-through"},
+                ],
+                "edges": [
+                    {
+                        "id": "e1",
+                        "source": {"node": "src", "port": "frames"},
+                        "target": {"node": "pt", "port": "input"},
+                    },
+                ],
+            },
+        )
+        assert r.status_code == 200
+        job = r.json()
+        assert job["status"] == "succeeded"
+        outputs = job["result"]["outputs"]
+        assert len(outputs["src"]["frames"]) == 5
+        assert outputs["src"]["fps"] == pytest.approx(25)
 
     def test_unknown_job_404(self) -> None:
         c = _client()

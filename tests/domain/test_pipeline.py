@@ -91,9 +91,7 @@ class _FakeRegistry:
     """Structural stand-in matching NodeRegistry."""
 
     def __init__(self) -> None:
-        self._schemas: dict[str, NodeSchema] = {
-            n.type: n for n in [DummyNode.get_schema()]
-        }
+        self._schemas: dict[str, NodeSchema] = {n.type: n for n in [DummyNode.get_schema()]}
 
     def get(self, node_type: str) -> INode | None:  # pragma: no cover
         return DummyNode() if node_type in self._schemas else None

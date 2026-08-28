@@ -1,5 +1,8 @@
 """Public API of the virtual (in-memory) infrastructure adapters."""
 
+from aimation_actor_core.infrastructure.video.frame_extractor import (
+    FrameExtractorNode,
+)
 from aimation_actor_core.infrastructure.virtual.executor import (
     GraphValidationError,
     NodeExecutionError,
@@ -21,6 +24,7 @@ from aimation_actor_core.infrastructure.virtual.stores import (
 )
 
 __all__ = [
+    "FrameExtractorNode",
     "FrameRangeNode",
     "GraphValidationError",
     "InMemoryJobStore",

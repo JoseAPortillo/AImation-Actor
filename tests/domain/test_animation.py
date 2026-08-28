@@ -108,9 +108,7 @@ class TestNeutralMotion:
             frames=[
                 Frame(
                     frame=1,
-                    pose=Pose(
-                        transforms={"Hips": Transform3D(translation=(0.0, 100.0, 0.0))}
-                    ),
+                    pose=Pose(transforms={"Hips": Transform3D(translation=(0.0, 100.0, 0.0))}),
                 ),
                 Frame(frame=2),
             ],

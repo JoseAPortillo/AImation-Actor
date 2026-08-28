@@ -82,7 +82,8 @@ async def test_frame_range_node_emits_half_open_indices() -> None:
 def test_seeded_registry_lists_three_seed_nodes() -> None:
     registry = seeded_node_registry()
     schemas = {schema.type for schema in registry.list_schemas()}
-    assert schemas == {"pass-through", "merge", "frame-range"}
+    # Three virtual seed nodes plus the real AI video-source preprocessing node.
+    assert schemas == {"pass-through", "merge", "frame-range", "video-source"}
 
 
 def test_seed_nodes_declare_pinned_port_types() -> None:

@@ -30,16 +30,16 @@ class DataType(StrEnum):
     The Tauri/React Flow frontend uses these to gate connection validity.
     """
 
-    FRAMES = "frames"                      #: Extracted video frames.
-    FRAME_STREAM = "frame_stream"          #: Live/streaming frame pipe.
-    KEYPOINTS_2D = "keypoints_2d"          #: Per-frame 2D pose keypoints.
-    POSE_3D = "pose_3d"                    #: Per-frame 3D pose.
-    NEUTRAL_POSE = "neutral_pose"          #: A single neutral pose (domain Pose).
+    FRAMES = "frames"  #: Extracted video frames.
+    FRAME_STREAM = "frame_stream"  #: Live/streaming frame pipe.
+    KEYPOINTS_2D = "keypoints_2d"  #: Per-frame 2D pose keypoints.
+    POSE_3D = "pose_3d"  #: Per-frame 3D pose.
+    NEUTRAL_POSE = "neutral_pose"  #: A single neutral pose (domain Pose).
     NEUTRAL_ANIMATION = "neutral_animation"  #: A NeutralMotion document.
-    VIDEO_PATH = "video_path"              #: Reference video file path.
-    IMAGE = "image"                        #: A single image/frame.
-    MESH = "mesh"                          #: 3D mesh data.
-    GRAPH = "graph"                        #: A node graph (e.g. subgraph/macro).
+    VIDEO_PATH = "video_path"  #: Reference video file path.
+    IMAGE = "image"  #: A single image/frame.
+    MESH = "mesh"  #: 3D mesh data.
+    GRAPH = "graph"  #: A node graph (e.g. subgraph/macro).
     BOOLEAN = "boolean"
     NUMBER = "number"
     STRING = "string"

@@ -7,6 +7,7 @@ environment, never from source files (SDD §4.3).
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
         session_token: Per-instance token shared with Tauri/plugins.
         rate_limit_per_second: Max requests per second per session.
         max_video_bytes: Hard cap for uploaded video files.
+        media_root: Allowlisted directory that video_source nodes may read from
+            (path allowlist, SDD §4.3).
     """
 
     model_config = SettingsConfigDict(
@@ -40,6 +43,7 @@ class Settings(BaseSettings):
     )
     rate_limit_per_second: int = Field(default=10, ge=1)
     max_video_bytes: int = Field(default=2 * 1024**3, ge=1)
+    media_root: Path = Field(default=Path("media"))
 
 
 @lru_cache
