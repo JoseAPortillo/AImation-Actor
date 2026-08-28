@@ -42,3 +42,9 @@ python_version = "3.11"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+# B008: FastAPI dependency injection uses Depends(...) in argument defaults —
+# the idiomatic pattern is a deliberate false-positive for bugbear.
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN"]
+ignore = ["B008"]

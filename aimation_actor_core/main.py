@@ -13,6 +13,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from aimation_actor_core.api.routers import jobs, nodes, sessions
+from aimation_actor_core.infrastructure.virtual import (
+    InMemoryJobStore,
+    InMemorySessionStore,
+    StaticNodeRegistry,
+)
 from aimation_actor_core.shared.config import Settings, get_settings
 from aimation_actor_core.shared.errors import AImationError, ModelIntegrityError
 
@@ -34,6 +40,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.settings = settings
     app.state.instance_id = str(uuid.uuid4())
+
+    # Dependency injection (SDD §2.4): concrete adapters assembled here, never
+    # referenced by the API layer.
+    app.state.session_store = InMemorySessionStore()
+    app.state.job_store = InMemoryJobStore()
+    app.state.node_registry = StaticNodeRegistry()
 
     # Restrictive CORS — only the Tauri origins (SDD §4.3).
     app.add_middleware(
@@ -58,6 +70,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=500,
             content={"error": exc.code, "detail": "Model integrity verification failed."},
         )
+
+    # Routers (all behind the instance-token auth dependency).
+    app.include_router(nodes.router)
+    app.include_router(sessions.router)
+    app.include_router(jobs.router)
 
     @app.get("/health", tags=["health"], summary="Health check")
     async def health() -> dict[str, str]:

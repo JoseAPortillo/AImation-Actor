@@ -29,7 +29,7 @@ class NeutralMeta(BaseModel):
     duration_frames: int = Field(default=0, ge=0)
     style: str = Field(default="realistic_v1")
     model_version: str = Field(default="")
-    graph_hash: str = Field(default="", description="Hash of the generating node graph (traceability, plan §9.5).")
+    graph_hash: str = Field(default="", description="Hash of the generating graph (plan §9.5).")
 
 
 class FootContact(BaseModel):

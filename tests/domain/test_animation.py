@@ -106,7 +106,12 @@ class TestNeutralMotion:
         motion = NeutralMotion(
             skeleton=_hierarchy(),
             frames=[
-                Frame(frame=1, pose=Pose(transforms={"Hips": Transform3D(translation=(0.0, 100.0, 0.0))})),
+                Frame(
+                    frame=1,
+                    pose=Pose(
+                        transforms={"Hips": Transform3D(translation=(0.0, 100.0, 0.0))}
+                    ),
+                ),
                 Frame(frame=2),
             ],
         )
