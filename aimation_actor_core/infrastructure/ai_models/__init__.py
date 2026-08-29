@@ -12,6 +12,7 @@ from aimation_actor_core.infrastructure.ai_models.lifters import (
     SyntheticLiftingBackend,
 )
 from aimation_actor_core.infrastructure.ai_models.pose_2d import Pose2DNode
+from aimation_actor_core.infrastructure.ai_models.pose_3d import Pose3DNode
 
 __all__ = [
     "HeuristicLiftingBackend",
@@ -19,6 +20,7 @@ __all__ = [
     "OnnxBackend",
     "OnnxLiftingBackend",
     "Pose2DNode",
+    "Pose3DNode",
     "PoseEstimator",
     "SyntheticBackend",
     "SyntheticLiftingBackend",
