@@ -134,11 +134,22 @@ class Pose2DNode(INode):
     async def validate(self, params: dict[str, Any]) -> ValidationResult:
         """Validate parameters.
 
+        Contract (design + tasks.md Task 4 reconciliation): the ``model``
+        param, when provided, must be a non-empty string. Unknown model
+        *values* are accepted here because ``execute()`` falls back safely to
+        the synthetic backend (spec REQ-3 "Unknown model falls back safely").
+
         Args:
             params: Parameters to validate.
 
         Returns:
             ValidationResult.
         """
-        # All params are optional, so validation always passes
+        if "model" in params:
+            model = params["model"]
+            if not isinstance(model, str) or not model.strip():
+                return ValidationResult(
+                    valid=False,
+                    errors=["model must be a non-empty string when provided"],
+                )
         return ValidationResult(valid=True)

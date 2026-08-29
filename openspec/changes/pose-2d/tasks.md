@@ -101,7 +101,7 @@
   - Ejecuta `backend.estimate(frames)` en thread pool (asyncio.to_thread)
   - Filtra keypoints por confidence threshold
   - Retorna NodeOutput con keypoints
-- `validate()`: valida que model sea "synthetic" o "onnx" si está presente
+- `validate()`: si `model` está presente, lo valida como string no vacío (rechaza vacío / solo espacios / no-string). Los valores desconocidos de `model` NO se rechazan aquí: `execute()` cae al backend synthetic de forma segura (fallback aprobado en spec REQ-3, design §Node)
 
 **Tests**:
 - `tests/infrastructure/test_pose_2d.py`
@@ -109,7 +109,8 @@
   - Execute con synthetic backend retorna Keypoints2D válidos
   - Execute con confidence filter funciona
   - Execute con model desconocido usa synthetic (fallback)
-  - Validate rechaza model inválido
+  - Validate rechaza model vacío / solo espacios / no-string si está presente
+  - Validate acepta valores desconocidos de model (fallback seguro a synthetic en execute)
   - Asyncio.to_thread se usa para inferencia
 
 **Acceptance**:

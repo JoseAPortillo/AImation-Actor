@@ -169,32 +169,68 @@ class TestPose2DNodeExecute:
 
 
 class TestPose2DNodeValidate:
-    """Test Pose2DNode validation."""
+    """Test Pose2DNode parameter validation.
+
+    Finalized contract (tasks.md Task 4 reconciliation, per design):
+    ``validate()`` requires the ``model`` param — when provided — to be a
+    non-empty string (rejects empty / whitespace-only / non-string values).
+    Unknown model *values* are accepted here because ``execute()`` falls back
+    safely to the synthetic backend (spec REQ-3 scenario "Unknown model falls
+    back safely").
+    """
 
     @pytest.mark.asyncio
     async def test_validate_empty_params(self) -> None:
-        """Should accept empty params."""
+        """Should accept empty params (all params are optional)."""
         node = Pose2DNode()
         result = await node.validate({})
         assert result.valid
+        assert result.errors == []
 
     @pytest.mark.asyncio
     async def test_validate_synthetic_model(self) -> None:
-        """Should accept synthetic model."""
+        """Should accept the synthetic model value."""
         node = Pose2DNode()
         result = await node.validate({"model": "synthetic"})
         assert result.valid
+        assert result.errors == []
 
     @pytest.mark.asyncio
     async def test_validate_onnx_model(self) -> None:
-        """Should accept onnx model."""
+        """Should accept the onnx model value."""
         node = Pose2DNode()
         result = await node.validate({"model": "onnx"})
         assert result.valid
+        assert result.errors == []
 
     @pytest.mark.asyncio
-    async def test_validate_unknown_model(self) -> None:
-        """Should accept unknown model (will fall back to synthetic)."""
+    async def test_validate_unknown_model_value_is_accepted(self) -> None:
+        """Should accept unknown model values (execute() falls back safely)."""
         node = Pose2DNode()
-        result = await node.validate({"model": "unknown"})
+        result = await node.validate({"model": "unknown_model"})
         assert result.valid
+        assert result.errors == []
+
+    @pytest.mark.asyncio
+    async def test_validate_rejects_empty_model_string(self) -> None:
+        """Should reject an empty model string when provided."""
+        node = Pose2DNode()
+        result = await node.validate({"model": ""})
+        assert not result.valid
+        assert result.errors
+
+    @pytest.mark.asyncio
+    async def test_validate_rejects_whitespace_only_model_string(self) -> None:
+        """Should reject a whitespace-only model string when provided."""
+        node = Pose2DNode()
+        result = await node.validate({"model": "   "})
+        assert not result.valid
+        assert result.errors
+
+    @pytest.mark.asyncio
+    async def test_validate_rejects_non_string_model_value(self) -> None:
+        """Should reject a non-string model value when provided."""
+        node = Pose2DNode()
+        result = await node.validate({"model": None})
+        assert not result.valid
+        assert result.errors

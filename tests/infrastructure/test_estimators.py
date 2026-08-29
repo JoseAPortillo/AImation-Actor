@@ -1,6 +1,10 @@
 """Tests for PoseEstimator protocol and SyntheticBackend."""
 
+import builtins
+import importlib.util
+
 import numpy as np
+import pytest
 
 from aimation_actor_core.domain.animation.keypoints import Keypoints2D
 from aimation_actor_core.infrastructure.ai_models.estimators import (
@@ -108,18 +112,48 @@ class TestOnnxBackend:
         backend = OnnxBackend(model_path="dummy.onnx")
         assert isinstance(backend, PoseEstimator)
 
-    def test_estimate_without_onnxruntime_raises_error(self) -> None:
-        """Should raise clear error if onnxruntime is not available."""
+    def test_estimate_without_onnxruntime_raises_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Should raise a clear ImportError when onnxruntime is unavailable.
+
+        The lazy onnxruntime import is deterministically forced to fail by
+        patching ``__import__``, so this test never passes vacuously and does
+        not depend on whether onnxruntime happens to be installed.
+        """
         backend = OnnxBackend(model_path="dummy.onnx")
         frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
 
-        # This test verifies the lazy import behavior
-        # If onnxruntime is not installed, estimate() should raise a clear error
-        # If it is installed, it will try to load the model and may fail differently
-        try:
+        real_import = builtins.__import__
+
+        def fake_import(
+            name: str,
+            globals: dict[str, object] | None = None,
+            locals: dict[str, object] | None = None,
+            fromlist: tuple[str, ...] = (),
+            level: int = 0,
+        ) -> object:
+            if name == "onnxruntime" or name.startswith("onnxruntime."):
+                raise ImportError("No module named 'onnxruntime'")
+            return real_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        with pytest.raises(ImportError) as exc_info:
             backend.estimate(frames)
-        except ImportError as e:
-            assert "onnxruntime" in str(e).lower()
-        except Exception as e:
-            # If onnxruntime is installed but model doesn't exist, that's expected
-            assert "model" in str(e).lower() or "file" in str(e).lower() or "load" in str(e).lower()
+
+        assert "onnxruntime" in str(exc_info.value).lower()
+
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnxruntime") is None,
+        reason="onnxruntime not installed",
+    )
+    def test_estimate_with_onnxruntime_raises_not_implemented(self) -> None:
+        """Should raise NotImplementedError when onnxruntime is importable."""
+        backend = OnnxBackend(model_path="dummy.onnx")
+        frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
+
+        with pytest.raises(NotImplementedError) as exc_info:
+            backend.estimate(frames)
+
+        assert "not yet implemented" in str(exc_info.value).lower()
