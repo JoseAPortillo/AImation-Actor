@@ -46,6 +46,14 @@ class TestAuth:
         assert "pose" in r.json()
         assert r.json()["pose"] in ["synthetic", "onnx"]
 
+    def test_health_reports_pose3d_backend(self) -> None:
+        c = _client()
+        r = c.get("/health")
+        assert r.status_code == 200
+        # Should report pose3d backend (synthetic or onnx)
+        assert "pose3d" in r.json()
+        assert r.json()["pose3d"] in ["synthetic", "onnx"]
+
     def test_protected_endpoint_rejects_no_token(self) -> None:
         c = _client()
         r = c.get("/nodes/types")
@@ -68,8 +76,16 @@ class TestNodes:
         r = c.get("/nodes/types", headers=_auth())
         assert r.status_code == 200
         types = {schema["type"] for schema in r.json()}
-        # Three virtual seed nodes plus the real AI video-source and pose-2d nodes.
-        assert types == {"pass-through", "merge", "frame-range", "video-source", "pose-2d"}
+        # Three virtual seed nodes plus the real AI video-source, pose-2d and
+        # pose-3d nodes.
+        assert types == {
+            "pass-through",
+            "merge",
+            "frame-range",
+            "video-source",
+            "pose-2d",
+            "pose-3d",
+        }
 
     def test_list_node_types_empty_registry(self) -> None:
         # Unseeded registry: GET /nodes/types returns an empty list without error
