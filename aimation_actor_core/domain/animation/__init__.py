@@ -8,6 +8,7 @@ from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform
 from aimation_actor_core.domain.animation.hierarchy import HierarchyError
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
 from aimation_actor_core.domain.animation.keypoints3d import Keypoint3D, Keypoints3D
+from aimation_actor_core.domain.animation.mapping import COCO_TO_NEUTRAL
 from aimation_actor_core.domain.animation.neutral_motion import (
     ContactFeed,
     FootContact,
@@ -17,10 +18,13 @@ from aimation_actor_core.domain.animation.neutral_motion import (
     TrackingInfo,
 )
 from aimation_actor_core.domain.animation.skeleton import Bone, Skeleton
+from aimation_actor_core.domain.animation.skeleton_presets import DEFAULT_NEUTRAL_SKELETON
 
 __all__ = [
     "Bone",
+    "COCO_TO_NEUTRAL",
     "ContactFeed",
+    "DEFAULT_NEUTRAL_SKELETON",
     "FootContact",
     "Frame",
     "HierarchyError",
