@@ -86,7 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health", tags=["health"], summary="Health check")
     async def health() -> dict[str, str]:
         """Return service health and loaded model status."""
-        # Detect pose backend availability
+        # Detect pose backend availability (shared by pose-2d and pose-3d).
         try:
             import onnxruntime  # type: ignore[import-not-found]  # noqa: F401
 
@@ -100,6 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "models": "none",
             "video": "loaded",
             "pose": pose_backend,
+            "pose3d": pose_backend,
         }
 
     return app
