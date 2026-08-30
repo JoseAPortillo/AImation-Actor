@@ -79,11 +79,11 @@ async def test_frame_range_node_emits_half_open_indices() -> None:
     assert result.values["frames"] == [5, 6, 7]
 
 
-def test_seeded_registry_lists_six_seed_nodes() -> None:
+def test_seeded_registry_lists_seven_seed_nodes() -> None:
     registry = seeded_node_registry()
     schemas = {schema.type for schema in registry.list_schemas()}
-    # Three virtual seed nodes plus the real AI video-source, pose-2d and
-    # pose-3d nodes.
+    # Three virtual seed nodes plus the real AI video-source, pose-2d,
+    # pose-3d and video-to-motion nodes.
     assert schemas == {
         "pass-through",
         "merge",
@@ -91,6 +91,7 @@ def test_seeded_registry_lists_six_seed_nodes() -> None:
         "video-source",
         "pose-2d",
         "pose-3d",
+        "video-to-motion",
     }
 
 
