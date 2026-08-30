@@ -21,6 +21,7 @@ dependencies = [
 ai = [
     "opencv-python-headless>=5.0",
     "numpy>=2.0",
+    "onnxruntime>=1.18",
 ]
 dev = [
     "pytest>=8.0",
