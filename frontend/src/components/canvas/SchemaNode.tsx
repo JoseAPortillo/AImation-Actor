@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState, useEffect } from "react";
 import type { NodeProps } from "@xyflow/react";
 import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
@@ -149,34 +149,53 @@ function FileParam({
   value: unknown;
   onChange: (next: string) => void;
 }) {
-  const src = typeof value === "string" && value ? value : undefined;
+  const fileName = typeof value === "string" && value ? value : undefined;
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>();
   const isVideo = dataType === "video_path";
   const accept = isVideo ? "video/*,image/*" : "image/*";
 
+  // Clean up object URL on unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
   const handleFile = (file: File | undefined) => {
     if (!file) return;
-    onChange(URL.createObjectURL(file));
+    // Save file name in params (for backend to find in media/)
+    onChange(file.name);
+    // Create object URL for local preview only
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      {src && (
+      {previewUrl && (
         <div data-testid="schema-node-preview">
           {isVideo ? (
             <video
               data-testid="schema-video-preview"
-              src={src}
+              src={previewUrl}
               controls
               style={{ width: "100%", maxHeight: 120 }}
             />
           ) : (
             <img
               data-testid="schema-image-preview"
-              src={src}
+              src={previewUrl}
               alt={paramName}
               style={{ width: "100%" }}
             />
           )}
+        </div>
+      )}
+      {fileName && !previewUrl && (
+        <div style={{ fontSize: 9, color: "#999", fontStyle: "italic" }}>
+          {fileName}
         </div>
       )}
       <label
@@ -199,7 +218,7 @@ function FileParam({
             textAlign: "center",
           }}
         >
-          {src ? "Re-select file" : "Select file"}
+          {fileName ? "Re-select file" : "Select file"}
         </span>
         <input
           type="file"
