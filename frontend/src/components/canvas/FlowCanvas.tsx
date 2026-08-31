@@ -1,10 +1,9 @@
-import { useCallback, type ComponentType } from "react";
+import { useCallback } from "react";
 import {
   ReactFlow,
   Background,
-  type Connection,
   type Edge,
-  type Node,
+  type IsValidConnection,
   type NodeTypes,
 } from "@xyflow/react";
 import { useFlowStore } from "../../state/useFlowStore";
@@ -12,7 +11,7 @@ import { portsCompatible } from "../../core/ports";
 import { findOutputPort, findInputPort } from "../../core/schema";
 import { SchemaNode } from "./SchemaNode";
 
-const nodeTypes: NodeTypes = { schema: SchemaNode as ComponentType<Node> };
+const nodeTypes: NodeTypes = { schema: SchemaNode };
 
 /**
  * Schema-driven editor canvas (EC-1, EC-2).
@@ -33,8 +32,7 @@ export function FlowCanvas() {
   const selectNode = useFlowStore((s) => s.selectNode);
   const setConnectionHint = useFlowStore((s) => s.setConnectionHint);
 
-  const isValidConnection = useCallback(
-    (connection: Connection) => {
+  const isValidConnection: IsValidConnection<Edge> = useCallback((connection) => {
       if (!connection.source || !connection.target) return false;
       const srcHandle = connection.sourceHandle;
       const tgtHandle = connection.targetHandle;

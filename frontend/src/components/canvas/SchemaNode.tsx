@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import type { FlowNodeData } from "../../state/useFlowStore";
+import type { FlowNode } from "../../state/useFlowStore";
 
-type Props = NodeProps & { data: FlowNodeData };
+type Props = NodeProps<FlowNode>;
 
 /**
  * Schema-driven custom node (EC-1).

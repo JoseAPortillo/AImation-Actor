@@ -12,12 +12,12 @@ import {
 import type { NodeSchema } from "../api/types";
 import { portsCompatible } from "../core/ports";
 
-export interface FlowNodeData {
+export type FlowNodeData = {
   schema: NodeSchema;
   params: Record<string, unknown>;
-}
+};
 
-export type FlowNode = Node<FlowNodeData>;
+export type FlowNode = Node<FlowNodeData, "schema">;
 
 /** Build a unique node id prefixed by the node type (e.g. `video-source_ab12…`). */
 export function newNodeId(type: string): string {
@@ -72,7 +72,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   onNodesChange: (changes) => {
-    set({ nodes: applyNodeChanges(changes, get().nodes) as FlowNode[] });
+    const updated = applyNodeChanges(changes, get().nodes);
+    set({ nodes: updated as unknown as FlowNode[] });
   },
 
   onEdgesChange: (changes) => {
