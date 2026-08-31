@@ -29,3 +29,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+frontend/*.tsbuildinfo
