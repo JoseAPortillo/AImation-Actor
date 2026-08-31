@@ -15,6 +15,7 @@ import { portsCompatible } from "../core/ports";
 export type FlowNodeData = {
   schema: NodeSchema;
   params: Record<string, unknown>;
+  collapsed?: boolean;
 };
 
 export type FlowNode = Node<FlowNodeData, "schema">;
@@ -31,8 +32,11 @@ interface FlowState {
   selectedNodeId: string | null;
   /** Transient inline hint shown in the canvas when a connection is rejected (EC-2). */
   connectionHint: string | null;
-  addNode: (schema: NodeSchema) => void;
+  addNode: (schema: NodeSchema, position?: { x: number; y: number }) => void;
   updateParams: (nodeId: string, params: Record<string, unknown>) => void;
+  removeNode: (id: string) => void;
+  duplicateNode: (id: string) => void;
+  toggleCollapse: (id: string) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
@@ -53,11 +57,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   selectedNodeId: null,
   connectionHint: null,
 
-  addNode: (schema) => {
+  addNode: (schema, position) => {
+    const fallback = { x: 80 + get().nodes.length * 20, y: 80 + get().nodes.length * 20 };
     const node: FlowNode = {
       id: newNodeId(schema.type),
       type: "schema",
-      position: { x: 80 + get().nodes.length * 20, y: 80 + get().nodes.length * 20 },
+      position: position ?? fallback,
       data: { schema, params: {} },
     };
     set((state) => ({ nodes: [...state.nodes, node] }));
@@ -67,6 +72,36 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     set((state) => ({
       nodes: state.nodes.map((n) =>
         n.id === nodeId ? { ...n, data: { ...n.data, params } } : n,
+      ),
+    }));
+  },
+
+  removeNode: (id) => {
+    set((state) => ({
+      nodes: state.nodes.filter((n) => n.id !== id),
+      edges: state.edges.filter((e) => e.source !== id && e.target !== id),
+    }));
+  },
+
+  duplicateNode: (id) => {
+    const { nodes } = get();
+    const original = nodes.find((n) => n.id === id);
+    if (!original) return;
+    const dup: FlowNode = {
+      ...original,
+      id: newNodeId(original.data.schema.type),
+      position: { x: original.position.x + 40, y: original.position.y + 40 },
+      data: { ...original.data, params: { ...original.data.params } },
+    };
+    set((state) => ({ nodes: [...state.nodes, dup] }));
+  },
+
+  toggleCollapse: (id) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === id
+          ? { ...n, data: { ...n.data, collapsed: !n.data.collapsed } }
+          : n,
       ),
     }));
   },

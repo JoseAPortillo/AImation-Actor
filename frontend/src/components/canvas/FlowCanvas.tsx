@@ -1,13 +1,15 @@
-import { useCallback } from "react";
+import { useCallback, type DragEvent } from "react";
 import {
   ReactFlow,
   Background,
+  useReactFlow,
   type Edge,
   type IsValidConnection,
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useFlowStore } from "../../state/useFlowStore";
+import { usePaletteStore } from "../../state/usePaletteStore";
 import { portsCompatible } from "../../core/ports";
 import { findOutputPort, findInputPort } from "../../core/schema";
 import { SchemaNode } from "./SchemaNode";
@@ -32,6 +34,23 @@ export function FlowCanvas() {
   const onConnect = useFlowStore((s) => s.onConnect);
   const selectNode = useFlowStore((s) => s.selectNode);
   const setConnectionHint = useFlowStore((s) => s.setConnectionHint);
+  const { screenToFlowPosition } = useReactFlow();
+
+  const onDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData("application/reactflow");
+    if (!type) return;
+    const catalog = usePaletteStore.getState().catalog;
+    const schema = catalog.find((n) => n.type === type);
+    if (!schema) return;
+    const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    useFlowStore.getState().addNode(schema, position);
+  }, [screenToFlowPosition]);
 
   const isValidConnection: IsValidConnection<Edge> = useCallback((connection) => {
       if (!connection.source || !connection.target) return false;
@@ -74,8 +93,9 @@ export function FlowCanvas() {
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 10,
-            background: "#fff3cd",
-            border: "1px solid #ffe08a",
+            background: "#3d2f00",
+            border: "1px solid #a16207",
+            color: "#fbbf24",
             borderRadius: "4px",
             padding: "4px 12px",
             fontSize: "12px",
@@ -100,9 +120,11 @@ export function FlowCanvas() {
           selectNode(null);
           setConnectionHint(null);
         }}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
         fitView
       >
-        <Background />
+        <Background gap={16} color="#333" />
       </ReactFlow>
     </div>
   );

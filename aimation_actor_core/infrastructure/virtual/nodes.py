@@ -51,7 +51,7 @@ class PassThroughNode(INode):
 
 
 class MergeNode(INode):
-    """Concatenates two ``FRAME_STREAM`` inputs into one (D2)."""
+    """Concatenates two ``FRAMES`` inputs into one (D2)."""
 
     @staticmethod
     def get_schema() -> NodeSchema:
@@ -61,10 +61,10 @@ class MergeNode(INode):
             title="Merge",
             description="Concatenates two frame streams into one.",
             inputs=[
-                PortSpec(name="input_a", data_type=DataType.FRAME_STREAM),
-                PortSpec(name="input_b", data_type=DataType.FRAME_STREAM),
+                PortSpec(name="input_a", data_type=DataType.FRAMES),
+                PortSpec(name="input_b", data_type=DataType.FRAMES),
             ],
-            outputs=[PortSpec(name="merged", data_type=DataType.FRAME_STREAM)],
+            outputs=[PortSpec(name="merged", data_type=DataType.FRAMES)],
         )
 
     async def execute(
@@ -91,7 +91,7 @@ class FrameRangeNode(INode):
             category=NodeCategory.SOURCE,
             title="Frame Range",
             description="Emits frame indices in the half-open range [start, end).",
-            outputs=[PortSpec(name="frames", data_type=DataType.FRAME_STREAM)],
+            outputs=[PortSpec(name="frames", data_type=DataType.FRAMES)],
             params=[
                 PortSpec(name="start", data_type=DataType.NUMBER),
                 PortSpec(name="end", data_type=DataType.NUMBER),

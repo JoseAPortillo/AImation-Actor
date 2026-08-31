@@ -24,7 +24,6 @@ function makeNode(id: string, params: Record<string, unknown>) {
 function renderRun(props: Partial<RunControlsProps> = {}) {
   return render(
     <RunControls
-      getNodes={() => useFlowStore.getState().nodes}
       onError={(m) => void m}
       {...props}
     />,

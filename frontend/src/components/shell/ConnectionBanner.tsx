@@ -20,9 +20,9 @@ export function ConnectionBanner({ onRetry }: ConnectionBannerProps) {
       role="alert"
       style={{
         padding: "8px 12px",
-        background: banner.kind === "error" ? "#fdecea" : "#fff4e5",
+        background: banner.kind === "error" ? "#2a1414" : "#2a2414",
         border: "1px solid currentColor",
-        color: "#8a1f11",
+        color: banner.kind === "error" ? "#f87171" : "#fbbf24",
         display: "flex",
         gap: "8px",
         alignItems: "center",

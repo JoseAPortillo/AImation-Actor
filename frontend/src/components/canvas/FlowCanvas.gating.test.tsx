@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { ReactFlowProvider } from "@xyflow/react";
 import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
 import nodeCatalogFixture from "../../test/fixtures/nodeCatalog.json";
@@ -57,9 +58,13 @@ describe("FlowCanvas connection gating (EC-2)", () => {
 
   it("renders the inline incompatibility hint when set (EC-2 s2)", () => {
     useFlowStore.getState().setConnectionHint(
-      "Cannot connect pose_3d → frame_stream: incompatible port types.",
+      "Cannot connect pose_3d → frames: incompatible port types.",
     );
-    render(<FlowCanvas />);
+    render(
+      <ReactFlowProvider>
+        <FlowCanvas />
+      </ReactFlowProvider>,
+    );
     expect(screen.getByTestId("connection-hint")).toHaveTextContent(
       "incompatible port types",
     );

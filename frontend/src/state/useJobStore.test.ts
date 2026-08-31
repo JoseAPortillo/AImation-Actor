@@ -102,7 +102,8 @@ describe("validateRunReadiness (GE-3)", () => {
   });
 
   it("returns not-ready with the missing required param name when omitted", () => {
-    // video_path/end/resize have no default and are required → missing.
+    // video_path has no default and is required → missing.
+    // end/resize have default=null and are optional → not missing.
     const nodes: FlowNode[] = [
       {
         id: "src",
@@ -115,7 +116,7 @@ describe("validateRunReadiness (GE-3)", () => {
     expect(r.ready).toBe(false);
     if (!r.ready) {
       expect(r.missing).toEqual(
-        expect.arrayContaining(["src:video_path", "src:end", "src:resize"]),
+        expect.arrayContaining(["src:video_path"]),
       );
     }
   });

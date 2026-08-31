@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState, useEffect } from "react";
 import type { NodeProps } from "@xyflow/react";
 import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
@@ -55,7 +55,9 @@ export const SchemaNode = memo(function SchemaNode({
       {schema.params.length > 0 ? (
         <CollapsibleSection title="Parámetros" defaultOpen={true}>
           {schema.params.map((param) => {
-            const currentValue = params[param.name] ?? param.default ?? "";
+            const currentValue = (params[param.name] ?? param.default ?? "") as
+              | string
+              | number;
             return (
               <div
                 key={param.name}
@@ -75,7 +77,14 @@ export const SchemaNode = memo(function SchemaNode({
                 >
                   {param.name}
                 </label>
-                {param.data_type === "boolean" ? (
+              {param.data_type === "video_path" || param.data_type === "image" ? (
+                <FileParam
+                  paramName={param.name}
+                  dataType={param.data_type}
+                  value={currentValue}
+                  onChange={(v) => handleParamChange(param.name, v)}
+                />
+              ) : param.data_type === "boolean" ? (
                   <input
                     type="checkbox"
                     checked={Boolean(currentValue)}
@@ -128,3 +137,96 @@ export const SchemaNode = memo(function SchemaNode({
 });
 
 export default SchemaNode;
+
+function FileParam({
+  paramName,
+  dataType,
+  value,
+  onChange,
+}: {
+  paramName: string;
+  dataType: "video_path" | "image";
+  value: unknown;
+  onChange: (next: string) => void;
+}) {
+  const fileName = typeof value === "string" && value ? value : undefined;
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>();
+  const isVideo = dataType === "video_path";
+  const accept = isVideo ? "video/*,image/*" : "image/*";
+
+  // Clean up object URL on unmount to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
+  const handleFile = (file: File | undefined) => {
+    if (!file) return;
+    // Save file name in params (for backend to find in media/)
+    onChange(file.name);
+    // Create object URL for local preview only
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {previewUrl && (
+        <div data-testid="schema-node-preview">
+          {isVideo ? (
+            <video
+              data-testid="schema-video-preview"
+              src={previewUrl}
+              controls
+              style={{ width: "100%", maxHeight: 120 }}
+            />
+          ) : (
+            <img
+              data-testid="schema-image-preview"
+              src={previewUrl}
+              alt={paramName}
+              style={{ width: "100%" }}
+            />
+          )}
+        </div>
+      )}
+      {fileName && !previewUrl && (
+        <div style={{ fontSize: 9, color: "#999", fontStyle: "italic" }}>
+          {fileName}
+        </div>
+      )}
+      <label
+        data-testid="schema-video-input"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          alignItems: "stretch",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: "#60a5fa",
+            cursor: "pointer",
+            border: "1px dashed #444",
+            borderRadius: 3,
+            padding: "3px 4px",
+            textAlign: "center",
+          }}
+        >
+          {fileName ? "Re-select file" : "Select file"}
+        </span>
+        <input
+          type="file"
+          accept={accept}
+          style={{ display: "none" }}
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+      </label>
+    </div>
+  );
+}

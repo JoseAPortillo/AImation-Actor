@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import type { Edge } from "@xyflow/react";
+import { ReactFlowProvider, type Edge } from "@xyflow/react";
 import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
 import nodeCatalogFixture from "../../test/fixtures/nodeCatalog.json";
@@ -21,6 +21,16 @@ function makeNode(schema: NodeSchema): FlowNode {
   };
 }
 
+// FlowCanvas uses `useReactFlow()` (screenToFlowPosition) for palette drag &
+// drop, so it must render under a ReactFlowProvider — mirroring the App tree.
+function renderCanvas() {
+  return render(
+    <ReactFlowProvider>
+      <FlowCanvas />
+    </ReactFlowProvider>,
+  );
+}
+
 beforeEach(() => {
   useFlowStore.setState({ nodes: [], edges: [], selectedNodeId: null });
 });
@@ -28,7 +38,7 @@ beforeEach(() => {
 describe("FlowCanvas schema handles (EC-1)", () => {
   it("renders one source handle per schema output port with no ghost ports", async () => {
     useFlowStore.setState({ nodes: [makeNode(videoSource)] });
-    render(<FlowCanvas />);
+    renderCanvas();
     // video-source: 2 outputs (frames, fps) and 0 inputs.
     await waitFor(() => {
       expect(screen.getAllByTestId("schema-output-handle")).toHaveLength(2);
@@ -38,7 +48,7 @@ describe("FlowCanvas schema handles (EC-1)", () => {
 
   it("renders both input and output handles for a two-sided node (EC-1 s1)", async () => {
     useFlowStore.setState({ nodes: [makeNode(pose2d)] });
-    render(<FlowCanvas />);
+    renderCanvas();
     await waitFor(() => {
       expect(screen.getAllByTestId("schema-input-handle")).toHaveLength(1);
     });
@@ -50,7 +60,7 @@ describe("FlowCanvas schema handles (EC-1)", () => {
     const nodes: FlowNode[] = [makeNode(videoSource), makeNode(pose2d)];
     const edges: Edge[] = [];
     useFlowStore.setState({ nodes, edges });
-    render(<FlowCanvas />);
+    renderCanvas();
     await waitFor(() => {
       expect(screen.getByText("Frame Extractor")).toBeInTheDocument();
     });
