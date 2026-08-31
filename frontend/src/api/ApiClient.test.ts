@@ -76,7 +76,7 @@ describe("ApiClient endpoint surface (HTTP-1)", () => {
       title: "Frame Range",
       description: "",
       inputs: [],
-      outputs: [{ name: "frames", data_type: "frame_stream", required: true, default: null, description: "" }],
+      outputs: [{ name: "frames", data_type: "frames", required: true, default: null, description: "" }],
       params: [
         { name: "start", data_type: "number", required: true, default: null, description: "" },
       ],
@@ -84,7 +84,7 @@ describe("ApiClient endpoint surface (HTTP-1)", () => {
     transport.enqueue(200, [schema]);
     const result = await client.nodes();
     expect(result[0].type).toBe("frame-range");
-    expect(result[0].outputs[0].data_type).toBe("frame_stream");
+    expect(result[0].outputs[0].data_type).toBe("frames");
   });
 
   it("getJobLogs returns a string list", async () => {

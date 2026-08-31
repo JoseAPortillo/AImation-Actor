@@ -32,14 +32,14 @@
     "inputs": [
       {
         "name": "input_a",
-        "data_type": "frame_stream",
+        "data_type": "frames",
         "required": true,
         "default": null,
         "description": ""
       },
       {
         "name": "input_b",
-        "data_type": "frame_stream",
+        "data_type": "frames",
         "required": true,
         "default": null,
         "description": ""
@@ -48,7 +48,7 @@
     "outputs": [
       {
         "name": "merged",
-        "data_type": "frame_stream",
+        "data_type": "frames",
         "required": true,
         "default": null,
         "description": ""
@@ -65,7 +65,7 @@
     "outputs": [
       {
         "name": "frames",
-        "data_type": "frame_stream",
+        "data_type": "frames",
         "required": true,
         "default": null,
         "description": ""

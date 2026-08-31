@@ -108,15 +108,15 @@ def test_seed_nodes_declare_pinned_port_types() -> None:
     assert merge is not None
     merge_schema = merge.get_schema()
     assert [p.data_type for p in merge_schema.inputs] == [
-        DataType.FRAME_STREAM,
-        DataType.FRAME_STREAM,
+        DataType.FRAMES,
+        DataType.FRAMES,
     ]
-    assert merge_schema.outputs[0].data_type is DataType.FRAME_STREAM
+    assert merge_schema.outputs[0].data_type is DataType.FRAMES
 
     frame_range = registry.get("frame-range")
     assert frame_range is not None
     fr_schema = frame_range.get_schema()
-    assert fr_schema.outputs[0].data_type is DataType.FRAME_STREAM
+    assert fr_schema.outputs[0].data_type is DataType.FRAMES
     assert {p.name: p.data_type for p in fr_schema.params} == {
         "start": DataType.NUMBER,
         "end": DataType.NUMBER,
