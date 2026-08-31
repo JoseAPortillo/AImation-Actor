@@ -2,11 +2,15 @@ import { ConnectionBanner } from "../components/shell/ConnectionBanner";
 import { Palette } from "../components/palette/Palette";
 import { FlowCanvas } from "../components/canvas/FlowCanvas";
 import { GraphIO } from "../components/graphio/GraphIO";
+import { RunControls } from "../components/job/RunControls";
 import { useHealthCheck } from "../state/useHealthCheck";
 import { usePaletteStore } from "../state/usePaletteStore";
+import { useFlowStore } from "../state/useFlowStore";
+import { useUiStore } from "../state/useUiStore";
 
 export function App() {
   const { retry } = useHealthCheck();
+  const setBanner = useUiStore((s) => s.setBanner);
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <ConnectionBanner onRetry={retry} />
@@ -37,6 +41,13 @@ export function App() {
           </div>
         </section>
       </main>
+      <footer style={{ padding: "10px 16px", borderTop: "1px solid #ddd" }}>
+        <RunControls
+          getNodes={() => useFlowStore.getState().nodes}
+          getEdges={() => useFlowStore.getState().edges}
+          onError={(msg) => setBanner(msg)}
+        />
+      </footer>
     </div>
   );
 }
