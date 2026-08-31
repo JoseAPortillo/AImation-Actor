@@ -55,7 +55,9 @@ export const SchemaNode = memo(function SchemaNode({
       {schema.params.length > 0 ? (
         <CollapsibleSection title="Parámetros" defaultOpen={true}>
           {schema.params.map((param) => {
-            const currentValue = params[param.name] ?? param.default ?? "";
+            const currentValue = (params[param.name] ?? param.default ?? "") as
+              | string
+              | number;
             return (
               <div
                 key={param.name}
@@ -75,7 +77,14 @@ export const SchemaNode = memo(function SchemaNode({
                 >
                   {param.name}
                 </label>
-                {param.data_type === "boolean" ? (
+              {param.data_type === "video_path" || param.data_type === "image" ? (
+                <FileParam
+                  paramName={param.name}
+                  dataType={param.data_type}
+                  value={currentValue}
+                  onChange={(v) => handleParamChange(param.name, v)}
+                />
+              ) : param.data_type === "boolean" ? (
                   <input
                     type="checkbox"
                     checked={Boolean(currentValue)}
@@ -128,3 +137,77 @@ export const SchemaNode = memo(function SchemaNode({
 });
 
 export default SchemaNode;
+
+function FileParam({
+  paramName,
+  dataType,
+  value,
+  onChange,
+}: {
+  paramName: string;
+  dataType: "video_path" | "image";
+  value: unknown;
+  onChange: (next: string) => void;
+}) {
+  const src = typeof value === "string" && value ? value : undefined;
+  const isVideo = dataType === "video_path";
+  const accept = isVideo ? "video/*,image/*" : "image/*";
+
+  const handleFile = (file: File | undefined) => {
+    if (!file) return;
+    onChange(URL.createObjectURL(file));
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {src && (
+        <div data-testid="schema-node-preview">
+          {isVideo ? (
+            <video
+              data-testid="schema-video-preview"
+              src={src}
+              controls
+              style={{ width: "100%", maxHeight: 120 }}
+            />
+          ) : (
+            <img
+              data-testid="schema-image-preview"
+              src={src}
+              alt={paramName}
+              style={{ width: "100%" }}
+            />
+          )}
+        </div>
+      )}
+      <label
+        data-testid="schema-video-input"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          alignItems: "stretch",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            color: "#60a5fa",
+            cursor: "pointer",
+            border: "1px dashed #444",
+            borderRadius: 3,
+            padding: "3px 4px",
+            textAlign: "center",
+          }}
+        >
+          {src ? "Re-select file" : "Select file"}
+        </span>
+        <input
+          type="file"
+          accept={accept}
+          style={{ display: "none" }}
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+      </label>
+    </div>
+  );
+}

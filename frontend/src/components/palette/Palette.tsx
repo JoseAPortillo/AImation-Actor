@@ -77,6 +77,14 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
             <button
               key={node.type}
               type="button"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("application/reactflow", node.type);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragEnd={(e) => {
+                e.dataTransfer.clearData();
+              }}
               onClick={() => handleAdd(node)}
               style={{
                 display: "block",

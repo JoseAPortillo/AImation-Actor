@@ -1,7 +1,8 @@
-import { memo, useState, type ReactNode } from "react";
-import { Handle, Position } from "@xyflow/react";
+import { memo, type ReactNode } from "react";
+import { Handle, Position, useNodeId } from "@xyflow/react";
 import type { DataType } from "../../api/types";
 import { getHandleColor } from "../../core/handles";
+import { useFlowStore } from "../../state/useFlowStore";
 
 interface PortInfo {
   name: string;
@@ -25,7 +26,33 @@ export const NodeWrapper = memo(function NodeWrapper({
   inputs = [],
   outputs = [],
 }: NodeWrapperProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const nodeId = useNodeId();
+  const nodes = useFlowStore((s) => s.nodes);
+  const selectNode = useFlowStore((s) => s.selectNode);
+  const toggleCollapse = useFlowStore((s) => s.toggleCollapse);
+  const duplicateNode = useFlowStore((s) => s.duplicateNode);
+  const removeNode = useFlowStore((s) => s.removeNode);
+
+  const self = nodes.find((n) => n.id === nodeId);
+  const collapsed = Boolean(self?.data.collapsed);
+
+  const handleCollapse = () => {
+    if (!nodeId) return;
+    selectNode(nodeId);
+    toggleCollapse(nodeId);
+  };
+
+  const handleDuplicate = () => {
+    if (!nodeId) return;
+    selectNode(nodeId);
+    duplicateNode(nodeId);
+  };
+
+  const handleDelete = () => {
+    if (!nodeId) return;
+    selectNode(nodeId);
+    removeNode(nodeId);
+  };
 
   return (
     <div
@@ -73,7 +100,7 @@ export const NodeWrapper = memo(function NodeWrapper({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setCollapsed(!collapsed);
+            handleCollapse();
           }}
           style={{
             background: "rgba(0,0,0,0.2)",
@@ -91,7 +118,10 @@ export const NodeWrapper = memo(function NodeWrapper({
           {collapsed ? "◻" : "▣"}
         </button>
         <button
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleDuplicate();
+          }}
           style={{
             background: "rgba(0,0,0,0.2)",
             border: "none",
@@ -108,7 +138,10 @@ export const NodeWrapper = memo(function NodeWrapper({
           ⎘
         </button>
         <button
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleDelete();
+          }}
           style={{
             background: "rgba(220,38,38,0.4)",
             border: "none",

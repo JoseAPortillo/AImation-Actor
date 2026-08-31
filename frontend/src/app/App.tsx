@@ -1,3 +1,4 @@
+import { ReactFlowProvider } from "@xyflow/react";
 import { ConnectionBanner } from "../components/shell/ConnectionBanner";
 import { Palette } from "../components/palette/Palette";
 import { FlowCanvas } from "../components/canvas/FlowCanvas";
@@ -12,7 +13,8 @@ export function App() {
   const { retry } = useHealthCheck();
   const setBanner = useUiStore((s) => s.setBanner);
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#121212" }}>
+    <ReactFlowProvider>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#121212" }}>
       <ConnectionBanner onRetry={retry} />
       <header
         style={{
@@ -49,6 +51,7 @@ export function App() {
           onError={(msg) => setBanner(msg)}
         />
       </footer>
-    </div>
+      </div>
+    </ReactFlowProvider>
   );
 }
