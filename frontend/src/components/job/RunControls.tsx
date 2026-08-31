@@ -9,20 +9,15 @@
 
 import { useJobStore } from "../../state/useJobStore";
 import { validateRunReadiness } from "../../state/useJobStore";
+import { useFlowStore } from "../../state/useFlowStore";
 import { fromFlow } from "../../core/serialize";
-import type { FlowNode } from "../../state/useFlowStore";
-import type { Edge } from "@xyflow/react";
 
 export interface RunControlsProps {
-  /** Current canvas nodes (injected so the component stays testable). */
-  getNodes: () => FlowNode[];
-  /** Current canvas edges. */
-  getEdges?: () => Edge[];
   /** Error surface for non-job failures (HTTP-3). */
   onError: (message: string) => void;
 }
 
-export function RunControls({ getNodes, getEdges, onError }: RunControlsProps) {
+export function RunControls({ onError }: RunControlsProps) {
   const status = useJobStore((s) => s.status);
   const error = useJobStore((s) => s.error);
   const logs = useJobStore((s) => s.logs);
@@ -30,12 +25,13 @@ export function RunControls({ getNodes, getEdges, onError }: RunControlsProps) {
   const submit = useJobStore((s) => s.submit);
   const cancel = useJobStore((s) => s.cancel);
 
-  const nodes = getNodes();
+  // Subscribe to store changes so component re-renders when nodes/edges change
+  const nodes = useFlowStore((s) => s.nodes);
+  const edges = useFlowStore((s) => s.edges);
   const readiness = validateRunReadiness(nodes);
   const busy = status === "queued" || status === "running";
 
   async function handleRun() {
-    const edges = getEdges?.() ?? [];
     try {
       await submit(fromFlow(nodes, edges));
     } catch (err) {

@@ -6,7 +6,6 @@ import { GraphIO } from "../components/graphio/GraphIO";
 import { RunControls } from "../components/job/RunControls";
 import { useHealthCheck } from "../state/useHealthCheck";
 import { usePaletteStore } from "../state/usePaletteStore";
-import { useFlowStore } from "../state/useFlowStore";
 import { useUiStore } from "../state/useUiStore";
 
 export function App() {
@@ -46,8 +45,6 @@ export function App() {
       </main>
       <footer style={{ padding: "10px 16px", borderTop: "1px solid #333", background: "#1a1a1a" }}>
         <RunControls
-          getNodes={() => useFlowStore.getState().nodes}
-          getEdges={() => useFlowStore.getState().edges}
           onError={(msg) => setBanner(msg)}
         />
       </footer>
