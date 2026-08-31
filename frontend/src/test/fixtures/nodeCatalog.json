@@ -1,0 +1,271 @@
+[
+  {
+    "type": "pass-through",
+    "category": "logic",
+    "title": "Pass Through",
+    "description": "Forwards the input value unchanged (universal relay).",
+    "inputs": [
+      {
+        "name": "input",
+        "data_type": "any",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "output",
+        "data_type": "any",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": []
+  },
+  {
+    "type": "merge",
+    "category": "logic",
+    "title": "Merge",
+    "description": "Concatenates two frame streams into one.",
+    "inputs": [
+      {
+        "name": "input_a",
+        "data_type": "frame_stream",
+        "required": true,
+        "default": null,
+        "description": ""
+      },
+      {
+        "name": "input_b",
+        "data_type": "frame_stream",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "merged",
+        "data_type": "frame_stream",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": []
+  },
+  {
+    "type": "frame-range",
+    "category": "source",
+    "title": "Frame Range",
+    "description": "Emits frame indices in the half-open range [start, end).",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "frames",
+        "data_type": "frame_stream",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "start",
+        "data_type": "number",
+        "required": true,
+        "default": null,
+        "description": ""
+      },
+      {
+        "name": "end",
+        "data_type": "number",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ]
+  },
+  {
+    "type": "video-source",
+    "category": "source",
+    "title": "Frame Extractor",
+    "description": "Decodes a video file into frames (OpenCV).",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "frames",
+        "data_type": "frames",
+        "required": true,
+        "default": null,
+        "description": ""
+      },
+      {
+        "name": "fps",
+        "data_type": "number",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "video_path",
+        "data_type": "video_path",
+        "required": true,
+        "default": null,
+        "description": ""
+      },
+      {
+        "name": "start",
+        "data_type": "number",
+        "required": true,
+        "default": 0,
+        "description": ""
+      },
+      {
+        "name": "end",
+        "data_type": "number",
+        "required": true,
+        "default": null,
+        "description": ""
+      },
+      {
+        "name": "resize",
+        "data_type": "number",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ]
+  },
+  {
+    "type": "pose-2d",
+    "category": "ai",
+    "title": "Pose 2D",
+    "description": "Estimate 2D keypoints from video frames",
+    "inputs": [
+      {
+        "name": "frames",
+        "data_type": "frames",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "keypoints",
+        "data_type": "keypoints_2d",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "model",
+        "data_type": "string",
+        "required": false,
+        "default": "synthetic",
+        "description": "Backend model: 'synthetic' or 'onnx'"
+      },
+      {
+        "name": "confidence",
+        "data_type": "number",
+        "required": false,
+        "default": 0.0,
+        "description": "Confidence threshold for keypoints [0, 1]"
+      }
+    ]
+  },
+  {
+    "type": "pose-3d",
+    "category": "ai",
+    "title": "Pose 3D",
+    "description": "Lift 2D keypoints into normalized 3D poses",
+    "inputs": [
+      {
+        "name": "keypoints",
+        "data_type": "keypoints_2d",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "keypoints_3d",
+        "data_type": "pose_3d",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "model",
+        "data_type": "string",
+        "required": false,
+        "default": "synthetic",
+        "description": "Backend model: 'synthetic', 'heuristic' or 'onnx'"
+      },
+      {
+        "name": "depth_mode",
+        "data_type": "string",
+        "required": false,
+        "default": "proportional",
+        "description": "Depth deviation mode: 'proportional' or 'flat'"
+      },
+      {
+        "name": "confidence",
+        "data_type": "number",
+        "required": false,
+        "default": 0.0,
+        "description": "Confidence threshold for output keypoints [0, 1]"
+      }
+    ]
+  },
+  {
+    "type": "video-to-motion",
+    "category": "output",
+    "title": "Video to Motion",
+    "description": "Convert normalized 3D keypoints into a neutral motion",
+    "inputs": [
+      {
+        "name": "keypoints_3d",
+        "data_type": "pose_3d",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "person_height_cm",
+        "data_type": "number",
+        "required": false,
+        "default": 172.0,
+        "description": "Person height used to upscale normalized keypoints (cm)"
+      },
+      {
+        "name": "only_local",
+        "data_type": "boolean",
+        "required": false,
+        "default": true,
+        "description": "Whether to derive local (child-parent) offsets"
+      }
+    ]
+  }
+]
