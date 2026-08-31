@@ -6,6 +6,7 @@ import {
   type IsValidConnection,
   type NodeTypes,
 } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import { useFlowStore } from "../../state/useFlowStore";
 import { portsCompatible } from "../../core/ports";
 import { findOutputPort, findInputPort } from "../../core/schema";
