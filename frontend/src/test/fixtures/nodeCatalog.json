@@ -128,14 +128,14 @@
       {
         "name": "end",
         "data_type": "number",
-        "required": true,
+        "required": false,
         "default": null,
         "description": ""
       },
       {
         "name": "resize",
         "data_type": "number",
-        "required": true,
+        "required": false,
         "default": null,
         "description": ""
       }
