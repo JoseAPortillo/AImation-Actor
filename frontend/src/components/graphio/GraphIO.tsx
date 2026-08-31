@@ -59,13 +59,29 @@ export function GraphIO({ catalog }: { catalog: CatalogProvider }) {
         type="button"
         data-testid="graphio-save"
         onClick={handleSave}
-        style={{ fontSize: 12, padding: "4px 10px", cursor: "pointer" }}
+        style={{
+          fontSize: 12,
+          padding: "4px 10px",
+          cursor: "pointer",
+          background: "#2a2a2a",
+          color: "#ccc",
+          border: "1px solid #444",
+          borderRadius: 4,
+        }}
       >
         Save
       </button>
       <label
         data-testid="graphio-load-label"
-        style={{ fontSize: 12, padding: "4px 10px", cursor: "pointer", border: "1px solid #888", borderRadius: 4 }}
+        style={{
+          fontSize: 12,
+          padding: "4px 10px",
+          cursor: "pointer",
+          border: "1px solid #444",
+          borderRadius: 4,
+          background: "#2a2a2a",
+          color: "#ccc",
+        }}
       >
         Load
         <input
@@ -81,7 +97,7 @@ export function GraphIO({ catalog }: { catalog: CatalogProvider }) {
         />
       </label>
       {error && (
-        <span data-testid="graphio-error" style={{ color: "#b33", fontSize: 12 }}>
+        <span data-testid="graphio-error" style={{ color: "#f87171", fontSize: 12 }}>
           {error}
         </span>
       )}

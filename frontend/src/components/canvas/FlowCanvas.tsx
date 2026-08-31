@@ -74,8 +74,9 @@ export function FlowCanvas() {
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 10,
-            background: "#fff3cd",
-            border: "1px solid #ffe08a",
+            background: "#3d2f00",
+            border: "1px solid #a16207",
+            color: "#fbbf24",
             borderRadius: "4px",
             padding: "4px 12px",
             fontSize: "12px",
@@ -102,7 +103,7 @@ export function FlowCanvas() {
         }}
         fitView
       >
-        <Background />
+        <Background gap={16} color="#333" />
       </ReactFlow>
     </div>
   );

@@ -51,13 +51,13 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
   }
 
   if (status === "loading") {
-    return <div data-testid="palette-loading">Loading node palette…</div>;
+    return <div data-testid="palette-loading" style={{ color: "#999" }}>Loading node palette…</div>;
   }
 
   if (status === "error") {
     return (
       <div data-testid="palette-error">
-        <p>Could not load node catalog: {error}</p>
+        <p style={{ color: "#f87171" }}>Could not load node catalog: {error}</p>
         <button type="button" onClick={() => void retry(client)}>
           Retry
         </button>
@@ -67,10 +67,10 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
 
   return (
     <div data-testid="palette">
-      <h2 style={{ fontSize: "14px", margin: "0 0 8px" }}>Nodes</h2>
+      <h2 style={{ fontSize: "14px", margin: "0 0 8px", color: "#e0e0e0" }}>Nodes</h2>
       {grouped.map((group) => (
         <section key={group.category}>
-          <h3 style={{ fontSize: "12px", textTransform: "uppercase", margin: "8px 0 4px" }}>
+          <h3 style={{ fontSize: "12px", textTransform: "uppercase", margin: "8px 0 4px", color: "#999" }}>
             {CATEGORY_LABEL[group.category]}
           </h3>
           {group.nodes.map((node) => (
@@ -78,7 +78,18 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
               key={node.type}
               type="button"
               onClick={() => handleAdd(node)}
-              style={{ display: "block", width: "100%", textAlign: "left", margin: "2px 0" }}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                margin: "2px 0",
+                background: "#2a2a2a",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: 4,
+                padding: "4px 8px",
+                cursor: "pointer",
+              }}
               aria-label={`Add ${node.title}`}
             >
               {node.title}

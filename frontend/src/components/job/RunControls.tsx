@@ -50,7 +50,15 @@ export function RunControls({ getNodes, getEdges, onError }: RunControlsProps) {
         data-testid="run-button"
         disabled={!readiness.ready || busy}
         onClick={() => void handleRun()}
-        style={{ fontSize: 12, padding: "4px 10px", cursor: "pointer" }}
+        style={{
+          fontSize: 12,
+          padding: "4px 10px",
+          cursor: "pointer",
+          background: "#2a2a2a",
+          color: "#ccc",
+          border: "1px solid #444",
+          borderRadius: 4,
+        }}
       >
         Run
       </button>
@@ -59,35 +67,55 @@ export function RunControls({ getNodes, getEdges, onError }: RunControlsProps) {
           type="button"
           data-testid="stop-button"
           onClick={() => void cancel()}
-          style={{ fontSize: 12, padding: "4px 10px", cursor: "pointer" }}
+          style={{
+            fontSize: 12,
+            padding: "4px 10px",
+            cursor: "pointer",
+            background: "#2a2a2a",
+            color: "#ccc",
+            border: "1px solid #444",
+            borderRadius: 4,
+          }}
         >
           Stop
         </button>
       )}
       {!readiness.ready && (
-        <span data-testid="run-block-reason" style={{ color: "#b33", fontSize: 12 }}>
+        <span data-testid="run-block-reason" style={{ color: "#f87171", fontSize: 12 }}>
           Missing required: {readiness.missing.join(", ")}
         </span>
       )}
       {status !== "idle" && (
-        <span data-testid="job-status" style={{ fontSize: 12 }}>
+        <span data-testid="job-status" style={{ fontSize: 12, color: "#e0e0e0" }}>
           {status}
         </span>
       )}
       {error && (
-        <span data-testid="job-error" style={{ color: "#b33", fontSize: 12 }}>
+        <span data-testid="job-error" style={{ color: "#f87171", fontSize: 12 }}>
           {error}
         </span>
       )}
       {logs.length > 0 && (
-        <div data-testid="job-logs" style={{ fontSize: 12 }}>
+        <div data-testid="job-logs" style={{ fontSize: 12, color: "#ccc" }}>
           {logs.map((l, i) => (
             <div key={i}>{l}</div>
           ))}
         </div>
       )}
       {result && (
-        <pre data-testid="job-result" style={{ fontSize: 12, maxHeight: 120, overflow: "auto" }}>
+        <pre
+          data-testid="job-result"
+          style={{
+            fontSize: 12,
+            maxHeight: 120,
+            overflow: "auto",
+            background: "#2a2a2a",
+            color: "#e0e0e0",
+            border: "1px solid #444",
+            borderRadius: 4,
+            padding: "4px 8px",
+          }}
+        >
           {JSON.stringify(result, null, 2)}
         </pre>
       )}
