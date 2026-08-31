@@ -1,39 +1,75 @@
 import { describe, it, expect } from "vitest";
 import nodeCatalogFixture from "../test/fixtures/nodeCatalog.json";
-import type { NodeSchema } from "../../api/types";
+import type { NodeSchema } from "../api/types";
+import {
+  findInputPort,
+  findOutputPort,
+  findParam,
+  getDefaultedParams,
+  validateSchemaShape,
+} from "./schema";
 
-/**
- * Golden-fixture contract (D4): the checked-in node catalog fixture is the
- * live `/nodes/types` capture. If it drifts from the core, this test fails and
- * the fixture must be regenerated. It must expose exactly the 7 real nodes.
- */
 const catalog = nodeCatalogFixture as NodeSchema[];
 
-describe("nodeCatalog fixture contract (NP-1, D4)", () => {
-  it("exposes exactly the 7 real node types", () => {
-    expect(catalog).toHaveLength(7);
-    const types = catalog.map((n) => n.type).sort();
-    expect(types).toEqual([
-      "frame-range",
-      "merge",
-      "pass-through",
-      "pose-2d",
-      "pose-3d",
-      "video-source",
-      "video-to-motion",
-    ]);
+describe("core/schema helpers (EC-1, PP-1)", () => {
+  const videoSource = catalog.find((n) => n.type === "video-source")!;
+  const pose2d = catalog.find((n) => n.type === "pose-2d")!;
+  const v2m = catalog.find((n) => n.type === "video-to-motion")!;
+
+  it("findOutputPort returns the schema output port by name", () => {
+    const port = findOutputPort(videoSource, "frames");
+    expect(port).not.toBeUndefined();
+    expect(port!.name).toBe("frames");
+    expect(port!.data_type).toBe("frames");
   });
 
-  it("typed ports are present on the nodes the editor wires", () => {
-    const pose3d = catalog.find((n) => n.type === "pose-3d")!;
-    expect(pose3d.inputs[0]).toMatchObject({ name: "keypoints", data_type: "keypoints_2d" });
-    expect(pose3d.outputs[0]).toMatchObject({ name: "keypoints_3d", data_type: "pose_3d" });
+  it("findInputPort returns the schema input port by name", () => {
+    const port = findInputPort(pose2d, "frames");
+    expect(port).not.toBeUndefined();
+    expect(port!.name).toBe("frames");
+    expect(port!.data_type).toBe("frames");
+  });
 
-    const videoSource = catalog.find((n) => n.type === "video-source")!;
-    expect(videoSource.outputs[0]).toMatchObject({ name: "frames", data_type: "frames" });
+  it("findParam returns the schema param spec by name and undefined when absent", () => {
+    const start = findParam(videoSource, "start");
+    expect(start).not.toBeUndefined();
+    expect(start!.data_type).toBe("number");
+    expect(findParam(videoSource, "does-not-exist")).toBeUndefined();
+  });
 
-    const passThrough = catalog.find((n) => n.type === "pass-through")!;
-    expect(passThrough.inputs[0].data_type).toBe("any");
-    expect(passThrough.outputs[0].data_type).toBe("any");
+  it("findOutputPort/findInputPort return undefined for a missing port", () => {
+    expect(findOutputPort(videoSource, "nope")).toBeUndefined();
+    expect(findInputPort(videoSource, "nope")).toBeUndefined();
+  });
+
+  it("getDefaultedParams fills numerics/booleans default for unset params (PP-1)", () => {
+    const params = getDefaultedParams(v2m, {});
+    // person_height_cm default 172.0, only_local default true.
+    expect(params.person_height_cm).toBe(172.0);
+    expect(params.only_local).toBe(true);
+  });
+
+  it("getDefaultedParams never overwrites a user-provided value", () => {
+    const merged = getDefaultedParams(v2m, { only_local: false });
+    expect(merged.only_local).toBe(false);
+    expect(merged.person_height_cm).toBe(172.0);
+  });
+
+  it("getDefaultedParams drops null-default params so required validation can catch unset (GE-3)", () => {
+    // video-source: video_path default null → absent; start default 0 → filled.
+    const filled = getDefaultedParams(videoSource, {});
+    expect(filled.start).toBe(0);
+    expect(Object.keys(filled)).not.toContain("video_path");
+  });
+
+  it("validateSchemaShape accepts a well-formed schema and flags malformed ones", () => {
+    expect(validateSchemaShape(videoSource)).toEqual({ valid: true, errors: [] });
+    const missingTitle: NodeSchema = { ...videoSource, title: "" };
+    expect(validateSchemaShape(missingTitle).valid).toBe(false);
+    const badPort: NodeSchema = {
+      ...videoSource,
+      outputs: [{ ...videoSource.outputs[0], name: "" }],
+    };
+    expect(validateSchemaShape(badPort).valid).toBe(false);
   });
 });

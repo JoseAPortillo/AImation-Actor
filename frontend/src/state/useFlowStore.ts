@@ -29,6 +29,8 @@ interface FlowState {
   nodes: FlowNode[];
   edges: Edge[];
   selectedNodeId: string | null;
+  /** Transient inline hint shown in the canvas when a connection is rejected (EC-2). */
+  connectionHint: string | null;
   addNode: (schema: NodeSchema) => void;
   updateParams: (nodeId: string, params: Record<string, unknown>) => void;
   onNodesChange: (changes: NodeChange[]) => void;
@@ -37,6 +39,7 @@ interface FlowState {
   selectNode: (id: string | null) => void;
   clear: () => void;
   setLoaded: (nodes: FlowNode[], edges: Edge[]) => void;
+  setConnectionHint: (hint: string | null) => void;
 }
 
 /**
@@ -48,6 +51,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  connectionHint: null,
 
   addNode: (schema) => {
     const node: FlowNode = {
@@ -97,7 +101,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   selectNode: (id) => set({ selectedNodeId: id }),
 
-  clear: () => set({ nodes: [], edges: [], selectedNodeId: null }),
+  setConnectionHint: (hint) => set({ connectionHint: hint }),
+
+  clear: () => set({ nodes: [], edges: [], selectedNodeId: null, connectionHint: null }),
 
   setLoaded: (nodes, edges) => set({ nodes, edges }),
 }));

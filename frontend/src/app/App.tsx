@@ -1,5 +1,6 @@
 import { ConnectionBanner } from "../components/shell/ConnectionBanner";
 import { Palette } from "../components/palette/Palette";
+import { FlowCanvas } from "../components/canvas/FlowCanvas";
 import { useHealthCheck } from "../state/useHealthCheck";
 
 export function App() {
@@ -21,9 +22,7 @@ export function App() {
             data-testid="canvas-host"
             style={{ position: "absolute", inset: 0, background: "#f5f5f5" }}
           >
-            <p style={{ padding: "16px", color: "#888" }}>
-              Canvas — wire nodes into a graph.
-            </p>
+            <FlowCanvas />
           </div>
         </section>
       </main>

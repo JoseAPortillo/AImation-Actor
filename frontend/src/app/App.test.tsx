@@ -7,4 +7,10 @@ describe("App shell", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "AImation Flow" })).toBeInTheDocument();
   });
+
+  it("renders the palette and the Flow canvas host (EC-1 integration)", () => {
+    render(<App />);
+    expect(screen.getByTestId("canvas-host")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-canvas")).toBeInTheDocument();
+  });
 });
