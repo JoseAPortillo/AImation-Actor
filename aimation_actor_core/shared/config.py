@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     rate_limit_per_second: int = Field(default=10, ge=1)
     max_video_bytes: int = Field(default=2 * 1024**3, ge=1)
     media_root: Path = Field(default=Path("media"))
+    cors_origins: str = Field(
+        default=(
+            "tauri://localhost,"          # Tauri 2.x production webview
+            "http://localhost,"           # Tauri 2.x dev / browsers (no port)
+            "http://localhost:5173,"      # Vite dev server (browser + tauri dev)
+            "http://127.0.0.1:5173"       # Vite dev via loopback
+        ),
+        description="Comma-separated allowed CORS origins (loopback only).",
+    )
 
 
 @lru_cache

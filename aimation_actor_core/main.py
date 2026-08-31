@@ -57,7 +57,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Restrictive CORS — only the Tauri origins (SDD §4.3).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["tauri://localhost", "http://localhost"],
+        allow_origins=[
+            o.strip() for o in settings.cors_origins.split(",") if o.strip()
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
