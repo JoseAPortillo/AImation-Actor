@@ -8,7 +8,7 @@ Abre una terminal PowerShell y ejecuta:
 cd D:\DEEP_CAVE_WORKS\CODE_WORKS\AImation_Actor
 
 # Configurar token de sesión (IMPORTANTE: debe ser el mismo en frontend y backend)
-$env:AIMATION_SESSION_TOKEN = "mi-token-12345"
+$env:AIMATION_SESSION_TOKEN = "mi-token-12345-abcdefgh"
 
 # Iniciar el servidor
 .\.venv\Scripts\python.exe -m uvicorn aimation_actor_core.main:app --host 127.0.0.1 --port 8765
@@ -27,7 +27,7 @@ Abre **otra terminal** PowerShell:
 cd D:\DEEP_CAVE_WORKS\CODE_WORKS\AImation_Actor\frontend
 
 # Configurar el mismo token
-$env:AIMATION_SESSION_TOKEN = "mi-token-12345"
+$env:AIMATION_SESSION_TOKEN = "mi-token-12345-abcdefgh"
 
 # Iniciar el servidor de desarrollo
 npm run dev

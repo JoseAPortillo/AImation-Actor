@@ -17,7 +17,7 @@ mirroring the server's startup config:
 
 ```powershell
 $env:AIMATION_URL   = "http://127.0.0.1:8765"   # optional — this is the default
-$env:AIMATION_TOKEN = "mi-token-12345"           # must match AIMATION_SESSION_TOKEN
+$env:AIMATION_TOKEN = "mi-token-12345-abcdefgh"           # must match AIMATION_SESSION_TOKEN
 ```
 
 If you have not installed the package, invoke the module instead of the
@@ -50,7 +50,7 @@ to make terminal usage reproducible.
 cd D:\DEEP_CAVE_WORKS\CODE_WORKS\AImation_Actor
 
 # Fix the token BEFORE startup
-$env:AIMATION_SESSION_TOKEN = "mi-token-12345"
+$env:AIMATION_SESSION_TOKEN = "mi-token-12345-abcdefgh"
 
 # Start the server (loopback only, per SDD §4.2)
 .\.venv\Scripts\python.exe -m uvicorn aimation_actor_core.main:app `
@@ -186,7 +186,7 @@ Auth: `Authorization: Bearer <token>` on every request except `/health`. Use
 the same `$token`/`$base` defined below:
 
 ```powershell
-$token = "Bearer mi-token-12345"
+$token = "Bearer mi-token-12345-abcdefgh"
 $base  = "http://127.0.0.1:8765"
 ```
 
