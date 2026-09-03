@@ -71,3 +71,56 @@ export interface JobResultResponse {
   status: JobStatus;
   result: Record<string, unknown> | null;
 }
+
+/* ── NeutralMotion types (Video to Motion job output) ────────────────────── */
+
+export type Vec3 = [number, number, number];
+export type Vec4 = [number, number, number, number];
+
+export interface Transform3D {
+  translation: Vec3;
+  rotation: Vec4;
+  scale: Vec3;
+}
+
+export interface Bone {
+  name: string;
+  parent: string | null;
+  rest_position: Vec3;
+}
+
+export interface SkeletonDoc {
+  bones: Record<string, Bone>;
+}
+
+export interface MotionFrame {
+  frame: number;
+  time: number;
+  pose: {
+    transforms: Record<string, Transform3D>;
+  };
+  confidence?: number;
+}
+
+export interface NeutralMotionMeta {
+  version: string;
+  fps: number;
+  units: string;
+  up_axis: string;
+  source_type: string;
+  duration_frames: number;
+  style: string;
+  model_version: string;
+  graph_hash: string;
+}
+
+export interface NeutralMotionDoc {
+  meta: NeutralMotionMeta;
+  skeleton: SkeletonDoc;
+  frames: MotionFrame[];
+  contacts?: Record<string, unknown>;
+  keyposes?: unknown[];
+  tracking?: {
+    confidence_per_frame: number[];
+  };
+}

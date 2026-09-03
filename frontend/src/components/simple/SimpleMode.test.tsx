@@ -4,6 +4,7 @@ import { SimpleMode } from "./SimpleMode";
 import { usePaletteStore } from "../../state/usePaletteStore";
 import { useFlowStore } from "../../state/useFlowStore";
 import { useUiStore } from "../../state/useUiStore";
+import { useJobStore } from "../../state/useJobStore";
 import nodeCatalogFixture from "../../test/fixtures/nodeCatalog.json";
 
 beforeEach(() => {
@@ -14,6 +15,7 @@ beforeEach(() => {
   });
   useFlowStore.setState({ nodes: [], edges: [] });
   useUiStore.setState({ mode: "simple" });
+  useJobStore.setState({ status: "idle", result: null });
 });
 
 describe("SimpleMode (AR-3)", () => {
@@ -60,5 +62,50 @@ describe("SimpleMode (AR-3)", () => {
     fireEvent.click(screen.getByTestId("preset-video-to-motion"));
     expect(useFlowStore.getState().nodes).toHaveLength(4);
     expect(useFlowStore.getState().edges).toHaveLength(3);
+  });
+
+  it("shows the result panel when job succeeded with motion data", () => {
+    const motionDoc = {
+      meta: { version: "1.0", fps: 24, units: "m", up_axis: "Y", source_type: "neutral", duration_frames: 1, style: "default", model_version: "0.1", graph_hash: "abc" },
+      skeleton: {
+        bones: {
+          Root: { name: "Root", parent: null, rest_position: [0, 0, 0] },
+          Hips: { name: "Hips", parent: "Root", rest_position: [0, 1, 0] },
+        },
+      },
+      frames: [
+        {
+          frame: 1,
+          time: 0.041,
+          pose: {
+            transforms: {
+              Root: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+              Hips: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+            },
+          },
+        },
+      ],
+    };
+
+    useJobStore.setState({
+      status: "succeeded",
+      result: { outputs: { "video-to-motion": { motion: motionDoc } } },
+    });
+
+    render(<SimpleMode />);
+    expect(screen.getByTestId("simple-mode-result")).toBeInTheDocument();
+    // Preset cards are still rendered below.
+    expect(screen.getByTestId("preset-video-to-motion")).toBeInTheDocument();
+  });
+
+  it("does not show the result panel when job status is idle", () => {
+    render(<SimpleMode />);
+    expect(screen.queryByTestId("simple-mode-result")).not.toBeInTheDocument();
+  });
+
+  it("does not show the result panel when job failed", () => {
+    useJobStore.setState({ status: "failed", result: null });
+    render(<SimpleMode />);
+    expect(screen.queryByTestId("simple-mode-result")).not.toBeInTheDocument();
   });
 });

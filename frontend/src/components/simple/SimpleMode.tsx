@@ -1,12 +1,15 @@
 import { usePaletteStore } from "../../state/usePaletteStore";
 import { useUiStore } from "../../state/useUiStore";
+import { useJobStore } from "../../state/useJobStore";
 import { mergeGraphIntoFlow } from "../../core/serialize";
 import { presets } from "../../core/presets";
+import { extractMotion } from "../../core/motionView";
+import { MotionViewer } from "../motion/MotionViewer";
 
 /**
  * Simple Mode (AR-3): a curated, no-node-editor entry point.
  *
- * Presents ready-made flows as cards. Picking one merges its canonical graph
+ * Presents ready-made flows as cards.  Picking one merges its canonical graph
  * into the canvas in place (by stable node id), so re-picking the same preset
  * updates layout/params instead of stacking duplicates.
  *
@@ -17,6 +20,11 @@ export function SimpleMode() {
   const catalog = usePaletteStore((s) => s.catalog);
   const status = usePaletteStore((s) => s.status);
   const setMode = useUiStore((s) => s.setMode);
+  const jobStatus = useJobStore((s) => s.status);
+  const jobResult = useJobStore((s) => s.result);
+
+  const motion = extractMotion(jobResult);
+  const showResult = jobStatus === "succeeded" && motion !== null;
 
   function handlePick(id: string) {
     const preset = presets().find((p) => p.id === id);
@@ -46,6 +54,25 @@ export function SimpleMode() {
         Pick a ready-made pipeline. It loads into the canvas already wired up —
         set your input and run.
       </p>
+
+      {showResult && motion !== null && (
+        <div
+          data-testid="simple-mode-result"
+          style={{
+            marginBottom: 20,
+            padding: "16px",
+            background: "#1a1a1a",
+            border: "1px solid #333",
+            borderRadius: 8,
+          }}
+        >
+          <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "#e0e0e0" }}>
+            Result
+          </h3>
+          <MotionViewer motion={motion} />
+        </div>
+      )}
+
       {status === "loading" || catalog.length === 0 ? (
         <p data-testid="simple-mode-loading" style={{ color: "#9ca3af", fontSize: 13 }}>
           Loading flow catalog…
