@@ -80,10 +80,12 @@ export class ApiClient {
     path: string,
     body?: unknown,
     requiresAuth = true,
+    signal?: AbortSignal,
   ): Promise<Response> {
     const init: RequestInit = {
       method,
       headers: this.headers(requiresAuth),
+      signal,
     };
     if (body !== undefined) {
       init.body = JSON.stringify(body);
@@ -161,9 +163,9 @@ export class ApiClient {
   }
 
   /** POST /jobs/graph/execute — submit a graph; returns the job snapshot. */
-  async graphExecute(graph: Record<string, unknown>): Promise<JobSnapshot> {
+  async graphExecute(graph: Record<string, unknown>, signal?: AbortSignal): Promise<JobSnapshot> {
     return (await this.expectObject(
-      await this.request("POST", "/jobs/graph/execute", graph),
+      await this.request("POST", "/jobs/graph/execute", graph, true, signal),
     )) as unknown as JobSnapshot;
   }
 

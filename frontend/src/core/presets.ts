@@ -27,7 +27,7 @@ export const videoToMotionPreset = (): Preset => ({
   id: "video-to-motion",
   title: "Video to Motion",
   description:
-    "Converts a video into a neutral motion sequence: deocde frames, estimate 2D keypoints, lift to 3D, and emit motion.",
+    "Converts a video into a neutral motion sequence: decode frames, estimate 2D keypoints, lift to 3D, and emit motion.",
   graph: {
     version: "1.0",
     nodes: [
@@ -35,7 +35,7 @@ export const videoToMotionPreset = (): Preset => ({
         id: "video-source",
         type: "video-source",
         position: { x: 40, y: 120 },
-        params: {},
+        params: { end: 24, resize: 128 },
       },
       {
         id: "pose-2d",

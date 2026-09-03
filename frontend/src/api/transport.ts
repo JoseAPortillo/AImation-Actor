@@ -21,7 +21,13 @@ interface QueuedResponse {
 /** In-memory transport that returns queued canned responses for unit tests. */
 export class MockTransport implements Transport {
   private queue: QueuedResponse[] = [];
-  requests: { method: string; url: string; headers: Headers; body: string | null }[] = [];
+  requests: {
+    method: string;
+    url: string;
+    headers: Headers;
+    body: string | null;
+    signal: AbortSignal | null | undefined;
+  }[] = [];
 
   enqueue(status: number, body: unknown, headers?: Record<string, string>): void {
     const h = new Headers(headers);
@@ -43,6 +49,7 @@ export class MockTransport implements Transport {
       url: path,
       headers: (init?.headers as Headers) ?? new Headers(),
       body: (init?.body as string | null) ?? null,
+      signal: init?.signal,
     });
     const next = this.queue.shift();
     if (next === undefined || next.response === null) {

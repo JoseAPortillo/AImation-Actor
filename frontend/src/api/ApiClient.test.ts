@@ -47,6 +47,15 @@ describe("ApiClient endpoint surface (HTTP-1)", () => {
     expect(result.job_id).toBe("j1");
   });
 
+  it("graphExecute propagates an optional AbortSignal to the request", async () => {
+    const { transport, client } = makeClient("tok");
+    const graph = { version: "1.0", nodes: [], edges: [] };
+    transport.enqueue(200, { job_id: "j1", kind: "graph-execute", status: "running" });
+    const controller = new AbortController();
+    await client.graphExecute(graph, controller.signal);
+    expect(transport.requests[0].signal).toBe(controller.signal);
+  });
+
   it("getJob/getJobResult/getJobLogs/cancel hit the exact paths", async () => {
     const { transport, client } = makeClient("tok");
     transport.enqueue(200, { job_id: "j1", kind: "graph-execute", status: "succeeded" });

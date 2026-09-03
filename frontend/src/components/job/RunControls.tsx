@@ -81,7 +81,15 @@ export function RunControls({ onError }: RunControlsProps) {
           Missing required: {readiness.missing.join(", ")}
         </span>
       )}
-      {status !== "idle" && (
+      {status === "running" && (
+        <span
+          data-testid="job-status-processing"
+          style={{ fontSize: 12, color: "#fbbf24", fontWeight: 600 }}
+        >
+          Processing… — use Stop to cancel
+        </span>
+      )}
+      {status !== "idle" && status !== "running" && (
         <span data-testid="job-status" style={{ fontSize: 12, color: "#e0e0e0" }}>
           {status}
         </span>

@@ -76,7 +76,7 @@ describe("useJobStore.submit (GE-1)", () => {
     const store = useJobStore.getState();
     await store.submit(GRAPH);
 
-    expect(mockApi.graphExecute).toHaveBeenCalledWith(GRAPH);
+    expect(mockApi.graphExecute).toHaveBeenCalledWith(GRAPH, expect.any(AbortSignal));
     expect(useJobStore.getState().jobId).toBe("job-1");
     expect(useJobStore.getState().status).toBe("running");
   });
@@ -180,5 +180,34 @@ describe("useJobStore.cancel (GE-2)", () => {
     await st.cancel();
     expect(mockApi.cancel).toHaveBeenCalledWith("job-1");
     expect(useJobStore.getState().status).toBe("cancelled");
+  });
+
+  it("aborts the pending synchronous POST before a job id exists and records cancelled", async () => {
+    // Simulate an in-flight POST that only settles when its AbortSignal fires
+    // (mirrors real fetch aborting a long synchronous /jobs/graph/execute).
+    const graphExecute = vi.fn(
+      (_graph: unknown, signal?: AbortSignal) =>
+        new Promise<JobSnapshot>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+          });
+        }),
+    );
+    installMock({ graphExecute });
+    useJobStore.setState({ jobId: null, status: "idle" });
+
+    const store = useJobStore.getState();
+    const running = store.submit(GRAPH);
+    // The POST has started and no job id exists yet.
+    expect(useJobStore.getState().jobId).toBeNull();
+    expect(useJobStore.getState().status).toBe("running");
+
+    // Stop fires while the POST is still pending.
+    await store.cancel();
+    await running;
+
+    expect(useJobStore.getState().status).toBe("cancelled");
+    expect(useJobStore.getState().error).toBe("canceled");
+    expect(useJobStore.getState().jobId).toBeNull();
   });
 });

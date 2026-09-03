@@ -80,6 +80,15 @@ describe("RunControls stop (GE-2)", () => {
   });
 });
 
+describe("RunControls running feedback", () => {
+  it("shows the Processing… status while the job is running", () => {
+    useJobStore.setState({ jobId: "job-1", status: "running" });
+    renderRun();
+    expect(screen.getByTestId("job-status-processing")).toHaveTextContent(/Processing/i);
+    expect(screen.queryByTestId("job-status")).toBeNull();
+  });
+});
+
 describe("RunControls logs + results (GE-1, GE-2)", () => {
   it("renders logs and outputs after a succeeded job", () => {
     useJobStore.setState({

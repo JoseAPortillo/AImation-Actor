@@ -59,11 +59,18 @@ interface JobState {
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pollCount = 0;
+/** Aborts an in-flight synchronous POST (GE-1) so Stop works before a job id exists. */
+let activeController: AbortController | null = null;
 
 function stopPolling(): void {
   if (pollTimer !== null) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+  // Abort any in-flight synchronous POST so Stop works before a job id exists.
+  if (activeController !== null) {
+    activeController.abort();
+    activeController = null;
   }
   pollCount = 0;
 }
@@ -79,16 +86,21 @@ export const useJobStore = create<JobState>((set, get) => ({
   submit: async (graph) => {
     stopPolling();
     set({ status: "running", error: null, logs: [], result: null });
+    const controller = new AbortController();
+    activeController = controller;
     let id: string | null = null;
     try {
-      const job = await get().api.graphExecute(graph);
+      const job = await get().api.graphExecute(graph, controller.signal);
       id = job.job_id;
       set({ jobId: id, status: job.status, error: job.error });
     } catch (err) {
+      const aborted =
+        err instanceof Error && err.name === "AbortError";
       set({
-        status: "failed",
-        error: err instanceof Error ? err.message : "failed to submit job",
+        status: aborted ? "cancelled" : "failed",
+        error: aborted ? "canceled" : err instanceof Error ? err.message : "failed to submit job",
       });
+      activeController = null;
       return;
     }
     if (id === null) return;
