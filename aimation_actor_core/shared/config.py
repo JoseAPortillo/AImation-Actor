@@ -46,10 +46,10 @@ class Settings(BaseSettings):
     media_root: Path = Field(default=Path("media"))
     cors_origins: str = Field(
         default=(
-            "tauri://localhost,"          # Tauri 2.x production webview
-            "http://localhost,"           # Tauri 2.x dev / browsers (no port)
-            "http://localhost:5173,"      # Vite dev server (browser + tauri dev)
-            "http://127.0.0.1:5173"       # Vite dev via loopback
+            "tauri://localhost,"  # Tauri 2.x production webview
+            "http://localhost,"  # Tauri 2.x dev / browsers (no port)
+            "http://localhost:5173,"  # Vite dev server (browser + tauri dev)
+            "http://127.0.0.1:5173"  # Vite dev via loopback
         ),
         description="Comma-separated allowed CORS origins (loopback only).",
     )

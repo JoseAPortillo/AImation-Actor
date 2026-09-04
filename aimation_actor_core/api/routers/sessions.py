@@ -76,6 +76,7 @@ def push_result(
 @router.delete(
     "/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Deregister a DCC session",
 )
 def deregister(
