@@ -34,13 +34,13 @@ Node types MUST be registered at import/composition-root time. User-supplied inp
 
 ### Requirement: Seed nodes
 
-The composition root MUST seed the registry with four nodes: `pass-through`, `merge`, `frame-range`, and `video-source`. Each MUST declare a valid `NodeSchema` (typed input/output ports). `video-source` MUST be the OpenCV frame-extraction node (category `SOURCE`).
+The composition root MUST seed the registry with the built-in nodes. `pose-2d` (added by the pose-2d change) MUST be the 2D pose-estimation node (category `AI`). `video-source` MUST be the OpenCV frame-extraction node (category `SOURCE`). Since this change was planned, later-archived changes (3D lifting and motion conversion) added more seed nodes to the registry; the pose-2d delta originally specified a five-node registry, and the registry subsequently evolved to seven nodes: `pass-through`, `merge`, `frame-range`, `video-source`, `pose-2d`, `pose-3d`, and `video-to-motion`. Each MUST declare a valid `NodeSchema` (typed input/output ports).
 
 #### Scenario: Seed nodes are present
 
 - GIVEN the application's DI container is built
 - WHEN the registry's schemas are listed
-- THEN `pass-through`, `merge`, `frame-range`, and `video-source` are present
+- THEN `pass-through`, `merge`, `frame-range`, `video-source`, and `pose-2d` are present (and the later-added `pose-3d`, `video-to-motion`)
 
 #### Scenario: Seed nodes declare typed ports
 

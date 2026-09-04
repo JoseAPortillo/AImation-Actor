@@ -1,6 +1,6 @@
 # Tasks: 2D Pose Estimation (pose-2d)
 
-## Task 1: Domain value objects (Keypoints2D)
+- [x] **Task 1: Domain value objects (Keypoints2D)**
 
 **Description**: Crear los value objects puros en domain que representan keypoints 2D normalizados.
 
@@ -28,7 +28,7 @@
 
 ---
 
-## Task 2: PoseEstimator protocol + SyntheticBackend
+- [x] **Task 2: PoseEstimator protocol + SyntheticBackend**
 
 **Description**: Definir el protocolo de backend y la implementación sintética determinista para testing.
 
@@ -56,7 +56,7 @@
 
 ---
 
-## Task 3: OnnxBackend (import lazy)
+- [x] **Task 3: OnnxBackend (import lazy)**
 
 **Description**: Implementar el backend ONNX con import lazy para que no falle si onnxruntime no está instalado.
 
@@ -82,7 +82,7 @@
 
 ---
 
-## Task 4: Pose2DNode implementation
+- [x] **Task 4: Pose2DNode implementation**
 
 **Description**: Implementar el nodo INode que consume FRAMES y produce KEYPOINTS_2D.
 
@@ -120,7 +120,7 @@
 
 ---
 
-## Task 5: Register pose-2d node
+- [x] **Task 5: Register pose-2d node**
 
 **Description**: Registrar el nodo pose-2d en el registry para que esté disponible en el catálogo.
 
@@ -145,7 +145,7 @@
 
 ---
 
-## Task 6: Update /health endpoint
+- [x] **Task 6: Update /health endpoint**
 
 **Description**: Actualizar el endpoint /health para reportar el backend de pose activo.
 
@@ -169,7 +169,7 @@
 
 ---
 
-## Task 7: Add onnxruntime dependency
+- [x] **Task 7: Add onnxruntime dependency**
 
 **Description**: Agregar onnxruntime a las dependencias opcionales del proyecto.
 
@@ -189,7 +189,7 @@
 
 ---
 
-## Task 8: Integration test (e2e graph)
+- [x] **Task 8: Integration test (e2e graph)**
 
 **Description**: Test de integración que ejecuta el grafo video-source → pose-2d end-to-end.
 
