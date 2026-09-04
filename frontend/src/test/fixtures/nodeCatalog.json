@@ -267,5 +267,66 @@
         "description": "Whether to derive local (child-parent) offsets"
       }
     ]
+  },
+  {
+    "type": "temporal-cleanup",
+    "category": "cleanup",
+    "title": "Temporal Cleanup",
+    "description": "Smooth motion, lock feet on contact, clamp to ground, normalize root",
+    "inputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "min_cutoff",
+        "data_type": "number",
+        "required": false,
+        "default": 1.0,
+        "description": "Minimum cutoff frequency for One-Euro filter"
+      },
+      {
+        "name": "beta",
+        "data_type": "number",
+        "required": false,
+        "default": 0.5,
+        "description": "Beta parameter for One-Euro filter (speed smoothing)"
+      },
+      {
+        "name": "velocity_threshold",
+        "data_type": "number",
+        "required": false,
+        "default": 5.0,
+        "description": "Velocity threshold (cm/frame) for foot contact detection"
+      },
+      {
+        "name": "height_threshold",
+        "data_type": "number",
+        "required": false,
+        "default": 10.0,
+        "description": "Height threshold (cm) for foot contact detection"
+      },
+      {
+        "name": "hysteresis_frames",
+        "data_type": "number",
+        "required": false,
+        "default": 4,
+        "description": "Frames to maintain foot lock after contact loss"
+      }
+    ]
   }
 ]
