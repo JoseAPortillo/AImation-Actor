@@ -4,6 +4,15 @@ Re-exports the animation domain contracts so consumers import from
 ``aimation_actor_core.domain.animation`` rather than deep submodules.
 """
 
+from aimation_actor_core.domain.animation.cleanup import (
+    DEFAULT_BETA,
+    DEFAULT_HEIGHT_THRESHOLD,
+    DEFAULT_HYSTERESIS_FRAMES,
+    DEFAULT_MIN_CUTOFF,
+    DEFAULT_VELOCITY_THRESHOLD,
+    CleanupParams,
+    cleanup_motion,
+)
 from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform3D
 from aimation_actor_core.domain.animation.hierarchy import HierarchyError
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
@@ -23,8 +32,14 @@ from aimation_actor_core.domain.animation.skeleton_presets import DEFAULT_NEUTRA
 __all__ = [
     "Bone",
     "COCO_TO_NEUTRAL",
+    "CleanupParams",
     "ContactFeed",
+    "DEFAULT_BETA",
+    "DEFAULT_HEIGHT_THRESHOLD",
+    "DEFAULT_HYSTERESIS_FRAMES",
+    "DEFAULT_MIN_CUTOFF",
     "DEFAULT_NEUTRAL_SKELETON",
+    "DEFAULT_VELOCITY_THRESHOLD",
     "FootContact",
     "Frame",
     "HierarchyError",
@@ -39,4 +54,5 @@ __all__ = [
     "Skeleton",
     "TrackingInfo",
     "Transform3D",
+    "cleanup_motion",
 ]
