@@ -1,7 +1,7 @@
 # Apply Progress — In-Between Generation and Enrichment (§12.5)
 
 Change: `inbetween-generation`
-Slices recorded: **PR1** (Phase 1, tasks 1.1–1.7) and **PR2** (Phase 2, tasks 2.1–2.7) — feature-branch-chain, slices 1–2 of 4
+Slices recorded: **PR1** (Phase 1, tasks 1.1–1.7), **PR2** (Phase 2, tasks 2.1–2.7) and **PR3** (Phase 3, tasks 3.1–3.2 + dependency task 4.1) — feature-branch-chain, slices 1–3 of 4
 Mode: **Strict TDD** (openspec/config.yaml `apply.tdd: true`)
 Store: hybrid (openspec file + Engram observation)
 Test runner: `.venv\Scripts\python.exe -m pytest --basetemp %TEMP%\opencode\pytest-basetemp` (user `%TEMP%\pytest-of-josea` corrupt)
@@ -93,10 +93,46 @@ Phase 2 — Domain Trajectory Math (rotation filter, tangent smoothing, enrichme
 - [x] 2.6 GREEN `enrich_motion`: resample→ease→rotation→smooth, meta updated, `validate_invariants()` last (ORDER)
 - [x] 2.7 Re-export `enrich_motion` in `aimation_actor_core/domain/animation/__init__.py`
 
+## Slice 3 (PR3) — Phase 3 adapter + Phase 4 task 4.1 (COMPLETE)
+
+Phase 3 — INode Adapter (tasks 3.1–3.2) plus dependency-handled task 4.1. Tasks 3.1–3.2 and 4.1 all done.
+
+**Dependency note (as instructed)**: `NodeCategory.ENRICHMENT` did NOT exist in `schema.py` (it is task 4.1, Phase 4). Neither 3.1 nor 3.2 could compile without that additive member, so 4.1 was implemented inside this slice as its own work-unit commit (`ef91edb`) with a mini test (`test_node_category_enrichment_member`). Nothing else from Phase 4 was implemented — registry 9th seed, seed counts 8→9, and re-exports remain for slice 4/PR4.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 4.1 | `tests/domain/test_pipeline.py` | Unit | ✅ 8 pass | ✅ Written → AttributeError (verified by stashing schema edit) | ✅ 1 pass | ➖ Single (additive enum member) | ✅ Clean |
+| 3.1 | `tests/infrastructure/test_inbetween_generation.py` | Unit | ✅ 349+2 (PR2) | ✅ Written → ModuleNotFoundError | ✅ 15 pass | ✅ 15 cases (schema 5, execute 3, validate 7) | ✅ Clean |
+| 3.2 | (same file, GREEN side) | Unit | ✅ 15 pass | ✅ (—) | ✅ 15 pass | ✅ covers all VALIDATE scenarios | ✅ Clean |
+
+**Triangulation note**: validate scenarios cover both bad-value rejection (invalid enums `spline`/`bounce`, out-of-range `tangent_smoothing` 1.5/−0.1, non-positive `target_fps` 0/−30, bool-as-number, non-bool `euler_filter`) AND valid-params acceptance plus empty/defaults — so each rejection path is triangulated against a passing path. Execute is triangulated across NeutralMotion object input, raw dict (job-store serialized) coercion, and the `asyncio.to_thread` mock that asserts the offloaded function is `enrich_motion`.
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command & result | `.\.venv\Scripts\python.exe -m pytest tests/infrastructure/test_inbetween_generation.py -v --basetemp C:\Users\josea\AppData\Local\Temp\opencode\pytest-basetemp` → **15 passed** |
+| Runtime harness command & result | N/A — adapter is an async wrapper with no IO boundary (runtime is pure in-memory math; `asyncio.to_thread` verified via the monkeypatched mock asserting the offloaded callable is `enrich_motion`) |
+| Rollback boundary | Revert PR3 slice: `git revert` of `ef91edb` + the adapter commit on `feat/inbetween-generation-pr3` (restores `schema.py`, `test_pipeline.py`, removes `inbetween_generation.py` + `test_inbetween_generation.py`). PR1/PR2 intact; the adapter has no registry/catalog callers yet — wiring ships in PR4. |
+
+### Verification (gate)
+
+1. Focused → **15 passed**
+2. Full suite → **365 passed, 2 skipped** (PR2 baseline 349+2; +16 new — 15 adapter + 1 schema — no regression)
+3. `ruff check` on touched files → **All checks passed**; `ruff format --check` → clean; `mypy --strict` on touched files → **Success: no issues found in 2 source files**
+4. `lint-imports` → **4 contracts kept, 0 broken**
+
+### Completed Tasks (cumulative, this slice)
+
+- [x] 3.1 RED `tests/infrastructure/test_inbetween_generation.py`: type `inbetween-generation`, ENRICHMENT, **explicit ports `motion: NEUTRAL_ANIMATION`→`motion: NEUTRAL_ANIMATION`**, 5 params+defaults, execute `to_thread`→NeutralMotion, validate rejects bad enum/range/fps/bool (VALIDATE)
+- [x] 3.2 GREEN `aimation_actor_core/infrastructure/ai_models/inbetween_generation.py`: `InbetweenGenerationNode(INode)` — schema, coercion, execute, validate; mirrors `TemporalCleanupNode` (VALIDATE)
+- [x] 4.1 `aimation_actor_core/domain/pipeline/schema.py`: additive `NodeCategory.ENRICHMENT = "enrichment"` (SEED) — pulled into this slice per dependency note
+
 ## Next / Resume Point
 
-- **Next slice: PR3** — Phase 3, tasks 3.1–3.2 (adapter + adapter tests): `InbetweenGenerationNode(INode)` mirroring `TemporalCleanupNode` (VALIDATE), execute via `to_thread`, 5 params + defaults, explicit ports `motion: NEUTRAL_ANIMATION`→`motion: NEUTRAL_ANIMATION`, `tests/infrastructure/test_inbetween_generation.py`. Base: PR2 (this slice) — `enrich_motion` is now public for the adapter to call.
-- PR4: Phase 4–6 (registry wiring, count 8→9, TS sync, golden, integration verify).
+- **Next slice: PR4** — Phase 4, tasks 4.2–4.5 (registry 9th seed, seed counts 8→9, re-export), then Phases 5–6 (TS sync, golden, integration verify).
 
 ## Deviations from Design (PR1 — slice 1)
 
@@ -112,9 +148,17 @@ None — implementation matches `design.md`. Notes on interpretation:
 - SMOOTH guarantee is measured on first-difference (tangent) variance; window is `1 + round(intensity*9)`, even results rounded down to the nearest odd width; edge frames repeat the edge sample so every output is the mean of exactly `window` inbound samples.
 - `enrich_motion(motion, params=None)` is stateless/deterministic; `params or InbetweenParams()`; `validate_invariants()` runs last, so the returned document always satisfies the neutral-motion invariants; `contacts`/`keyposes`/`tracking` pass through unmodified (MVP).
 
+## Deviations from Design (PR3 — slice 3)
+
+None — implementation matches `design.md`. Notes on interpretation:
+- Task 4.1 (additive `NodeCategory.ENRICHMENT = "enrichment"`) was pulled into this slice because 3.1/3.2 cannot compile without it (explicit dependency handle per the apply brief); it ships as its own work-unit commit `ef91edb`. The member is placed after `CLEANUP` in the enum (palette order insertion "after cleanup" per task 5.3).
+- `execute` coercion mirrors `TemporalCleanupNode` exactly: `str()`/`float()`/`bool()` on the raw params with DEFAULT_* fallbacks, relying on validate-before-execute; `InbetweenParams.__post_init__` re-validates as the final defense even if validate were bypassed.
+- The `PortSpec.default` for the two NUMBER params is the domain float (`30.0`, `0.0`); the STRING defaults use the domain constants (`"cubic"`, `"none"`), keeping the adapter and domain defaults in lockstep.
+
 ## Risks
 
 - Contacts/keyposes/tracking reference old frame numbers and become stale after upsample — pass-through per MVP (design risk, already tracked); remap is deferred future work.
 - `duration_frames` on the source fixture is `0` in tests (default); passthrough leaves meta untouched, resample writes `duration_frames = n_out`. Verified.
-- 60fps doubling is a performance concern (design risk); `to_thread` offload lands with the adapter (PR3).
+- 60fps doubling is a performance concern (design risk); `to_thread` offload landed with the adapter (PR3) but is unmeasured at real-data scale — profile early.
 - PR2: SMOOTH variance monotonicity is verified empirically (100×100 grid on jittered trajectories), not proven for arbitrary inputs — documented caveat; rotation slerp per resample interval adds negligible stdlib cost at fixture scale. No numpy/scipy (domain guardrail).
+- PR3: adapter is not yet wired into the registry/catalog — `enrich_motion` has no INode caller until PR4; the re-export (task 4.4) also lands in PR4.
