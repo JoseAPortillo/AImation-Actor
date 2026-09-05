@@ -1,7 +1,7 @@
 # Apply Progress — In-Between Generation and Enrichment (§12.5)
 
 Change: `inbetween-generation`
-Slice: **PR1** (feature-branch-chain, slice 1 of 4) — Phase 1, tasks 1.1–1.7
+Slices recorded: **PR1** (Phase 1, tasks 1.1–1.7) and **PR2** (Phase 2, tasks 2.1–2.7) — feature-branch-chain, slices 1–2 of 4
 Mode: **Strict TDD** (openspec/config.yaml `apply.tdd: true`)
 Store: hybrid (openspec file + Engram observation)
 Test runner: `.venv\Scripts\python.exe -m pytest --basetemp %TEMP%\opencode\pytest-basetemp` (user `%TEMP%\pytest-of-josea` corrupt)
@@ -49,21 +49,72 @@ Phase 1 — Domain Timing Math (params, resample, easing). Tasks 1.1–1.7 all d
 - [x] 1.6 GREEN: `t²`, `1-(1-t)²`, `3t²-2t³` fused `u=ease(ξ)` in `_resample` (EASING)
 - [x] 1.7 Re-export `InbetweenParams` in `aimation_actor_core/domain/animation/__init__.py`
 
+## Slice 2 (PR2) — Phase 2, tasks 2.1–2.7 (COMPLETE)
+
+Phase 2 — Domain Trajectory Math (rotation filter, tangent smoothing, enrichment pipeline). Tasks 2.1–2.7 all done.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 2.1 | `tests/domain/test_inbetween.py` | Unit | ✅ 29 pass (PR1) | ✅ Written (ImportError `_apply_rotation_filter`/`_slerp`) | ✅ 6 pass | ✅ shortest-arc 60°, antipodal nlerp, resample composition | ✅ Clean |
+| 2.2 | `tests/domain/test_inbetween.py` | Unit | ✅ 29 pass | ✅ (—) | ✅ 35 pass | ✅ pre+post canonicalize; `_slerp` fused into `_resample` | ✅ Clean |
+| 2.3 | `tests/domain/test_inbetween.py` | Unit | ✅ 35 pass | ✅ Written (ImportError `_apply_tangent_smooth`) | ✅ metric iteration | ✅ tangent (first-difference) variance; jittered axes | ✅ Clean |
+| 2.4 | `tests/domain/test_inbetween.py` | Unit | ✅ 35 pass | ✅ (—) | ✅ odd-window box | ✅ dense 100×100 grid, 0 violations; windows 3/5/7/9 | ✅ Clean |
+| 2.5 | `tests/domain/test_inbetween.py` | Unit | ✅ 41 pass | ✅ Written (ImportError `enrich_motion`) | ✅ 7 pass | ✅ byte-identical rerun, stage-spy order | ✅ Clean |
+| 2.6 | `tests/domain/test_inbetween.py` | Unit | ✅ 41 pass (RED: collection error) | ✅ (—) | ✅ 48 pass | ✅ order+determinism+invariants+passthrough | ✅ Clean |
+| 2.7 | — (re-export) | — | ✅ 48 pass | — | ✅ import smoke (`__all__` size 27) | ➖ Single | ✅ Clean |
+
+**Triangulation note**: 2.3's original metric (raw position variance) failed the design guarantee — SMOOTH is defined over the trajectory **tangents** (first differences): "per-joint variance does not increase" == tangent-track variance. Even-width centered boxes are asymmetric and broke monotonicity in the differenced domain, so windows round down to the nearest odd width (centered boxes are odd by nature). Verified over a dense 100×100 intensity-pair grid × 3 axes: **0 monotonicity violations**.
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command & result | `.\.venv\Scripts\python.exe -m pytest tests/domain/test_inbetween.py -v --basetemp C:\Users\josea\AppData\Local\Temp\opencode\pytest-basetemp` → **48 passed** (29 PR1 + 6 ROT + 6 SMOOTH + 7 ORDER) |
+| Runtime harness command & result | N/A — pure domain math, no runtime/IO boundary (stdlib only) |
+| Rollback boundary | Revert PR2 slice: `git revert` of the PR2 commit(s) on `feat/inbetween-generation-pr2` (restores `inbetween.py`, `__init__.py`, `test_inbetween.py` to PR1 state `4bdb3c0`). PR1 intact; no callers yet — adapter ships in PR3. |
+
+### Verification (gate)
+
+1. Focused → **48 passed**
+2. Full suite → **349 passed, 2 skipped** (PR1 baseline 330+2; +19 new, no regression)
+3. `ruff check` on touched files → **All checks passed**; `mypy --strict` on touched files → **Success: no issues found**
+4. `lint-imports` → **4 contracts kept, 0 broken**; numpy/scipy grep in `inbetween.py` → 0 import matches (guardrail comments only)
+5. Dense-grid SMOOTH monotonicity (100×100 intensity pairs × 3 axes) → **0 violations**
+
+### Completed Tasks (cumulative, this slice)
+
+- [x] 2.1 RED: q/-q → positive dot; shortest arc = canonicalized slerp; disabled passthrough; near-antipodal nlerp no-NaN (ROT)
+- [x] 2.2 GREEN `_apply_rotation_filter`: sign canonicalization on resampled seq, slerp flips far endpoint, nlerp if `|dot|>1-1e-6`/`sinθ<1e-6`; **canonicalize pre+post interpolation** (ROT)
+- [x] 2.3 RED: identity at 0; translation variance non-increasing for a<b in (0,1] (SMOOTH)
+- [x] 2.4 GREEN `_apply_tangent_smooth`: centered box `1+round(intensity*9)`; **translation axes only, rotations untouched** (SMOOTH)
+- [x] 2.5 RED: stage-spy order, run-twice byte-identical, invariants; new frames `confidence=None`; **`tracking`/`contacts`/`keyposes` passthrough (MVP)** (ORDER)
+- [x] 2.6 GREEN `enrich_motion`: resample→ease→rotation→smooth, meta updated, `validate_invariants()` last (ORDER)
+- [x] 2.7 Re-export `enrich_motion` in `aimation_actor_core/domain/animation/__init__.py`
+
 ## Next / Resume Point
 
-- **Next slice: PR2** — Phase 2, tasks 2.1–2.7 (Domain Trajectory Math): rotation filter (`_apply_rotation_filter`, slerp/nlerp canonicalization), tangent smoothing (`_apply_tangent_smooth`, centered box), `enrich_motion` pipeline (resample→ease→rotation→smooth, `validate_invariants()` last), re-export `enrich_motion`. `InbetweenParams`/`_resample`/`_ease` already land in PR1 and will be consumed by PR2.
-- PR3: Phase 3 (adapter tests + `InbetweenGenerationNode`).
+- **Next slice: PR3** — Phase 3, tasks 3.1–3.2 (adapter + adapter tests): `InbetweenGenerationNode(INode)` mirroring `TemporalCleanupNode` (VALIDATE), execute via `to_thread`, 5 params + defaults, explicit ports `motion: NEUTRAL_ANIMATION`→`motion: NEUTRAL_ANIMATION`, `tests/infrastructure/test_inbetween_generation.py`. Base: PR2 (this slice) — `enrich_motion` is now public for the adapter to call.
 - PR4: Phase 4–6 (registry wiring, count 8→9, TS sync, golden, integration verify).
 
-## Deviations from Design
+## Deviations from Design (PR1 — slice 1)
 
 None — implementation matches `design.md`. Notes on interpretation:
 - `_resample` computes `n_out = int(span * target_fps) + 1` with `span = (n_in-1)/meta.fps`; output grid starts at the first source frame's `time`, aligning snapped fences so every source key value lands at its timeline position.
 - Easing is fused at `u = _ease(local, easing)` inside the per-interval evaluation (`_interp_value`), per design "`u=ease(ξ)` inside resample".
 - New frames get `confidence=None`; rotation/scale copied per bone; `contact`s/keyposes/tracking untouched (pass-through, MVP), consistent with design.
 
+## Deviations from Design (PR2 — slice 2)
+
+None — implementation matches `design.md`. Notes on interpretation:
+- PR1's `_resample` rotation stub (copy frame-0 rotation) is replaced by true slerp between bracketing source frames; slerp flips the far endpoint when `dot(q0,q1) < 0` and falls back to nlerp near-antipodal (`|dot| > 1 - 1e-6`, `sinθ < 1e-6`).
+- SMOOTH guarantee is measured on first-difference (tangent) variance; window is `1 + round(intensity*9)`, even results rounded down to the nearest odd width; edge frames repeat the edge sample so every output is the mean of exactly `window` inbound samples.
+- `enrich_motion(motion, params=None)` is stateless/deterministic; `params or InbetweenParams()`; `validate_invariants()` runs last, so the returned document always satisfies the neutral-motion invariants; `contacts`/`keyposes`/`tracking` pass through unmodified (MVP).
+
 ## Risks
 
 - Contacts/keyposes/tracking reference old frame numbers and become stale after upsample — pass-through per MVP (design risk, already tracked); remap is deferred future work.
 - `duration_frames` on the source fixture is `0` in tests (default); passthrough leaves meta untouched, resample writes `duration_frames = n_out`. Verified.
 - 60fps doubling is a performance concern (design risk); `to_thread` offload lands with the adapter (PR3).
+- PR2: SMOOTH variance monotonicity is verified empirically (100×100 grid on jittered trajectories), not proven for arbitrary inputs — documented caveat; rotation slerp per resample interval adds negligible stdlib cost at fixture scale. No numpy/scipy (domain guardrail).
