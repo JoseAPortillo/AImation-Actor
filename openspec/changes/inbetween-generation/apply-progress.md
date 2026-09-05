@@ -1,7 +1,7 @@
 # Apply Progress — In-Between Generation and Enrichment (§12.5)
 
 Change: `inbetween-generation`
-Slices recorded: **PR1** (Phase 1, tasks 1.1–1.7), **PR2** (Phase 2, tasks 2.1–2.7) and **PR3** (Phase 3, tasks 3.1–3.2 + dependency task 4.1) — feature-branch-chain, slices 1–3 of 4
+Slices recorded: **PR1** (Phase 1, tasks 1.1–1.7), **PR2** (Phase 2, tasks 2.1–2.7), **PR3** (Phase 3, tasks 3.1–3.2 + dependency task 4.1) and **PR4** (Phase 4, tasks 4.2–4.5 + Phases 5–6) — feature-branch-chain, slices 1–4 of 4
 Mode: **Strict TDD** (openspec/config.yaml `apply.tdd: true`)
 Store: hybrid (openspec file + Engram observation)
 Test runner: `.venv\Scripts\python.exe -m pytest --basetemp %TEMP%\opencode\pytest-basetemp` (user `%TEMP%\pytest-of-josea` corrupt)
@@ -130,9 +130,63 @@ Phase 3 — INode Adapter (tasks 3.1–3.2) plus dependency-handled task 4.1. Ta
 - [x] 3.2 GREEN `aimation_actor_core/infrastructure/ai_models/inbetween_generation.py`: `InbetweenGenerationNode(INode)` — schema, coercion, execute, validate; mirrors `TemporalCleanupNode` (VALIDATE)
 - [x] 4.1 `aimation_actor_core/domain/pipeline/schema.py`: additive `NodeCategory.ENRICHMENT = "enrichment"` (SEED) — pulled into this slice per dependency note
 
-## Next / Resume Point
+## Slice 4 (PR4) — Phase 4 remainder + Phases 5–6 (COMPLETE — apply complete)
 
-- **Next slice: PR4** — Phase 4, tasks 4.2–4.5 (registry 9th seed, seed counts 8→9, re-export), then Phases 5–6 (TS sync, golden, integration verify).
+Phase 4 registry wiring + seed counts (4.2–4.5), Phase 5 frontend TS sync + golden (5.1–5.4), Phase 6 integration verify (6.1–6.5). All tasks done; 6.5 threat-model entry applied, Security Champion sign-off pending (human gate).
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 4.2 | `tests/infrastructure/test_inbetween_generation_registry.py` | Infra | ✅ 365+2 (PR3) | ✅ Written → 4 failed (KeyError / unknown node type) | ✅ 4 pass | ✅ 9 seeds, ports, category, DAG 4 cases | ✅ Clean (ruff format) |
+| 4.3 | (same file, GREEN side) | Infra | ✅ 4 pass | ✅ (—) | ✅ 4 pass | ✅ registry + docstring 8→9 | ✅ Import sorted (ruff I001) |
+| 4.4 | — (re-export) | — | ✅ 4 pass | — | ✅ import smoke `InbetweenGenerationNode` | ➖ Single | ✅ `__all__` sorted |
+| 4.5 | `test_executor.py`, `test_temporal_cleanup_registry.py`, `test_api.py` | Infra | ✅ 27 pass (31 incl. api) | ✅ (count mismatch RED) | ✅ 31 pass | ✅ seed sets 8→9 in 3 files | ✅ Clean |
+| 5.1 | — (TS union) | — | ✅ `npm test` baseline | — | ✅ tsc/vitest green | ➖ Single | ✅ Clean |
+| 5.2 | — (handles map) | — | ✅ 123 pass | — | ✅ 123 pass | ➖ Single (Record member) | ✅ Clean |
+| 5.3 | — (palette) | — | ✅ 123 pass | — | ✅ 123 pass | ➖ Single (label/order) | ✅ Clean |
+| 5.4 | — (golden fixture) | — | `npm test` | — | ✅ 123 pass | ✅ full catalog shape exercised | ✅ No drift |
+| 6.1–6.5 | full suite + greps + DAG | — | ✅ 369+2 | — | ✅ see verification gate | — | — |
+
+**Triangulation note**: 4.2/4.3 triangulate across three registry citizenship aspects (9-seed set equality, ENRICHMENT category, NEUTRAL_ANIMATION ports) plus a 6-node connected DAG (`test_enrichment_chain_is_valid_connected_graph`) — the set-equality test would not catch a node registered under the wrong category or wrong ports, so the category/port assertions stand alone. 4.5 is triangulated across three independent seed-set assertions (executor registry, cleanup-registry, API `/nodes/types`), guarding the count from three different layers. 5.4's fixture is exercised by the existing catalog consumers (`schema.test.ts`, `roundtrip.test.ts`, properties/flow-canvas/graph-io tests) whose 123-test suite passes untouched — no drift.
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command & result | `.\.venv\Scripts\python.exe -m pytest tests/infrastructure/test_inbetween_generation_registry.py -v --basetemp C:\Users\josea\AppData\Local\Temp\opencode\pytest-basetemp` → **4 passed**; updated seed-set files: `test_executor.py + test_temporal_cleanup_registry.py + test_api.py` → **31 passed** |
+| Runtime harness command & result | `npm test` (frontend, vitest + MSW fixture) → **123 passed / 22 files** — runtime catalog path (`GET /nodes/types` → palette) exercised via the golden fixture; backend `/nodes/types` covered by `test_api.py::test_list_node_types_lists_seed_nodes` in the full suite |
+| Rollback boundary | Revert PR4: `git revert` of the PR4 commits (`3ef2cda`, `1d03f62`, `43342e8`, docs commit) on `feat/inbetween-generation-pr4` (restores registry to 8 seeds, TS union, palette, and fixture to pre-enrichment state). PR1/PR2/PR3 intact; the adapter stays but loses its registry/catalog presence. `media/`, `.atl/*` never committed. |
+
+### Verification (gate)
+
+1. Full backend suite → **369 passed, 2 skipped** (PR3 baseline 365+2; +4 new registry tests, no regression) — command `6.1`
+2. `npm test` in `frontend/` → **123 passed (22 files)** — fixture without drift — command `6.3`
+3. numpy guardrail → grep `import numpy|from numpy` in `aimation_actor_core/domain/` → **0 matches** — `6.2`
+4. DAG `video-source→pose-2d→pose-3d→video-to-motion→temporal-cleanup→inbetween-generation` → **valid connected graph** (`test_enrichment_chain_is_valid_connected_graph` PASSED) — `6.4`
+5. `ruff check` on touched files → **All checks passed**; `ruff format --check` → **5 files already formatted**; `mypy --strict` on touched files → **Success: no issues found in 5 source files**; `lint-imports` → **4 contracts kept, 0 broken**
+6. **6.5 §3.2**: threat-model entry applied in repo — new row `Enrichment Nodes (inbetween-generation, ENRICHMENT category)` added to `docs/SDD.md` §4.2 Primary Threat Model (threat: malformed params / unbounded work; severity Low; controls: node `validate()` before execute, static allowlist registration SDD §4.3, pure in-memory stdlib math no IO, `asyncio.to_thread`; verification: invalid-param rejection tests, registry citizenship tests, DAG connection validation). **Security Champion sign-off is a human gate — PENDING maintainer before archive; does not block this slice.**
+
+### Completed Tasks (cumulative, this slice)
+
+- [x] 4.2 RED `tests/infrastructure/test_inbetween_generation_registry.py`: 9 seeds, ENRICHMENT, NEUTRAL_ANIMATION ports (SEED)
+- [x] 4.3 GREEN `aimation_actor_core/infrastructure/virtual/node_registry.py`: register 9th seed after temporal-cleanup; docstring 8→9 (SEED)
+- [x] 4.4 Re-export `InbetweenGenerationNode` in `aimation_actor_core/infrastructure/ai_models/__init__.py`
+- [x] 4.5 Seed sets 8→9: `tests/infrastructure/test_executor.py`, `tests/infrastructure/test_temporal_cleanup_registry.py`, `tests/api/test_api.py` (SEED)
+- [x] 5.1 `frontend/src/api/types.ts`: `NodeCategory` += `"enrichment"` (SEED)
+- [x] 5.2 `frontend/src/core/handles.ts`: `CATEGORY_COLORS` += enrichment (SEED)
+- [x] 5.3 `frontend/src/components/palette/Palette.tsx`: `CATEGORY_LABEL` + `CATEGORY_ORDER` after "cleanup" (SEED)
+- [x] 5.4 `frontend/src/test/fixtures/nodeCatalog.json`: golden entry — `enrichment` category, motion ports, 5 params (SEED)
+- [x] 6.1 `.\.venv\Scripts\python.exe -m pytest` full suite green
+- [x] 6.2 Grep `import numpy|from numpy` in `aimation_actor_core/domain/` → zero matches
+- [x] 6.3 `npm test` in `frontend/` green — fixture no drift
+- [x] 6.4 Chain `video-source→pose-2d→pose-3d→video-to-motion→temporal-cleanup→inbetween-generation` valid DAG (SEED)
+- [x] 6.5 §3.2: threat-model entry applied (docs/SDD.md §4.2 row); **Security Champion sign-off PENDING — human gate, recorded for maintainer before archive**
+
+## Next / Resume Point (FINAL)
+
+- **Apply COMPLETE**: all tasks 1.1–6.5 done. Change is at the verify/archive boundary. **Blocking pre-archive gate: Security Champion sign-off for the new ENRICHMENT node category (§3.2)** — maintainer action, documented above.
+- Next: `sdd-verify` (upon orchestrator confirmation), then PR4 open on `feat/inbetween-generation-pr4` (targets `feat/inbetween-generation-pr3`), then archive once sign-off is recorded.
 
 ## Deviations from Design (PR1 — slice 1)
 
@@ -155,10 +209,19 @@ None — implementation matches `design.md`. Notes on interpretation:
 - `execute` coercion mirrors `TemporalCleanupNode` exactly: `str()`/`float()`/`bool()` on the raw params with DEFAULT_* fallbacks, relying on validate-before-execute; `InbetweenParams.__post_init__` re-validates as the final defense even if validate were bypassed.
 - The `PortSpec.default` for the two NUMBER params is the domain float (`30.0`, `0.0`); the STRING defaults use the domain constants (`"cubic"`, `"none"`), keeping the adapter and domain defaults in lockstep.
 
+## Deviations from Design (PR4 — slice 4)
+
+None — implementation matches `design.md`. Notes on interpretation:
+- Registry registration order: `InbetweenGenerationNode()` is registered immediately after `TemporalCleanupNode()` (spec: "after temporal-cleanup"); docstring updated to "nine seeds total".
+- New category color `enrichment: "#0ea5e9"` (sky-500) — distinct from cleanup (`#059669` emerald) and ai (`#7c3aed` violet); design specifies only that the color map gains the member, not the value.
+- The fixture entry mirrors the adapter's `PortSpec` defaults exactly (defaults `"cubic"`, `30.0`, `"none"`, `true`, `0.0`) so the golden stays in lockstep with the backend `/nodes/types` output.
+- 6.5: the §3.2 threat-model entry was applied to the repo (`docs/SDD.md` §4.2 — new Low-severity row for ENRICHMENT nodes: malformed params / unbounded work, controls = validate-before-execute, static allowlist SDD §4.3, pure stdlib no IO, `asyncio.to_thread`). The Security Champion sign-off is a human gate and is recorded as PENDING for the maintainer — it does not block this slice.
+
 ## Risks
 
 - Contacts/keyposes/tracking reference old frame numbers and become stale after upsample — pass-through per MVP (design risk, already tracked); remap is deferred future work.
 - `duration_frames` on the source fixture is `0` in tests (default); passthrough leaves meta untouched, resample writes `duration_frames = n_out`. Verified.
 - 60fps doubling is a performance concern (design risk); `to_thread` offload landed with the adapter (PR3) but is unmeasured at real-data scale — profile early.
 - PR2: SMOOTH variance monotonicity is verified empirically (100×100 grid on jittered trajectories), not proven for arbitrary inputs — documented caveat; rotation slerp per resample interval adds negligible stdlib cost at fixture scale. No numpy/scipy (domain guardrail).
-- PR3: adapter is not yet wired into the registry/catalog — `enrich_motion` has no INode caller until PR4; the re-export (task 4.4) also lands in PR4.
+- PR3: adapter is not yet wired into the registry/catalog — `enrich_motion` has no INode caller until PR4; the re-export (task 4.4) also lands in PR4. → **RESOLVED in PR4**: registry 9th seed, re-export, and TS catalog sync are all live.
+- **OPEN — §3.2 human gate**: Security Champion sign-off for the new `ENRICHMENT` node category is PENDING maintainer before archive. Threat-model entry is in place; the sign-off itself cannot be fabricated by apply.
