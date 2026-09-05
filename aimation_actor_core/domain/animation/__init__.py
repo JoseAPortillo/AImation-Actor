@@ -15,6 +15,7 @@ from aimation_actor_core.domain.animation.cleanup import (
 )
 from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform3D
 from aimation_actor_core.domain.animation.hierarchy import HierarchyError
+from aimation_actor_core.domain.animation.inbetween import InbetweenParams
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
 from aimation_actor_core.domain.animation.keypoints3d import Keypoint3D, Keypoints3D
 from aimation_actor_core.domain.animation.mapping import COCO_TO_NEUTRAL
@@ -43,6 +44,7 @@ __all__ = [
     "FootContact",
     "Frame",
     "HierarchyError",
+    "InbetweenParams",
     "Keypoint",
     "Keypoint3D",
     "Keypoints2D",
