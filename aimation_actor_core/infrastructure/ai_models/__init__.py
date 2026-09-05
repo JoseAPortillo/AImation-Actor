@@ -5,14 +5,14 @@ from aimation_actor_core.infrastructure.ai_models.estimators import (
     PoseEstimator,
     SyntheticBackend,
 )
+from aimation_actor_core.infrastructure.ai_models.inbetween_generation import (
+    InbetweenGenerationNode,
+)
 from aimation_actor_core.infrastructure.ai_models.lifters import (
     HeuristicLiftingBackend,
     LiftingBackend,
     OnnxLiftingBackend,
     SyntheticLiftingBackend,
-)
-from aimation_actor_core.infrastructure.ai_models.inbetween_generation import (
-    InbetweenGenerationNode,
 )
 from aimation_actor_core.infrastructure.ai_models.pose_2d import Pose2DNode
 from aimation_actor_core.infrastructure.ai_models.pose_3d import Pose3DNode

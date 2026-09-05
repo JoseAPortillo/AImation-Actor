@@ -35,12 +35,8 @@ class TestSeededRegistry:
         schema = schemas["inbetween-generation"]
         assert [port.name for port in schema.inputs] == ["motion"]
         assert [port.name for port in schema.outputs] == ["motion"]
-        assert [port.data_type for port in schema.inputs] == [
-            DataType.NEUTRAL_ANIMATION
-        ]
-        assert [port.data_type for port in schema.outputs] == [
-            DataType.NEUTRAL_ANIMATION
-        ]
+        assert [port.data_type for port in schema.inputs] == [DataType.NEUTRAL_ANIMATION]
+        assert [port.data_type for port in schema.outputs] == [DataType.NEUTRAL_ANIMATION]
 
     def test_registry_has_nine_seeds(self) -> None:
         """Should register exactly nine seed node types."""
