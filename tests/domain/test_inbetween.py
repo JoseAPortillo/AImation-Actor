@@ -1,23 +1,46 @@
 """Unit tests for the in-between generation domain math (§12.5 / inbetween-generation).
 
-Slice 1 (PR1) covers Phase 1 — domain timing math:
-- :class:`InbetweenParams` parameter validation (VALIDATE).
-- :func:`_resample` keyframe-exact cubic/linear resampling, upsample-only,
-  with meta updates (RESAMPLE).
-- Fused easing curves inside resampling (EASING).
+Slice 1 (PR1): domain timing math — :class:`InbetweenParams` (VALIDATE),
+:func:`_resample` keyframe-exact upsample (RESAMPLE), fused easing (EASING).
+
+Slice 2 (PR2) adds Phase 2 — domain trajectory math:
+- :func:`_apply_rotation_filter` quaternion sign canonicalization + shortest-arc
+  slerp with nlerp fallback (ROT).
+- :func:`_apply_tangent_smooth` centered-box smoothing on translation axes only
+  (SMOOTH).
+- :func:`enrich_motion` fixed-stage pipeline with determinism and invariants
+  (ORDER).
 
 Tests build ``NeutralMotion`` documents directly so every assertion exercises
-real production math. The resampler is pure stdlib (``math`` only), mirroring
-the temporal-cleanup precedent.
+real production math. The math is pure stdlib (``math`` only), mirroring the
+temporal-cleanup precedent.
 """
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
+from aimation_actor_core.domain.animation import inbetween as inbetween_module
 from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform3D
-from aimation_actor_core.domain.animation.inbetween import InbetweenParams, _ease, _resample
-from aimation_actor_core.domain.animation.neutral_motion import NeutralMeta, NeutralMotion
+from aimation_actor_core.domain.animation.inbetween import (
+    InbetweenParams,
+    _apply_rotation_filter,
+    _apply_tangent_smooth,
+    _ease,
+    _resample,
+    _slerp,
+    enrich_motion,
+)
+from aimation_actor_core.domain.animation.neutral_motion import (
+    ContactFeed,
+    FootContact,
+    KeyPose,
+    NeutralMeta,
+    NeutralMotion,
+    TrackingInfo,
+)
 from aimation_actor_core.domain.animation.skeleton import Bone, Skeleton
 
 # --------------------------------------------------------------------------- #
@@ -77,6 +100,196 @@ def _times(motion: NeutralMotion) -> list[float]:
 def _meta(motion: NeutralMotion) -> tuple[float, int]:
     """Return (fps, duration_frames) metadata."""
     return motion.meta.fps, motion.meta.duration_frames
+
+
+def _rotations(motion: NeutralMotion) -> list[tuple[float, float, float, float]]:
+    """Extract the single bone's rotation track across all frames."""
+    return [f.pose.transforms["B"].rotation for f in motion.frames]
+
+
+def _quat_dot(
+    qa: tuple[float, float, float, float], qb: tuple[float, float, float, float]
+) -> float:
+    """Dot product of two quaternions ``(w, x, y, z)``."""
+    return qa[0] * qb[0] + qa[1] * qb[1] + qa[2] * qb[2] + qa[3] * qb[3]
+
+
+def _quat_norm(q: tuple[float, float, float, float]) -> float:
+    """Euclidean norm of a quaternion."""
+    return math.sqrt(sum(c * c for c in q))
+
+
+# --------------------------------------------------------------------------- #
+# ROT — task 2.1 (RED: _slerp / _apply_rotation_filter do not exist yet)
+# --------------------------------------------------------------------------- #
+
+
+class TestRotationFilter:
+    """Sign canonicalization and shortest-arc slerp (ROT)."""
+
+    def test_alternating_signs_canonicalized_to_positive_dot(self) -> None:
+        """Consecutive q / -q source rotations get positive dot product."""
+        rotations = [(1.0, 0.0, 0.0, 0.0), (-1.0, 0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)]
+        motion = _make_motion(fps=30.0, xs=[0.0, 1.0, 2.0], rotations=rotations)
+        out = _apply_rotation_filter(motion, enabled=True)
+        seq = _rotations(out)
+        for i in range(len(seq) - 1):
+            assert _quat_dot(seq[i], seq[i + 1]) > 0.0
+
+    def test_filter_disabled_passes_rotations_through(self) -> None:
+        """euler_filter=false leaves rotation samples byte-identical."""
+        rotations = [(1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (-1.0, 0.0, 0.0, 0.0)]
+        motion = _make_motion(fps=30.0, xs=[0.0, 1.0, 2.0], rotations=rotations)
+        out = _apply_rotation_filter(motion, enabled=False)
+        assert out is motion
+        assert _rotations(out) == rotations
+
+    def test_slerp_shortest_arc_canonicalizes_negative_dot_pair(self) -> None:
+        """Slerping the negated 120°-about-z quaternion follows the 60° short arc."""
+        q_rot = (0.5, 0.0, 0.0, math.sqrt(3.0) / 2.0)  # 120° about z
+        q_neg = (-q_rot[0], -q_rot[1], -q_rot[2], -q_rot[3])  # same rotation, dot<0
+        assert _quat_dot((1.0, 0.0, 0.0, 0.0), q_neg) < 0.0
+        mid = _slerp((1.0, 0.0, 0.0, 0.0), q_neg, 0.5)
+        # Short arc: identity -> 120°-about-z passes through 60°-about-z.
+        expected = (math.cos(math.radians(30.0)), 0.0, 0.0, math.sin(math.radians(30.0)))
+        assert mid == pytest.approx(expected, abs=1e-6)
+
+    def test_slerp_antipodal_uses_nlerp_no_nan(self) -> None:
+        """Near-antipodal pair falls back to nlerp: finite, unit norm, no NaN."""
+        q0 = (1.0, 0.0, 0.0, 0.0)
+        w = -(1.0 - 1e-7)
+        z = math.sqrt(1.0 - w * w)
+        q1 = (w, 0.0, 0.0, z)  # dot(q0, q1) ≈ -1 -> nlerp path
+        mid = _slerp(q0, q1, 0.5)
+        assert all(math.isfinite(c) for c in mid)
+        assert _quat_norm(mid) == pytest.approx(1.0, abs=1e-6)
+        # nlerp(t=0.5) of the canonicalized pair: mid stays near the start quaternion.
+        assert mid[0] == pytest.approx(1.0, abs=1e-4)
+
+    def test_slerp_endpoint_consistency(self) -> None:
+        """Slerp reproduces its endpoints: t=0 -> q0, t=1 -> canonical q1."""
+        q0 = (1.0, 0.0, 0.0, 0.0)
+        q1 = (0.0, 0.0, 0.0, 1.0)
+        assert _slerp(q0, q1, 0.0) == pytest.approx(q0)
+        assert _slerp(q0, q1, 1.0) == pytest.approx(q1, abs=1e-6)
+
+    def test_resample_then_filter_positive_dot_unit_norm(self) -> None:
+        """Composition: slerped resample + post filter keep dots positive, unit norm."""
+        rotations = [
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+            (-1.0, 0.0, 0.0, 0.0),
+        ]
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0], rotations=rotations)
+        resampled = _resample(motion, target_fps=60.0, method="cubic", easing="none")
+        assert len(resampled.frames) == 5
+        out = _apply_rotation_filter(resampled, enabled=True)
+        seq = _rotations(out)
+        for i in range(len(seq) - 1):
+            assert _quat_dot(seq[i], seq[i + 1]) > 0.0
+        for r in seq:
+            assert _quat_norm(r) == pytest.approx(1.0, abs=1e-6)
+
+
+# --------------------------------------------------------------------------- #
+# SMOOTH — task 2.3 (RED: _apply_tangent_smooth does not exist yet)
+# --------------------------------------------------------------------------- #
+
+
+def _translations(motion: NeutralMotion) -> list[tuple[float, float, float]]:
+    """Extract the single bone's translation track across all frames."""
+    return [f.pose.transforms["B"].translation for f in motion.frames]
+
+
+def _axis_jitter_variance(motion: NeutralMotion, axis: int) -> float:
+    """Population variance of the per-axis first-difference (tangent) track.
+
+    SMOOTH defines the guarantee over the trajectory *tangents* — the first
+    differences — which is exactly the high-frequency jitter the box filter is
+    meant to reduce ("per-joint variance does not increase" == tangent-track
+    variance does not increase).
+    """
+    track = [t[axis] for t in _translations(motion)]
+    diffs = [track[i + 1] - track[i] for i in range(len(track) - 1)]
+    n = len(diffs)
+    mean = sum(diffs) / n
+    return sum((v - mean) * (v - mean) for v in diffs) / n
+
+
+def _make_jittered_motion(
+    x_vals: list[float], y_vals: list[float], z_vals: list[float]
+) -> NeutralMotion:
+    """Build a one-bone motion with independent per-axis translation tracks."""
+    frames = [
+        Frame(
+            frame=i + 1,
+            time=(i + 1) / 30.0,
+            pose=Pose(
+                transforms={
+                    "B": Transform3D(
+                        translation=(x_vals[i], y_vals[i], z_vals[i]),
+                        rotation=(1.0, 0.0, 0.0, 0.0),
+                    )
+                }
+            ),
+        )
+        for i in range(len(x_vals))
+    ]
+    motion = NeutralMotion(
+        skeleton=_single_bone_skeleton(), meta=NeutralMeta(fps=30.0), frames=frames
+    )
+    motion.validate_invariants()
+    return motion
+
+
+class TestTangentSmooth:
+    """Centered-box smoothing: identity at 0, jitter variance non-increasing."""
+
+    JITTER_X = [0.0, 8.0, 1.0, 7.0, 2.0, 6.0, 3.0, 5.0, 4.0, 4.0]
+    JITTER_Y = [3.0, 4.0, 3.0, 5.0, 4.0, 5.0, 3.0, 4.0, 3.0, 5.0]
+    JITTER_Z = [1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0]
+
+    def _motion(self) -> NeutralMotion:
+        return _make_jittered_motion(self.JITTER_X, self.JITTER_Y, self.JITTER_Z)
+
+    def test_zero_intensity_is_identity(self) -> None:
+        """tangent_smoothing=0 returns the motion unchanged."""
+        motion = self._motion()
+        out = _apply_tangent_smooth(motion, intensity=0.0)
+        assert out is motion
+        assert _translations(out) == _translations(motion)
+
+    def test_smoothing_reduces_jitter_variance(self) -> None:
+        """A positive intensity lowers the jittered axis's tangent variance."""
+        motion = self._motion()
+        var_in = _axis_jitter_variance(motion, 0)
+        out = _apply_tangent_smooth(motion, intensity=0.9)
+        var_out = _axis_jitter_variance(out, 0)
+        assert var_out < var_in
+
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [(0.2, 0.9), (0.4, 0.8), (0.334, 0.667)],
+    )
+    def test_higher_intensity_does_not_add_variance(self, a: float, b: float) -> None:
+        """For a < b, every axis's tangent variance is non-increasing."""
+        motion = self._motion()
+        out_a = _apply_tangent_smooth(motion, intensity=a)
+        out_b = _apply_tangent_smooth(motion, intensity=b)
+        for axis in range(3):
+            var_a = _axis_jitter_variance(out_a, axis)
+            var_b = _axis_jitter_variance(out_b, axis)
+            assert var_b <= var_a + 1e-9
+
+    def test_rotations_untouched_by_smoothing(self) -> None:
+        """Smoothing operates on translation axes only; rotations stay identical."""
+        motion = _make_motion(
+            fps=30.0,
+            xs=[0.0, 8.0, 1.0, 7.0, 2.0, 6.0, 3.0, 5.0, 4.0, 4.0],
+            rotations=[(0.0, 1.0, 0.0, 0.0)] * 10,
+        )
+        out = _apply_tangent_smooth(motion, intensity=0.9)
+        assert _rotations(out) == _rotations(motion)
 
 
 # --------------------------------------------------------------------------- #
@@ -295,3 +508,123 @@ class TestEasing:
         assert xs[0] == pytest.approx(0.0)
         assert xs[2] == pytest.approx(5.0)
         assert xs[4] == pytest.approx(20.0)
+
+
+# --------------------------------------------------------------------------- #
+# ORDER — task 2.5 (RED: enrich_motion does not exist yet)
+# --------------------------------------------------------------------------- #
+
+
+class TestEnrichMotion:
+    """Fixed-stage pipeline: order, determinism, invariants, passthrough fields."""
+
+    def test_stage_order_resample_rotation_smooth(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each sub-stage consumes the previous one's output, in fixed order."""
+        calls: list[str] = []
+        real_resample = inbetween_module._resample
+        real_rotation = inbetween_module._apply_rotation_filter
+        real_smooth = inbetween_module._apply_tangent_smooth
+
+        def spy_resample(
+            motion: NeutralMotion, target_fps: float, method: str, easing: str
+        ) -> NeutralMotion:
+            calls.append("resample")
+            return real_resample(motion, target_fps, method, easing)
+
+        def spy_rotation(motion: NeutralMotion, enabled: bool) -> NeutralMotion:
+            calls.append("rotation")
+            return real_rotation(motion, enabled)
+
+        def spy_smooth(motion: NeutralMotion, intensity: float) -> NeutralMotion:
+            calls.append("smooth")
+            return real_smooth(motion, intensity)
+
+        monkeypatch.setattr(inbetween_module, "_resample", spy_resample)
+        monkeypatch.setattr(inbetween_module, "_apply_rotation_filter", spy_rotation)
+        monkeypatch.setattr(inbetween_module, "_apply_tangent_smooth", spy_smooth)
+
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        out = enrich_motion(
+            motion,
+            InbetweenParams(
+                target_fps=60, easing="ease-in", euler_filter=True, tangent_smoothing=0.5
+            ),
+        )
+        assert calls == ["resample", "rotation", "smooth"]
+        assert len(out.frames) == 5  # the pipeline really ran end to end
+
+    def test_run_twice_is_byte_identical(self) -> None:
+        """Same input + params -> byte-identical outputs on repeated runs."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        params = InbetweenParams(
+            target_fps=60, easing="ease-in-out", euler_filter=True, tangent_smoothing=0.6
+        )
+        out1 = enrich_motion(motion, params)
+        out2 = enrich_motion(motion, params)
+        assert out1.model_dump_json() == out2.model_dump_json()
+
+    def test_output_passes_invariants(self) -> None:
+        """Enriched output satisfies NeutralMotion invariants (frames increasing)."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0, 2.0])
+        out = enrich_motion(
+            motion, InbetweenParams(target_fps=60, tangent_smoothing=0.7)
+        )
+        out.validate_invariants()  # must not raise
+        frames = [f.frame for f in out.frames]
+        assert frames == sorted(frames)
+        assert len(set(frames)) == len(frames)
+
+    def test_meta_updated_on_upsample(self) -> None:
+        """enrich_motion writes meta.fps and duration_frames after upsample."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        out = enrich_motion(motion, InbetweenParams(target_fps=60))
+        assert _meta(out) == (60.0, 5)
+
+    def test_new_frames_have_confidence_none(self) -> None:
+        """Resampled frames drop confidence; output frames are all None."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        motion = motion.model_copy(
+            update={
+                "frames": [
+                    f.model_copy(update={"confidence": 0.5}) for f in motion.frames
+                ]
+            }
+        )
+        out = enrich_motion(motion, InbetweenParams(target_fps=60))
+        assert all(f.confidence is None for f in out.frames)
+        # The source document itself is untouched (immutability + copy semantics).
+        assert all(f.confidence == 0.5 for f in motion.frames)
+
+    def test_tracking_contacts_keyposes_passthrough(self) -> None:
+        """contacts / keyposes / tracking pass through unmodified (MVP)."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        motion = motion.model_copy(
+            update={
+                "contacts": {
+                    "left_foot": ContactFeed(
+                        samples=[FootContact(frame=1, contact=True)]
+                    )
+                },
+                "keyposes": [KeyPose(frame=1, weight=1.0)],
+                "tracking": TrackingInfo(confidence_per_frame=[0.5, 0.6, 0.7]),
+            }
+        )
+        out = enrich_motion(motion, InbetweenParams(target_fps=60))
+        assert out.contacts == motion.contacts
+        assert out.keyposes == motion.keyposes
+        assert out.tracking == motion.tracking
+
+    def test_euler_filter_disabled_preserves_rotation_track(self) -> None:
+        """euler_filter=false leaves the (resampled) rotation track unflipped."""
+        rotations = [
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+            (-0.5, 0.0, 0.0, -math.sqrt(3.0) / 2.0),
+        ]
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0], rotations=rotations)
+        out = enrich_motion(motion, InbetweenParams(target_fps=60, euler_filter=False))
+        # With the filter off, no sign canonicalization happens anywhere, so the
+        # middle key's rotation keeps its original sign at its timeline position.
+        assert out.frames[2].pose.transforms["B"].rotation == rotations[1]
