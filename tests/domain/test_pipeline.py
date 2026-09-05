@@ -64,6 +64,11 @@ def test_node_schema_table_round_trip() -> None:
     assert sym.outputs[0].data_type == DataType.POSE_3D
 
 
+def test_node_category_enrichment_member() -> None:
+    """Should expose the additive ENRICHMENT category (REQ inbetween-generation SEED)."""
+    assert NodeCategory.ENRICHMENT == "enrichment"
+
+
 def test_node_schema_frozen() -> None:
     schema = NodeSchema(type="X", category=NodeCategory.AI, title="X")
     with pytest.raises(ValidationError):
