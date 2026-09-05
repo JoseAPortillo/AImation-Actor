@@ -139,7 +139,7 @@ Coverage analysis skipped — no coverage tool detected (`pytest-cov` not instal
 | Processing order and determinism | ✅ Implemented | `enrich_motion` (`L478-507`): resample→rotation→smooth fixed order, stateless, `validate_invariants()` last, contacts/keyposes/tracking passthrough |
 | Seed nodes (9 seeds) | ✅ Implemented | `node_registry.py:L76` registers `InbetweenGenerationNode()` after `TemporalCleanupNode()`; docstring 9 seeds; additive `NodeCategory.ENRICHMENT = "enrichment"` in `schema.py:L22` |
 | TS catalog sync | ✅ Implemented | `types.ts` NodeCategory += `"enrichment"`, `handles.ts` CATEGORY_COLORS += `#0ea5e9`, `Palette.tsx` CATEGORY_LABEL/ORDER after "cleanup", `nodeCatalog.json` golden entry with matching defaults |
-| §3.2 threat model | ✅ Entry applied | `docs/SDD.md` §4.2 row "Enrichment Nodes" (Low severity); **Security Champion sign-off PENDING** — see Human Gate |
+| §3.2 threat model | ✅ Entry applied | `docs/SDD.md` §4.2 row "Enrichment Nodes" (Low severity); **Security Champion sign-off SIGNED** (maintainer, 2026-09-05) — see Human Gate |
 
 ### Coherence (Design)
 | Decision | Followed? | Notes |
@@ -167,13 +167,13 @@ Coverage analysis skipped — no coverage tool detected (`pytest-cov` not instal
 5. **contacts/keyposes/tracking stale after upsample** — frame references refer to old numbering; pass-through per MVP, remap is deferred future work.
 
 ### Human Gate (§3.2 — Security Champion sign-off)
-The threat-model entry for the new **ENRICHMENT** node category is applied in `docs/SDD.md` §4.2 (Low-severity row: malformed params / unbounded work; controls = validate-before-execute, static allowlist SDD §4.3, pure stdlib no IO, `asyncio.to_thread`). **Security Champion sign-off is NOT fabricated here — it is a maintainer (human) action and is recorded as PENDING. It does not block verification; it gates archive.**
+The threat-model entry for the new **ENRICHMENT** node category is applied in `docs/SDD.md` §4.2 (Low-severity row: malformed params / unbounded work; controls = validate-before-execute, static allowlist SDD §4.3, pure stdlib no IO, `asyncio.to_thread`). **Security Champion sign-off: SIGNED by the maintainer on 2026-09-05** (accepted explicitly in the orchestrator session after review of the verify report; verdict: risk acceptable for the new ENRICHMENT category). Previously PENDING; recorded here as a human gate that gates archive.
 
 ### Verdict
 **PASS WITH WARNINGS**
 
-All 30/30 tasks complete; 7/7 requirements implemented and 22/22 spec scenarios compliant with passing runtime tests; full backend suite green (369 passed + 2 skipped, no regression vs PR3 baseline 365+2); frontend green (123 passed / 22 files, golden fixture without drift); import-linter 4/4 contracts kept; domain numpy guardrail enforced; mypy --strict clean; ruff lint clean. One non-blocking WARNING (formatter check on 2 PR1/PR2 files — whitespace only). Pre-archive human gate: Security Champion sign-off pending (§3.2).
+All 30/30 tasks complete; 7/7 requirements implemented and 22/22 spec scenarios compliant with passing runtime tests; full backend suite green (369 passed + 2 skipped, no regression vs PR3 baseline 365+2); frontend green (123 passed / 22 files, golden fixture without drift); import-linter 4/4 contracts kept; domain numpy guardrail enforced; mypy --strict clean; ruff lint clean. One non-blocking WARNING (formatter check on 2 PR1/PR2 files — whitespace only). §3.2 human gate: Security Champion sign-off recorded (SIGNED by maintainer, 2026-09-05).
 
 ### Resume
-- **next = archive** once: (a) Security Champion sign-off is recorded (§3.2 human gate — maintainer action), and (b) the orchestrator decides delivery of the PR4 chain. Optional tiny remediation before or during archive: `ruff format` on `aimation_actor_core/domain/animation/inbetween.py` + `tests/domain/test_inbetween.py` (WARNING 1).
+- **next = archive** once: (a) Security Champion sign-off recorded — **DONE: SIGNED by maintainer on 2026-09-05** (§3.2 human gate), and (b) the orchestrator decides delivery of the PR4 chain. Optional tiny remediation before or during archive: `ruff format` on `aimation_actor_core/domain/animation/inbetween.py` + `tests/domain/test_inbetween.py` (WARNING 1).
 - Verify artifacts persisted: `openspec/changes/inbetween-generation/verify-report.md` (+ Engram observation).
