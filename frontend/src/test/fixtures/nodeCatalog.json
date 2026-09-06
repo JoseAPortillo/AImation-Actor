@@ -389,5 +389,66 @@
         "description": "Smoothing intensity in [0, 1]"
       }
     ]
+  },
+  {
+    "type": "retarget-map",
+    "category": "rigging",
+    "title": "Retarget Map",
+    "description": "Map a neutral motion onto a target rig from a YAML/JSON preset",
+    "inputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "mapping_preset",
+        "data_type": "string",
+        "required": true,
+        "default": null,
+        "description": "Preset file name under the allowlisted preset root"
+      },
+      {
+        "name": "use_root_translation",
+        "data_type": "boolean",
+        "required": false,
+        "default": null,
+        "description": "Override the preset use_root_translation (node wins)"
+      },
+      {
+        "name": "foot_ik",
+        "data_type": "boolean",
+        "required": false,
+        "default": null,
+        "description": "Override the preset foot_ik (node wins)"
+      },
+      {
+        "name": "scale_source_height",
+        "data_type": "boolean",
+        "required": false,
+        "default": null,
+        "description": "Override the preset scale_source_height (node wins)"
+      },
+      {
+        "name": "preserve_keyframes",
+        "data_type": "boolean",
+        "required": false,
+        "default": null,
+        "description": "Override the preset preserve_keyframes (node wins)"
+      }
+    ]
   }
 ]
