@@ -1,12 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { presets, videoToMotionPreset, findPreset } from "./presets";
+import { presets, videoToMotionPreset, videoToMotionEnrichedPreset, findPreset } from "./presets";
 import { parseGraph, serializeGraph } from "./serialize";
 
 describe("presets", () => {
-  it("exposes the Video to Motion preset by default", () => {
-    expect(presets().map((p) => p.id)).toEqual(["video-to-motion"]);
+  it("exposes the presets in display order", () => {
+    expect(presets().map((p) => p.id)).toEqual([
+      "video-to-motion",
+      "video-to-motion-enriched",
+    ]);
     expect(presets()[0].title).toBe("Video to Motion");
     expect(presets()[0].description.length).toBeGreaterThan(0);
+    expect(presets()[1].title).toBe("Video to Motion (Enriched)");
+    expect(presets()[1].description.length).toBeGreaterThan(0);
   });
 
   it("returns a fresh, independent graph instance per call", () => {
@@ -92,5 +97,58 @@ describe("presets", () => {
     const found = findPreset("video-to-motion");
     expect(found?.title).toBe("Video to Motion");
     expect(findPreset("does-not-exist")).toBeUndefined();
+  });
+
+  describe("Video to Motion (Enriched) graph wiring", () => {
+    const { graph } = videoToMotionEnrichedPreset();
+
+    it("chains 5 nodes adding in-between generation", () => {
+      expect(graph.nodes.map((n) => n.type)).toEqual([
+        "video-source",
+        "pose-2d",
+        "pose-3d",
+        "video-to-motion",
+        "inbetween-generation",
+      ]);
+      expect(graph.nodes.map((n) => n.id)).toEqual([
+        "video-source",
+        "pose-2d",
+        "pose-3d",
+        "video-to-motion",
+        "inbetween-generation",
+      ]);
+    });
+
+    it("wires 4 edges ending in the enrichment node", () => {
+      expect(graph.edges.length).toBe(4);
+      const connections = graph.edges.map((e) => ({
+        s: `${e.source.node}.${e.source.port}`,
+        t: `${e.target.node}.${e.target.port}`,
+      }));
+      expect(connections).toEqual([
+        { s: "video-source.frames", t: "pose-2d.frames" },
+        { s: "pose-2d.keypoints", t: "pose-3d.keypoints" },
+        { s: "pose-3d.keypoints_3d", t: "video-to-motion.keypoints_3d" },
+        { s: "video-to-motion.motion", t: "inbetween-generation.motion" },
+      ]);
+    });
+
+    it("seeds sensible in-between params", () => {
+      const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
+      const ib = byId["inbetween-generation"].params;
+      expect(ib.interpolation_method).toBe("cubic");
+      expect(ib.target_fps).toBe(48);
+      expect(ib.easing).toBe("ease-in-out");
+      expect(ib.euler_filter).toBe(true);
+      expect(ib.tangent_smoothing).toBe(0.0);
+    });
+
+    it("builds a canonical v1.0 graph that round-trips through parseGraph", () => {
+      const result = parseGraph(serializeGraph(graph));
+      expect(result.ok).toBe(true);
+      const roundTripped = result.ok ? result.graph : undefined;
+      expect(roundTripped).toEqual(graph);
+      expect(roundTripped?.version).toBe("1.0");
+    });
   });
 });
