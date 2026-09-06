@@ -48,7 +48,7 @@ class _InertNode(INode):
 
 
 class _FrameSourceNode(_InertNode):
-    """Emits a FRAME_STREAM on its ``frames`` output port."""
+    """Emits FRAMES on its ``frames`` output port."""
 
     @staticmethod
     def get_schema() -> NodeSchema:
@@ -56,12 +56,12 @@ class _FrameSourceNode(_InertNode):
             type="frame-source",
             category=NodeCategory.SOURCE,
             title="Frame Source",
-            outputs=[PortSpec(name="frames", data_type=DataType.FRAME_STREAM)],
+            outputs=[PortSpec(name="frames", data_type=DataType.FRAMES)],
         )
 
 
 class _FrameSinkNode(_InertNode):
-    """Consumes a FRAME_STREAM on its ``frames`` input port."""
+    """Consumes FRAMES on its ``frames`` input port."""
 
     @staticmethod
     def get_schema() -> NodeSchema:
@@ -69,7 +69,7 @@ class _FrameSinkNode(_InertNode):
             type="frame-sink",
             category=NodeCategory.OUTPUT,
             title="Frame Sink",
-            inputs=[PortSpec(name="frames", data_type=DataType.FRAME_STREAM)],
+            inputs=[PortSpec(name="frames", data_type=DataType.FRAMES)],
         )
 
 

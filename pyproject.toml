@@ -33,6 +33,9 @@ dev = [
     "ruff>=0.4",
 ]
 
+[project.scripts]
+aimation = "aimation_actor_core.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["aimation_actor_core"]
 

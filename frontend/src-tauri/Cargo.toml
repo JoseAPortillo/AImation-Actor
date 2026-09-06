@@ -1,0 +1,20 @@
+[package]
+name = "aimation-flow"
+version = "0.1.0"
+description = "AImation Flow desktop shell (Tauri v2 wrapping the web frontend)"
+authors = ["AImation"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# This crate is only a thin shell; the real app logic lives in the web bundle.
+[lib]
+name = "aimation_flow_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

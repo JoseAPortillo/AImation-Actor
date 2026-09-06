@@ -79,11 +79,11 @@ async def test_frame_range_node_emits_half_open_indices() -> None:
     assert result.values["frames"] == [5, 6, 7]
 
 
-def test_seeded_registry_lists_seven_seed_nodes() -> None:
+def test_seeded_registry_lists_eight_seed_nodes() -> None:
     registry = seeded_node_registry()
     schemas = {schema.type for schema in registry.list_schemas()}
     # Three virtual seed nodes plus the real AI video-source, pose-2d,
-    # pose-3d and video-to-motion nodes.
+    # pose-3d, video-to-motion and temporal-cleanup nodes.
     assert schemas == {
         "pass-through",
         "merge",
@@ -92,6 +92,7 @@ def test_seeded_registry_lists_seven_seed_nodes() -> None:
         "pose-2d",
         "pose-3d",
         "video-to-motion",
+        "temporal-cleanup",
     }
 
 
@@ -108,15 +109,15 @@ def test_seed_nodes_declare_pinned_port_types() -> None:
     assert merge is not None
     merge_schema = merge.get_schema()
     assert [p.data_type for p in merge_schema.inputs] == [
-        DataType.FRAME_STREAM,
-        DataType.FRAME_STREAM,
+        DataType.FRAMES,
+        DataType.FRAMES,
     ]
-    assert merge_schema.outputs[0].data_type is DataType.FRAME_STREAM
+    assert merge_schema.outputs[0].data_type is DataType.FRAMES
 
     frame_range = registry.get("frame-range")
     assert frame_range is not None
     fr_schema = frame_range.get_schema()
-    assert fr_schema.outputs[0].data_type is DataType.FRAME_STREAM
+    assert fr_schema.outputs[0].data_type is DataType.FRAMES
     assert {p.name: p.data_type for p in fr_schema.params} == {
         "start": DataType.NUMBER,
         "end": DataType.NUMBER,

@@ -14,6 +14,7 @@ from aimation_actor_core.domain.pipeline.registry import NodeRegistry
 from aimation_actor_core.domain.pipeline.schema import NodeSchema
 from aimation_actor_core.infrastructure.ai_models.pose_2d import Pose2DNode
 from aimation_actor_core.infrastructure.ai_models.pose_3d import Pose3DNode
+from aimation_actor_core.infrastructure.ai_models.temporal_cleanup import TemporalCleanupNode
 from aimation_actor_core.infrastructure.ai_models.video_to_motion import VideoToMotionNode
 from aimation_actor_core.infrastructure.video.frame_extractor import (
     FrameExtractorNode,
@@ -50,8 +51,9 @@ def seeded_node_registry(media_root: Path = Path("media")) -> StaticNodeRegistry
     """Build a :class:`StaticNodeRegistry` pre-seeded with the built-in nodes.
 
     Registers the three virtual seed nodes plus the real AI preprocessing
-    nodes ``video-source``, ``pose-2d``, ``pose-3d`` and the terminal
-    ``video-to-motion`` converter — seven seeds total.
+    nodes ``video-source``, ``pose-2d``, ``pose-3d``, the terminal
+    ``video-to-motion`` converter and the ``temporal-cleanup`` post-processor —
+    eight seeds total.
     ``media_root`` allowlists the video paths that ``video-source`` may read
     (path allowlist, SDD §4.3).
 
@@ -67,4 +69,5 @@ def seeded_node_registry(media_root: Path = Path("media")) -> StaticNodeRegistry
     registry.register(Pose2DNode())
     registry.register(Pose3DNode())
     registry.register(VideoToMotionNode())
+    registry.register(TemporalCleanupNode())
     return registry
