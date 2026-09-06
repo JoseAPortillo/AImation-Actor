@@ -38,8 +38,8 @@ class TestSeededRegistry:
         assert [port.data_type for port in schema.inputs] == [DataType.NEUTRAL_ANIMATION]
         assert [port.data_type for port in schema.outputs] == [DataType.NEUTRAL_ANIMATION]
 
-    def test_registry_has_nine_seeds(self) -> None:
-        """Should register exactly nine seed node types."""
+    def test_registry_has_ten_seeds(self) -> None:
+        """Should register exactly ten seed node types."""
         registry = seeded_node_registry()
         types = {schema.type for schema in registry.list_schemas()}
         assert types == {
@@ -52,6 +52,7 @@ class TestSeededRegistry:
             "video-to-motion",
             "temporal-cleanup",
             "inbetween-generation",
+            "retarget-map",
         }
 
     def test_inbetween_generation_category_is_enrichment(self) -> None:
