@@ -44,17 +44,17 @@ Chain strategy: size-exception
 
 ## Phase 2: Quat Promotion + Retarget Domain
 
-- [ ] 2.1 RED `tests/domain/test_quat.py`: norm unit invariant; multiply identity; dot symmetry; slerp endpoints; nlerp near-parallel no-NaN (QUAT)
-- [ ] 2.2 GREEN `aimation_actor_core/domain/animation/quat.py`: promote `_quat_dot/_negate/_normalize/_slerp` + `quat_multiply` (Hamilton), stdlib-only (QUAT)
-- [ ] 2.3 GREEN `aimation_actor_core/domain/animation/inbetween.py`: import from quat.py, delete privates; existing `test_inbetween.py` green, no behavior change (QUAT)
-- [ ] 2.4 Re-export quat + `migrate_neutral_motion` in `domain/animation/__init__.py`
-- [ ] 2.5 RED `tests/domain/test_retarget.py`: well-formed validates; extra field (top+per-bone) rejected; unknown bone rejected; string→entry shorthand promotion (MAP)
-- [ ] 2.6 GREEN `domain/retargeting/map.py`: frozen `RetargetEntry`/`RetargetMap` (`extra="forbid"`, 4 bools, `target_root_to_ground_cm`); `validate_against(source, target=None)` (MAP)
-- [ ] 2.7 RED (math): height-ratio doubling; disabled passthrough; run-twice byte-identical; invariants; child positions untouched; per-bone scale (MATH)
-- [ ] 2.8 GREEN `domain/retargeting/retarget.py`: `retarget_motion` — ①root×ratio ②rotation ③scale ④foot_ik ground pass; `model_copy` + `validate_invariants` (MATH)
-- [ ] 2.9 RED (rotation rigs): LOCAL offset on non-identity source; FBX→glTF no backwards flip; identity NOT fabricated (ROTATE)
-- [ ] 2.10 GREEN `domain/retargeting/rotation.py`: `apply_rotation`, `axis_correction_quat` (forward-axis pairs); identity-in→identity-out guard (ROTATE)
-- [ ] 2.11 `domain/retargeting/__init__.py`: re-export map/model/math (MAP)
+- [x] 2.1 RED `tests/domain/test_quat.py`: norm unit invariant; multiply identity; dot symmetry; slerp endpoints; nlerp near-parallel no-NaN (QUAT)
+- [x] 2.2 GREEN `aimation_actor_core/domain/animation/quat.py`: promote `_quat_dot/_negate/_normalize/_slerp` + `quat_multiply` (Hamilton), stdlib-only (QUAT)
+- [x] 2.3 GREEN `aimation_actor_core/domain/animation/inbetween.py`: import from quat.py, delete privates; existing `test_inbetween.py` green, no behavior change (QUAT)
+- [x] 2.4 Re-export quat + `migrate_neutral_motion` in `domain/animation/__init__.py`
+- [x] 2.5 RED `tests/domain/test_retarget.py`: well-formed validates; extra field (top+per-bone) rejected; unknown bone rejected; string→entry shorthand promotion (MAP)
+- [x] 2.6 GREEN `domain/retargeting/map.py`: frozen `RetargetEntry`/`RetargetMap` (`extra="forbid"`, 4 bools, `target_root_to_ground_cm`); `validate_against(source, target=None)` (MAP)
+- [x] 2.7 RED (math): height-ratio doubling; disabled passthrough; run-twice byte-identical; invariants; child positions untouched; per-bone scale (MATH)
+- [x] 2.8 GREEN `domain/retargeting/retarget.py`: `retarget_motion` — ①root×ratio ②rotation ③scale ④foot_ik ground pass; `model_copy` + `validate_invariants` (MATH)
+- [x] 2.9 RED (rotation rigs): LOCAL offset on non-identity source; FBX→glTF no backwards flip; identity NOT fabricated (ROTATE)
+- [x] 2.10 GREEN `domain/retargeting/rotation.py`: `apply_rotation`, `axis_correction_quat` (forward-axis pairs); identity-in→identity-out guard (ROTATE)
+- [x] 2.11 `domain/retargeting/__init__.py`: re-export map/model/math (MAP)
 
 ## Phase 3: Adapter + Presets + Registry + Catalog
 
