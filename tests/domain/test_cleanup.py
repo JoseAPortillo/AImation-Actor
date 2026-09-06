@@ -37,12 +37,12 @@ def _leg_skeleton() -> Skeleton:
         bones={
             "Root": _bone("Root", None),
             "Hips": _bone("Hips", "Root"),
-            "LUpLeg": _bone("LUpLeg", "Hips"),
-            "LLeg": _bone("LLeg", "LUpLeg"),
-            "LFoot": _bone("LFoot", "LLeg"),
-            "RUpLeg": _bone("RUpLeg", "Hips"),
-            "RLeg": _bone("RLeg", "RUpLeg"),
-            "RFoot": _bone("RFoot", "RLeg"),
+            "LeftUpLeg": _bone("LeftUpLeg", "Hips"),
+            "LeftLeg": _bone("LeftLeg", "LeftUpLeg"),
+            "LeftFoot": _bone("LeftFoot", "LeftLeg"),
+            "RightUpLeg": _bone("RightUpLeg", "Hips"),
+            "RightLeg": _bone("RightLeg", "RightUpLeg"),
+            "RightFoot": _bone("RightFoot", "RightLeg"),
         }
     )
 
@@ -101,7 +101,7 @@ class TestOneEuro:
 
     def test_one_euro_reduces_jitter(self) -> None:
         """High-frequency translation jitter must be smoothed (variance drops)."""
-        # LFoot high above ground (non-contact) so only smoothing applies.
+        # LeftFoot high above ground (non-contact) so only smoothing applies.
         noise = [0.1 if i % 2 else -0.1 for i in range(24)]
         per_frame = []
         for i in range(24):
@@ -109,18 +109,18 @@ class TestOneEuro:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, -20.0 + 0.0 * _HIPS_Y, 0.0)),  # world Y=27, non-contact
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (noise[i], -20.0, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, -20.0 + 0.0 * _HIPS_Y, 0.0)),  # world Y=27, non-contact
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (noise[i], -20.0, 0.0)),
                 ]
             )
         inp = _make_motion(per_frame)
         out = cleanup_motion(inp)
-        v_in = statistics.variance(_traj(inp, "RFoot", 0))
-        v_out = statistics.variance(_traj(out, "RFoot", 0))
+        v_in = statistics.variance(_traj(inp, "RightFoot", 0))
+        v_out = statistics.variance(_traj(out, "RightFoot", 0))
         assert v_out < v_in
 
     def test_one_euro_determinism(self) -> None:
@@ -131,12 +131,12 @@ class TestOneEuro:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", ((0.15 if i % 2 else -0.15), -42.0, 0.0)),
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, -42.0, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", ((0.15 if i % 2 else -0.15), -42.0, 0.0)),
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, -42.0, 0.0)),
                 ]
             )
         inp = _make_motion(per_frame)
@@ -152,18 +152,18 @@ class TestOneEuro:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (i * 0.05, -20.0, 0.0)),  # world Y=27, non-contact
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, -42.0, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (i * 0.05, -20.0, 0.0)),  # world Y=27, non-contact
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, -42.0, 0.0)),
                 ]
             )
         inp = _make_motion(per_frame)
         out = cleanup_motion(inp)
-        in_x = _traj(inp, "LFoot", 0)
-        out_x = _traj(out, "LFoot", 0)
+        in_x = _traj(inp, "LeftFoot", 0)
+        out_x = _traj(out, "LeftFoot", 0)
         # A gentle ramp is preserved to within a small bound (no added artifacts).
         assert all(abs(o - v) < 0.5 for o, v in zip(out_x, in_x, strict=True))
 
@@ -179,12 +179,12 @@ class TestContactDetection:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, _LFOOT_Y, 0.0)),  # world Y=5, velocity 0
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, _RFOOT_Y, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, _LFOOT_Y, 0.0)),  # world Y=5, velocity 0
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, _RFOOT_Y, 0.0)),
                 ]
             )
         out = cleanup_motion(_make_motion(per_frame))
@@ -207,12 +207,12 @@ class TestContactDetection:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, lfoot_y, 0.0)),
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, _RFOOT_Y, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, lfoot_y, 0.0)),
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, _RFOOT_Y, 0.0)),
                 ]
             )
         out = cleanup_motion(_make_motion(per_frame), CleanupParams(hysteresis_frames=4))
@@ -231,12 +231,12 @@ class TestContactDetection:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, lfoot_y, 0.0)),
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, _RFOOT_Y, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, lfoot_y, 0.0)),
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, _RFOOT_Y, 0.0)),
                 ]
             )
         out = cleanup_motion(_make_motion(per_frame), CleanupParams(hysteresis_frames=1))
@@ -255,22 +255,22 @@ class TestFootLock:
         """A contact foot is pinned to its contact-frame XZ; rotation is untouched."""
         per_frame = []
         for i in range(6):
-            # LFoot: static height (contact), drifts in X -> gets clamped.
-            # RFoot: high velocity in X -> non-contact -> stays free.
+            # LeftFoot: static height (contact), drifts in X -> gets clamped.
+            # RightFoot: high velocity in X -> non-contact -> stays free.
             per_frame.append(
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (i * 0.4, _LFOOT_Y, 0.0)),
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (i * 8.0, _RFOOT_Y, 0.0)),  # velocity 8 > threshold
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (i * 0.4, _LFOOT_Y, 0.0)),
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (i * 8.0, _RFOOT_Y, 0.0)),  # velocity 8 > threshold
                 ]
             )
-        # Give LFoot a real (non-identity) rotation to prove it survives.
-        per_frame[0][-4 + 4] = ("LFoot", (0.0, _LFOOT_Y, 0.0))
+        # Give LeftFoot a real (non-identity) rotation to prove it survives.
+        per_frame[0][-4 + 4] = ("LeftFoot", (0.0, _LFOOT_Y, 0.0))
         inp = _make_motion(per_frame)
         inp = inp.model_copy(
             update={
@@ -281,7 +281,7 @@ class TestFootLock:
                                 update={
                                     "transforms": {
                                         **f.pose.transforms,
-                                        "LFoot": f.pose.transforms["LFoot"].model_copy(
+                                        "LeftFoot": f.pose.transforms["LeftFoot"].model_copy(
                                             update={"rotation": (0.70710678, 0.70710678, 0.0, 0.0)}
                                         ),
                                     }
@@ -294,12 +294,12 @@ class TestFootLock:
             }
         )
         out = cleanup_motion(inp)
-        lx = _traj(out, "LFoot", 0)
+        lx = _traj(out, "LeftFoot", 0)
         # All contact (locked) frames pinned to the contact-frame XZ (zero drift).
         assert all(abs(x) < 1e-9 for x in lx)
         # Rotation is NOT modified by the lock.
         for i in range(len(out.frames)):
-            assert out.frames[i].pose.transforms["LFoot"].rotation == pytest.approx(
+            assert out.frames[i].pose.transforms["LeftFoot"].rotation == pytest.approx(
                 (0.70710678, 0.70710678, 0.0, 0.0)
             )
 
@@ -311,16 +311,16 @@ class TestFootLock:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, _LFOOT_Y, 0.0)),  # contact
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (i * 8.0, _RFOOT_Y, 0.0)),  # non-contact
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, _LFOOT_Y, 0.0)),  # contact
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (i * 8.0, _RFOOT_Y, 0.0)),  # non-contact
                 ]
             )
         out = cleanup_motion(_make_motion(per_frame))
-        rx = _traj(out, "RFoot", 0)
+        rx = _traj(out, "RightFoot", 0)
         # Not clamped -> the X track is not a single pinned value.
         assert len(set(rx)) > 1
 
@@ -336,20 +336,20 @@ class TestGroundClamp:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, -50.0, 0.0)),  # world Y=95-8-40-50=-3 -> penetrates
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, _RFOOT_Y, 0.0)),  # world Y=5
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, -50.0, 0.0)),  # world Y=95-8-40-50=-3 -> penetrates
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, _RFOOT_Y, 0.0)),  # world Y=5
                 ]
             )
         inp = _make_motion(per_frame)
         out = cleanup_motion(inp)
         # No foot may sit below the floor in the output.
         for i in range(len(out.frames)):
-            assert _world_y(out, i, "LFoot") >= -1e-9
-            assert _world_y(out, i, "RFoot") >= -1e-9
+            assert _world_y(out, i, "LeftFoot") >= -1e-9
+            assert _world_y(out, i, "RightFoot") >= -1e-9
         # Hips raised by the penetration delta (3.0): 95 -> 98.
         assert _traj(out, "Hips", 1) == pytest.approx([98.0] * 3)
 
@@ -361,12 +361,12 @@ class TestGroundClamp:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (0.0, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, -20.0, 0.0)),  # world Y=27
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, _RFOOT_Y, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, -20.0, 0.0)),  # world Y=27
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, _RFOOT_Y, 0.0)),
                 ]
             )
         inp = _make_motion(per_frame)
@@ -387,12 +387,12 @@ class TestRootNormalization:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (i * 0.5, _HIPS_Y, 0.0)),  # linear drift in X
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, -20.0, 0.0)),  # world Y=27, non-contact
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, -20.0, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, -20.0, 0.0)),  # world Y=27, non-contact
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, -20.0, 0.0)),
                 ]
             )
         inp = _make_motion(per_frame)
@@ -402,7 +402,7 @@ class TestRootNormalization:
         assert hx[-1] == pytest.approx(hx[0], abs=1e-9)
         assert hx[0] == pytest.approx(0.0, abs=1e-9)
         # Child local offset (relative motion) is preserved unchanged.
-        assert _traj(out, "LFoot", 0) == pytest.approx([0.0] * n, abs=1e-9)
+        assert _traj(out, "LeftFoot", 0) == pytest.approx([0.0] * n, abs=1e-9)
 
     def test_root_normalization_preserves_relative_motion(self) -> None:
         """Per-frame oscillation is preserved once the net drift is removed."""
@@ -414,12 +414,12 @@ class TestRootNormalization:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (i * 0.5 + osc, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, -20.0, 0.0)),
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, -20.0, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, -20.0, 0.0)),
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, -20.0, 0.0)),
                 ]
             )
         inp = _make_motion(per_frame)
@@ -430,7 +430,7 @@ class TestRootNormalization:
         # ... but the per-frame oscillation (relative motion) is still present.
         assert len(set(hx)) > 1
         # Child offset preserved too.
-        assert _traj(out, "LFoot", 0) == pytest.approx([0.0] * n, abs=1e-9)
+        assert _traj(out, "LeftFoot", 0) == pytest.approx([0.0] * n, abs=1e-9)
 
     def test_zero_drift_passthrough(self) -> None:
         """No drift -> root translation is left unchanged."""
@@ -440,12 +440,12 @@ class TestRootNormalization:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (5.0, _HIPS_Y, 3.0)),  # constant, no drift
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, -20.0, 0.0)),
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, -20.0, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, -20.0, 0.0)),
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, -20.0, 0.0)),
                 ]
             )
         inp = _make_motion(per_frame)
@@ -486,12 +486,12 @@ class TestPipeline:
             [
                 ("Root", (0.0, 0.0, 0.0)),
                 ("Hips", (0.0, _HIPS_Y, 0.0)),
-                ("LUpLeg", (0.0, -8.0, 0.0)),
-                ("LLeg", (0.0, -40.0, 0.0)),
-                ("LFoot", (0.0, _LFOOT_Y, 0.0)),
-                ("RUpLeg", (0.0, -8.0, 0.0)),
-                ("RLeg", (0.0, -40.0, 0.0)),
-                ("RFoot", (0.0, _RFOOT_Y, 0.0)),
+                ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                ("LeftLeg", (0.0, -40.0, 0.0)),
+                ("LeftFoot", (0.0, _LFOOT_Y, 0.0)),
+                ("RightUpLeg", (0.0, -8.0, 0.0)),
+                ("RightLeg", (0.0, -40.0, 0.0)),
+                ("RightFoot", (0.0, _RFOOT_Y, 0.0)),
             ]
         ]
         cleanup_motion(_make_motion(per_frame))
@@ -505,15 +505,15 @@ class TestPipeline:
                 [
                     ("Root", (0.0, 0.0, 0.0)),
                     ("Hips", (i * 0.3, _HIPS_Y, 0.0)),
-                    ("LUpLeg", (0.0, -8.0, 0.0)),
-                    ("LLeg", (0.0, -40.0, 0.0)),
-                    ("LFoot", (0.0, _LFOOT_Y, 0.0)),
-                    ("RUpLeg", (0.0, -8.0, 0.0)),
-                    ("RLeg", (0.0, -40.0, 0.0)),
-                    ("RFoot", (0.0, _RFOOT_Y, 0.0)),
+                    ("LeftUpLeg", (0.0, -8.0, 0.0)),
+                    ("LeftLeg", (0.0, -40.0, 0.0)),
+                    ("LeftFoot", (0.0, _LFOOT_Y, 0.0)),
+                    ("RightUpLeg", (0.0, -8.0, 0.0)),
+                    ("RightLeg", (0.0, -40.0, 0.0)),
+                    ("RightFoot", (0.0, _RFOOT_Y, 0.0)),
                 ]
             )
-        # LFoot world Y = 5 and velocity 0 -> contact; Hips drifts.
+        # LeftFoot world Y = 5 and velocity 0 -> contact; Hips drifts.
         inp = _make_motion(per_frame)
         a = cleanup_motion(inp)
         b = cleanup_motion(inp)

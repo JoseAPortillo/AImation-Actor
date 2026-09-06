@@ -4,6 +4,9 @@ The preset is a fixed, deterministic hierarchy: ``Root`` plus 21 bones in a
 T-pose, up-Y, with LOCAL rest offsets in centimetres, stored parents-before-
 children. These exact numeric offsets are pinned here (pose-3d precedent) and
 must not drift.
+
+Bone names use the plan §14.2 canonical ``Left…/Right…`` form (ADR-001); the
+legacy ``L…/R…`` names migrate to these via ``LEGACY_BONE_RENAME_MAP``.
 """
 
 from __future__ import annotations
@@ -12,8 +15,9 @@ import importlib
 
 from aimation_actor_core.domain.animation import skeleton_presets
 from aimation_actor_core.domain.animation.skeleton import Bone
+from aimation_actor_core.domain.animation.skeleton_presets import DEFAULT_NEUTRAL_SKELETON
 
-# The 21 §14.2 bones (plus ``Root`` = 22 total).
+# The 21 §14.2 bones (plus ``Root`` = 22 total), canonical names (ADR-001).
 EXPECTED_BONE_NAMES = [
     "Root",
     "Hips",
@@ -21,22 +25,22 @@ EXPECTED_BONE_NAMES = [
     "Chest",
     "Neck",
     "Head",
-    "LShoulder",
-    "LArm",
-    "LForeArm",
-    "LHand",
-    "RShoulder",
-    "RArm",
-    "RForeArm",
-    "RHand",
-    "LUpLeg",
-    "LLeg",
-    "LFoot",
-    "LToeBase",
-    "RUpLeg",
-    "RLeg",
-    "RFoot",
-    "RToeBase",
+    "LeftShoulder",
+    "LeftArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightShoulder",
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+    "LeftUpLeg",
+    "LeftLeg",
+    "LeftFoot",
+    "LeftToeBase",
+    "RightUpLeg",
+    "RightLeg",
+    "RightFoot",
+    "RightToeBase",
 ]
 
 
@@ -92,12 +96,12 @@ class TestSkeletonPreset:
             y = skeleton.bones[name].rest_position[1]
             assert y > 0.0, name
         # Legs descend along -Y.
-        for name in ("LUpLeg", "LLeg", "LFoot", "RUpLeg", "RLeg", "RFoot"):
+        for name in ("LeftUpLeg", "LeftLeg", "LeftFoot", "RightUpLeg", "RightLeg", "RightFoot"):
             y = skeleton.bones[name].rest_position[1]
             assert y < 0.0, name
         # T-pose arms are horizontal: shoulders reach sideways along X.
-        assert skeleton.bones["LShoulder"].rest_position[0] < 0.0
-        assert skeleton.bones["RShoulder"].rest_position[0] > 0.0
+        assert skeleton.bones["LeftShoulder"].rest_position[0] < 0.0
+        assert skeleton.bones["RightShoulder"].rest_position[0] > 0.0
 
     def test_pinned_rest_offsets(self) -> None:
         """Exact pinned LOCAL rest offsets (cm) for the neutral skeleton."""
@@ -109,22 +113,22 @@ class TestSkeletonPreset:
             "Chest": (0.0, 15.0, 0.0),
             "Neck": (0.0, 20.0, 0.0),
             "Head": (0.0, 18.0, 0.0),
-            "LShoulder": (-15.0, 6.0, 0.0),
-            "LArm": (-15.0, 0.0, 0.0),
-            "LForeArm": (-25.0, 0.0, 0.0),
-            "LHand": (-22.0, 0.0, 0.0),
-            "RShoulder": (15.0, 6.0, 0.0),
-            "RArm": (15.0, 0.0, 0.0),
-            "RForeArm": (25.0, 0.0, 0.0),
-            "RHand": (22.0, 0.0, 0.0),
-            "LUpLeg": (0.0, -8.0, 0.0),
-            "LLeg": (0.0, -40.0, 0.0),
-            "LFoot": (0.0, -42.0, 0.0),
-            "LToeBase": (0.0, -2.0, 18.0),
-            "RUpLeg": (0.0, -8.0, 0.0),
-            "RLeg": (0.0, -40.0, 0.0),
-            "RFoot": (0.0, -42.0, 0.0),
-            "RToeBase": (0.0, -2.0, 18.0),
+            "LeftShoulder": (-15.0, 6.0, 0.0),
+            "LeftArm": (-15.0, 0.0, 0.0),
+            "LeftForeArm": (-25.0, 0.0, 0.0),
+            "LeftHand": (-22.0, 0.0, 0.0),
+            "RightShoulder": (15.0, 6.0, 0.0),
+            "RightArm": (15.0, 0.0, 0.0),
+            "RightForeArm": (25.0, 0.0, 0.0),
+            "RightHand": (22.0, 0.0, 0.0),
+            "LeftUpLeg": (0.0, -8.0, 0.0),
+            "LeftLeg": (0.0, -40.0, 0.0),
+            "LeftFoot": (0.0, -42.0, 0.0),
+            "LeftToeBase": (0.0, -2.0, 18.0),
+            "RightUpLeg": (0.0, -8.0, 0.0),
+            "RightLeg": (0.0, -40.0, 0.0),
+            "RightFoot": (0.0, -42.0, 0.0),
+            "RightToeBase": (0.0, -2.0, 18.0),
         }
         for name, rest_position in expected.items():
             assert skeleton.bones[name].rest_position == rest_position, name
@@ -134,9 +138,67 @@ class TestSkeletonPreset:
         skeleton = skeleton_presets.DEFAULT_NEUTRAL_SKELETON
         assert all(isinstance(b, Bone) for b in skeleton.bones.values())
 
+    def test_no_legacy_bone_names_remain(self) -> None:
+        """ADR-001: no abbreviated L/R (legacy map key) survives in the skeleton.
+
+        Checked against the map keys, not an ``R`` prefix — ``Root`` is an
+        unpaired bone and legitimately starts with ``R``.
+        """
+        skeleton = skeleton_presets.DEFAULT_NEUTRAL_SKELETON
+        assert not set(skeleton.bones) & set(skeleton_presets.LEGACY_BONE_RENAME_MAP)
+
     def test_deterministic_across_reloads(self) -> None:
         """The preset should be stable across independent module loads."""
         first = skeleton_presets.DEFAULT_NEUTRAL_SKELETON
         reloaded = importlib.reload(skeleton_presets).DEFAULT_NEUTRAL_SKELETON
         assert first == reloaded
         assert first.model_dump() == reloaded.model_dump()
+
+
+class TestLegacyBoneRenameMap:
+    """ADR-001: the explicit 16-entry legacy → canonical rename table.
+
+    The map must be an explicit table — a naive ``L→Left``/``R→Right`` prefix
+    rewrite is forbidden because ``Root`` starts with ``R``.
+    """
+
+    def test_map_has_exactly_16_entries(self) -> None:
+        """All 16 L/R bones are present, one entry each."""
+        assert len(skeleton_presets.LEGACY_BONE_RENAME_MAP) == 16
+
+    def test_map_pairs_legacy_names_to_canonical(self) -> None:
+        """Every legacy name maps to its exact canonical counterpart."""
+        expected = {
+            "LShoulder": "LeftShoulder",
+            "LArm": "LeftArm",
+            "LForeArm": "LeftForeArm",
+            "LHand": "LeftHand",
+            "RShoulder": "RightShoulder",
+            "RArm": "RightArm",
+            "RForeArm": "RightForeArm",
+            "RHand": "RightHand",
+            "LUpLeg": "LeftUpLeg",
+            "LLeg": "LeftLeg",
+            "LFoot": "LeftFoot",
+            "LToeBase": "LeftToeBase",
+            "RUpLeg": "RightUpLeg",
+            "RLeg": "RightLeg",
+            "RFoot": "RightFoot",
+            "RToeBase": "RightToeBase",
+        }
+        assert dict(skeleton_presets.LEGACY_BONE_RENAME_MAP) == expected
+
+    def test_map_is_bijective_with_skeleton(self) -> None:
+        """Keys are legacy-only and values resolve to canonical skeleton bones."""
+        skeleton = skeleton_presets.DEFAULT_NEUTRAL_SKELETON
+        legacy = set(skeleton_presets.LEGACY_BONE_RENAME_MAP)
+        canonical = set(skeleton_presets.LEGACY_BONE_RENAME_MAP.values())
+        assert not (legacy & canonical)
+        assert not legacy & set(skeleton.bones)
+        assert canonical <= set(skeleton.bones)
+
+    def test_root_is_never_prefix_rewritten(self) -> None:
+        """'Root' must not be a legacy key and 'Rightoot' must never exist."""
+        assert "Root" not in skeleton_presets.LEGACY_BONE_RENAME_MAP
+        assert "Rightoot" not in skeleton_presets.LEGACY_BONE_RENAME_MAP.values()
+        assert DEFAULT_NEUTRAL_SKELETON.bones["Root"].name == "Root"

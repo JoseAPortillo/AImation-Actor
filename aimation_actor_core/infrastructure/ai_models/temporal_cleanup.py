@@ -29,7 +29,7 @@ from aimation_actor_core.domain.animation.cleanup import (
     CleanupParams,
     cleanup_motion,
 )
-from aimation_actor_core.domain.animation.neutral_motion import NeutralMotion
+from aimation_actor_core.domain.animation.neutral_motion import migrate_neutral_motion
 from aimation_actor_core.domain.pipeline.node import (
     ExecutionContext,
     INode,
@@ -111,13 +111,6 @@ class TemporalCleanupNode(INode):
             ],
         )
 
-    @staticmethod
-    def _coerce_motion(raw: Any) -> NeutralMotion:  # noqa: ANN401
-        """Coerce the job-store serialized path: dict -> NeutralMotion."""
-        if isinstance(raw, NeutralMotion):
-            return raw
-        return NeutralMotion.model_validate(raw)
-
     async def execute(
         self,
         inputs: dict[str, Any],
@@ -128,7 +121,7 @@ class TemporalCleanupNode(INode):
 
         Args:
             inputs: Input ``motion`` (a :class:`NeutralMotion` or raw serialized
-                dict from the job-store path).
+                dict from the job-store path; migrated on read per ADR-001).
             params: Tuning params (all optional; defaults applied).
             context: Execution context.
 
@@ -136,7 +129,7 @@ class TemporalCleanupNode(INode):
             NodeOutput with the cleaned :class:`NeutralMotion` under ``motion``.
         """
         del context  # unused; kept for the INode contract
-        motion = self._coerce_motion(inputs["motion"])
+        motion = migrate_neutral_motion(inputs["motion"])
         cleanup_params = CleanupParams(
             min_cutoff=float(params.get("min_cutoff", DEFAULT_MIN_CUTOFF)),
             beta=float(params.get("beta", DEFAULT_BETA)),

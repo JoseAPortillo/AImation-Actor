@@ -33,8 +33,8 @@ def _motion(n_frames: int = 2) -> NeutralMotion:
                 transforms={
                     "Root": Transform3D(translation=(0.0, 0.0, 0.0)),
                     "Hips": Transform3D(translation=(0.0, 95.0, 0.0)),
-                    "LFoot": Transform3D(translation=(0.0, -42.0, 0.0)),
-                    "RFoot": Transform3D(translation=(0.0, -42.0, 0.0)),
+                    "LeftFoot": Transform3D(translation=(0.0, -42.0, 0.0)),
+                    "RightFoot": Transform3D(translation=(0.0, -42.0, 0.0)),
                 }
             ),
         )

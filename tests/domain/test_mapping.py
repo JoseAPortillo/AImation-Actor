@@ -4,6 +4,8 @@ The mapping bridges the estimator's COCO 17 keypoint labels to the §14.2
 neutral skeleton. The 13 distal-end rows are exact COCO strings; derived and
 rest-only bones complete full skeleton coverage; pose-only labels (eyes,
 ears) and unknown labels are intentionally absent/ignored.
+
+Neutral values use the canonical ``Left…/Right…`` names (ADR-001).
 """
 
 from __future__ import annotations
@@ -14,18 +16,18 @@ from aimation_actor_core.infrastructure.ai_models.estimators import SyntheticBac
 
 EXPECTED_ROWS: set[tuple[str, str]] = {
     ("nose", "Head"),
-    ("left_shoulder", "LShoulder"),
-    ("right_shoulder", "RShoulder"),
-    ("left_elbow", "LArm"),
-    ("right_elbow", "RArm"),
-    ("left_wrist", "LForeArm"),
-    ("right_wrist", "RForeArm"),
-    ("left_hip", "LUpLeg"),
-    ("right_hip", "RUpLeg"),
-    ("left_knee", "LLeg"),
-    ("right_knee", "RLeg"),
-    ("left_ankle", "LFoot"),
-    ("right_ankle", "RFoot"),
+    ("left_shoulder", "LeftShoulder"),
+    ("right_shoulder", "RightShoulder"),
+    ("left_elbow", "LeftArm"),
+    ("right_elbow", "RightArm"),
+    ("left_wrist", "LeftForeArm"),
+    ("right_wrist", "RightForeArm"),
+    ("left_hip", "LeftUpLeg"),
+    ("right_hip", "RightUpLeg"),
+    ("left_knee", "LeftLeg"),
+    ("right_knee", "RightLeg"),
+    ("left_ankle", "LeftFoot"),
+    ("right_ankle", "RightFoot"),
 }
 
 # Bones with no 1:1 COCO landmark; they keep their neutral rest offset.
@@ -33,10 +35,10 @@ REST_ONLY_BONES = {
     "Spine",
     "Chest",
     "Neck",
-    "LHand",
-    "RHand",
-    "LToeBase",
-    "RToeBase",
+    "LeftHand",
+    "RightHand",
+    "LeftToeBase",
+    "RightToeBase",
 }
 
 # Bones derived from lower-level landmarks (not a single COCO row).
@@ -64,6 +66,20 @@ class TestCocoToNeutralMapping:
                 f"'{coco_label}' is not an exact estimator KEYPOINT_LABEL — "
                 "the mapping would silently fall back to rest offset"
             )
+
+    def test_every_row_value_is_a_canonical_bone(self) -> None:
+        """ADR-001: every mapped value is a canonical skeleton bone name."""
+        canonical = set(DEFAULT_NEUTRAL_SKELETON.bones)
+        for coco_label, bone_name in mapping.COCO_TO_NEUTRAL.items():
+            assert bone_name in canonical, (
+                f"'{coco_label}' maps to '{bone_name}', which is not a canonical "
+                "skeleton bone name"
+            )
+
+    def test_left_shoulder_and_right_hip_resolve_canonically(self) -> None:
+        """The spec scenario: left_shoulder→LeftShoulder, right_hip→RightUpLeg."""
+        assert mapping.COCO_TO_NEUTRAL["left_shoulder"] == "LeftShoulder"
+        assert mapping.COCO_TO_NEUTRAL["right_hip"] == "RightUpLeg"
 
     def test_every_neutral_bone_is_mapped_or_derived_or_rest(self) -> None:
         """Full §14.2 coverage: every non-root bone is mapped, derived, or rest."""
