@@ -58,22 +58,22 @@ Chain strategy: size-exception
 
 ## Phase 3: Adapter + Presets + Registry + Catalog
 
-- [ ] 3.1 RED `tests/infrastructure/test_retarget_map.py`: schema RIGGING + `motion: NEUTRAL_ANIMATION` in/out; validate rejects nonexistent preset; e2e execute → invariants ok; deterministic (SCHEMA)
-- [ ] 3.2 GREEN `infrastructure/ai_models/retarget_map.py`: `RetargetMapNode(INode)` — allowlisted path resolve (reject absolute/`..`/symlink-escape), size cap 262_144 → `yaml.safe_load`/`json.load`, `_coerce_motion`, `asyncio.to_thread` (LOAD)
-- [ ] 3.3 RED `tests/infrastructure/test_preset_security.py`: `../secret.yaml`/absolute/symlink escape/oversized (>262 KiB)/malformed rejected; static scan: no `eval`/`exec`/`yaml.load|full_load|unsafe_load` reachable (SECURITY)
-- [ ] 3.4 Re-export `RetargetMapNode` in `infrastructure/ai_models/__init__.py`
-- [ ] 3.5 `media/presets/identity.yaml`: identity preset — every bone→itself, identity offset, no axis_correction, scale (1,1,1), `use_root_translation: true` (PRESET)
-- [ ] 3.6 RED `tests/infrastructure/test_retarget_registry.py`: 10 seeds, RIGGING, NEUTRAL ports; seed counts 9→10 in `test_executor.py` + `test_temporal_cleanup_registry.py` (SEED)
-- [ ] 3.7 GREEN `infrastructure/virtual/node_registry.py`: register `RetargetMapNode()` 10th; docstring 9→10 (SEED)
-- [ ] 3.8 `frontend/src/test/fixtures/nodeCatalog.json`: append `retarget-map` golden — RIGGING, motion ports, 5 params (CATALOG)
-- [ ] 3.9 `openspec/specs/temporal-cleanup/spec.md` (read-only): `LFoot/RFoot` → `LeftFoot/RightFoot` wording
+- [x] 3.1 RED `tests/infrastructure/test_retarget_map.py`: schema RIGGING + `motion: NEUTRAL_ANIMATION` in/out; validate rejects nonexistent preset; e2e execute → invariants ok; deterministic (SCHEMA)
+- [x] 3.2 GREEN `infrastructure/ai_models/retarget_map.py`: `RetargetMapNode(INode)` — allowlisted path resolve (reject absolute/`..`/symlink-escape), size cap 262_144 → `yaml.safe_load`/`json.load`, `_coerce_motion`, `asyncio.to_thread` (LOAD)
+- [x] 3.3 RED `tests/infrastructure/test_preset_security.py`: `../secret.yaml`/absolute/symlink escape/oversized (>262 KiB)/malformed rejected; static scan: no `eval`/`exec`/`yaml.load|full_load|unsafe_load` reachable (SECURITY)
+- [x] 3.4 Re-export `RetargetMapNode` in `infrastructure/ai_models/__init__.py`
+- [x] 3.5 `media/presets/identity.yaml`: identity preset — every bone→itself, identity offset, no axis_correction, scale (1,1,1), `use_root_translation: true` (PRESET)
+- [x] 3.6 RED `tests/infrastructure/test_retarget_registry.py`: 10 seeds, RIGGING, NEUTRAL ports; seed counts 9→10 in `test_executor.py` + `test_temporal_cleanup_registry.py` (SEED)
+- [x] 3.7 GREEN `infrastructure/virtual/node_registry.py`: register `RetargetMapNode()` 10th; docstring 9→10 (SEED)
+- [x] 3.8 `frontend/src/test/fixtures/nodeCatalog.json`: append `retarget-map` golden — RIGGING, motion ports, 5 params (CATALOG)
+- [x] 3.9 `openspec/specs/temporal-cleanup/spec.md` (read-only): `LFoot/RFoot` → `LeftFoot/RightFoot` wording
 
 ## Phase 4: Integration Verify + Docs
 
-- [ ] 4.1 `.\\.venv\\Scripts\\python.exe -m pytest` full suite green
-- [ ] 4.2 Grep `import numpy|from numpy` in `aimation_actor_core/domain/` → zero matches
-- [ ] 4.3 `npm test` in `frontend/` green — fixture no drift
-- [ ] 4.4 `docs/SDD.md` §4.2 row: `Retarget presets (retarget-map, RIGGING)` — High — safe_load + extra="forbid" + size cap + allowlist + no eval — no-eval scan + negative tests (SECURITY)
-- [ ] 4.5 `pyproject.toml`: add `pyyaml>=6.0` to `[project.dependencies]`; §3.2 soft-constraint flag for maintainer
+- [x] 4.1 `.\\.venv\\Scripts\\python.exe -m pytest` full suite green
+- [x] 4.2 Grep `import numpy|from numpy` in `aimation_actor_core/domain/` → zero matches
+- [x] 4.3 `npm test` in `frontend/` green — fixture no drift
+- [x] 4.4 `docs/SDD.md` §4.2 row: `Retarget presets (retarget-map, RIGGING)` — High — safe_load + extra="forbid" + size cap + allowlist + no eval — no-eval scan + negative tests (SECURITY)
+- [x] 4.5 `pyproject.toml`: add `pyyaml>=6.0` to `[project.dependencies]`; §3.2 soft-constraint flag for maintainer
 
 Deferred (NOT tasks): rotational IK/FK, joint limits, facial/blendshape retarget, DCC shadow-rig plugins, target skeleton graph input, style-model interaction.

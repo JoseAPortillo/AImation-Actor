@@ -122,14 +122,76 @@ GREEN gate: full domain suite **240 passed**; full suite **455 passed, 2 skipped
 - **`test_inbetween.py` residual private references**: after the import switched to `slerp`, 4 call sites + 1 comment still said `_slerp` (NameError → the RED for 2.3) — replaced all.
 
 ### Remaining Tasks
-- [ ] Phase 3 (3.1–3.9): adapter + presets + registry + catalog
-- [ ] Phase 4 (4.1–4.5): integration verify + docs
+- [x] Phase 3 (3.1–3.9): adapter + presets + registry + catalog
+- [x] Phase 4 (4.1–4.5): integration verify + docs
 
 ### Workload / PR Boundary
 - Mode: single-pr, `size:exception`
-- Units landed: Unit 1 (Phase 1) + Unit 2 (Phase 2 — quat promotion + retarget domain)
-- Boundary: base `feat/Develop @ 0d28204` + dependency merge `025c495`; Phase 2 ends with full suite **455 passed, 2 skipped**; ruff + mypy + import-linter clean
-- Estimated review budget impact: P1 ~190 + P2 ~160 authored lines (forecast matches)
+- Units landed: Unit 1 (Phase 1) + Unit 2 (Phase 2 — quat promotion + retarget domain) + Unit 3 (Phase 3, 3.1–3.9) + Unit 4 (Phase 3.6 extension + Phase 4, 4.1–4.4 + test_api seed bump)
+- Boundary: base `feat/Develop @ 0d28204` + dependency merge `025c495`; Phase 4 ends with full suite **494 passed, 2 skipped**; ruff (committed scope) + mypy (60 files) + import-linter (4/4 contracts) clean; frontend **123 passed** + `tsc -b` exit 0
+- Estimated review budget impact: P1 ~190 + P2 ~160 + P3 ~500 + P4 ~40 authored lines (forecast matches `size:exception`; review budget 400-line exception pre-approved, single-pr retained)
 
 ### Status
-21/35 tasks complete. Ready for Phase 3 (adapter + presets + registry + catalog).
+**35/35 tasks complete.** Ready for sdd-verify.
+
+---
+
+## Phase 3 — Adapter + Presets + Registry + Catalog (COMPLETE)
+
+### TDD Cycle Evidence
+
+| Task | RED (test first) | GREEN (impl passes) | REFACTOR |
+|------|------------------|---------------------|----------|
+| 3.1 test_retarget_map.py | new `test_retarget_map.py` → collection ImportError (ModuleNotFoundError: retarget_map) → RED confirmed | — (RED lands with 3.2) | — |
+| 3.2 `retarget_map.py` | covered by 3.1 RED | `test_retarget_map.py` → 14 passed (+1 expect-fail: shipped-identity test = 3.5's RED) | ruff: import order + E501 wraps |
+| 3.3 test_preset_security.py | approval-style negative suite (controls shipped by 3.2 per design; spec-mandated verification) | `test_preset_security.py` → 20 passed on first complete run | 2 test-data fixes (padding arithmetic in at-cap test, unused `type: ignore`) |
+| 3.4 re-export in `__init__.py` | n/a (re-export only) | `test_retarget_map.py` → 15 passed (with 3.5 file in place) | ruff clean |
+| 3.5 `media/presets/identity.yaml` | `test_execute_shipped_identity_preset_is_passthrough` RED (PresetError: file absent) — carried as the 3.5 RED | identity test GREEN; suite → 15 passed | — |
+| 3.6 registry RED | new `test_retarget_registry.py` + 9→10 bumps (test_executor, test_temporal_cleanup_registry, test_inbetween_generation_registry) + `test_api.py::test_list_node_types_lists_seed_nodes` → **7 failed** (retarget-map missing) | — | see deviation below |
+| 3.7 register 10th seed | covered by 3.6 RED | focused 7/7 passed; registry suite green | docstring nine→ten seeds |
+| 3.8 nodeCatalog golden | n/a (fixture append mirrors backend schema) | `npm test` → 123 passed; `tsc -b` exit 0 | — |
+| 3.9 spec wording | n/a (read-only one-word edit) | n/a | — |
+
+GREEN gate: focused **35 passed** (test_retarget_map + test_preset_security); full suite **494 passed, 2 skipped**.
+
+### Work Unit Evidence
+
+| Evidence | Required value |
+|---|---|
+| Focused test command and exact result | `pytest tests/infrastructure/test_retarget_map.py tests/infrastructure/test_preset_security.py` → **35 passed**; RED gate (3.6): `test_retarget_registry.py` + 9→10 bumps → **7 failed** |
+| Runtime harness command/scenario and exact result | N/A — `RetargetMapNode` execute is covered by direct async tests (`to_thread` mocked). Preset loader exercised via allowlisted `media/presets/identity.yaml` at runtime (shipped-identity passthrough test reads the real file). |
+| Rollback boundary | Revert `retarget_map.py`, `test_retarget_map.py`, `test_preset_security.py`, `__init__.py` re-export, `media/presets/` (new dir), `node_registry.py` registration, registry test bumps, nodeCatalog append, spec wording edit; keep ADR-001 |
+
+### Files Changed
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `aimation_actor_core/infrastructure/ai_models/retarget_map.py` | Created | `RetargetMapNode(INode)`: schema RIGGING, `motion: NEUTRAL_ANIMATION` in/out, 5 params (mapping_preset string required + 4 bools required=False default=None); `_resolve_preset_path` (allowlist: non-str/empty, absolute, extension `.yaml/.yml/.json`, `resolve()`+`is_relative_to` symlink-safe, nonexistent, non-file → `PresetError(code="preset_error")`); `_read_preset` (MAX_PRESET_BYTES=262_144 stat cap BEFORE parse → `json.loads`/`yaml.safe_load`, dict required); `_build_retarget_map` (`RetargetMap.model_validate` + `validate_against(DEFAULT_NEUTRAL_SKELETON)` + `model_copy(update=overrides)` — precedence node > preset > model default); `execute` (`migrate_neutral_motion` → `asyncio.to_thread(self._retarget_blocking)` → NodeOutput); `validate` (PresetError/yaml.ValidationError/ValueError/OSError → invalid, bool coercion checks, preset probed in-thread) |
+| `aimation_actor_core/infrastructure/ai_models/__init__.py` | Modified | Re-export `RetargetMapNode` (task 3.4) |
+| `media/presets/identity.yaml` | Created | 22-bone self-map preset + `media/presets/` dir (first preset root content) |
+| `aimation_actor_core/infrastructure/virtual/node_registry.py` | Modified | `RetargetMapNode()` registered 10th; docstring ten seeds (task 3.7) |
+| `tests/infrastructure/test_retarget_map.py` | Created | IDENTITY_PRESET/SCALE_PRESET fixtures; `_motion()` (Root/Hips/LeftUpLeg/LeftFoot/RightFoot, 2 frames); schema/execute/validate classes incl. shipped-identity passthrough vs real file |
+| `tests/infrastructure/test_preset_security.py` | Created | 20 negatives: traversal (dotdot/deep/backslash/absolute/symlink-escape w/ skip-guard + inside-symlink positive, non-str), size cap (oversized malformed → PresetError proves pre-parse; byte-exact at-cap allowed), malformed YAML/JSON/empty/list/unknown-field/unknown-bone, static no-eval scan + safe-loader positive control |
+| `tests/infrastructure/test_executor.py` | Modified | `test_seeded_registry_lists_nine_seed_nodes` → ten + retarget-map (9→10) |
+| `tests/infrastructure/test_temporal_cleanup_registry.py` | Modified | `test_registry_has_nine_seeds` → ten + retarget-map |
+| `tests/infrastructure/test_inbetween_generation_registry.py` | Modified | `test_registry_has_nine_seeds` → ten + retarget-map |
+| `tests/infrastructure/test_retarget_registry.py` | Created | 10 seeds, RIGGING category, NEUTRAL ports, 7-node chain through retarget-map validates as connected DAG |
+| `tests/api/test_api.py` | Modified | `/nodes/types` seed set 9→10 (4th seed assertion beyond tasks.md 3.6's three named files — see deviation) |
+| `frontend/src/test/fixtures/nodeCatalog.json` | Modified | Appended `retarget-map` golden (10th entry): rigging, motion ports, mapping_preset + 4 bools (null defaults; descriptions mirror backend schema) |
+| `openspec/specs/temporal-cleanup/spec.md` | Modified | `LFoot/RFoot` → `LeftFoot/RightFoot` (ADR-001 wording) |
+| `pyproject.toml` | Modified | `[project.dependencies]` + `pyyaml>=6.0` (with §4.2 sign-off comment); `dev` + `types-PyYAML>=6.0` |
+
+### Deviations from Design
+
+- **Dependency inversion 3.1/3.2 + file-after-tests 3.5**: `_coerce_motion` concerns were designed in §4.1 but folded into `execute` via `migrate_neutral_motion` in 3.2 (no separate `_coerce_motion` symbol; the adapter contract is the coercion). The shipped-identity test (3.1 file) stays RED until 3.5 creates `media/presets/identity.yaml` — carried deliberately as 3.5's RED rather than committed red.
+- **3.3 approval-style RED (n/a)**: task 3.2's own text ships the security controls (allowlist, cap, safe_load) — the design bundles loader security INTO 3.2. The 3.3 security suite is the spec-mandated negative verification of those controls; it passed on first complete run (2 test-data fixes only, no production change). Recorded honestly: no RED possible for controls already mandated by 3.2's task text.
+- **3.6 scope +2 files**: tasks.md names only `test_executor.py` + `test_temporal_cleanup_registry.py`; full-suite run surfaced TWO more 9-seed assertions — `test_inbetween_generation_registry.py::test_registry_has_nine_seeds` and (API contract level) `tests/api/test_api.py::test_list_node_types_lists_seed_nodes`. All four bumped; the API one failed the 4.1 verify run and was fixed post-GREEN (see Issues).
+- **4.5 pyproject moved earlier**: `pyyaml>=6.0` + `types-PyYAML>=6.0` landed with the 3.1–3.5 commit (the loader imports yaml; mypy strict requires stubs — the slice could not be lint-green without the entry). 4.5's remaining verification = installed env matches (pyyaml 6.0.3, types-PyYAML 6.0.12 in venv → confirmed).
+- **4.4 severity matched task text (High)**: initial draft used Medium; task 4.4 explicitly prescribes High — table row set to High, consistent with the existing Video/Input malicious-file row.
+
+### Issues Found
+
+- **Padding arithmetic bug in the at-cap security test (test-data fix)**: the append-loop overshot the cap (262141 ≠ 262144). Replaced with byte-exact `raw + b"#" + b" "*(cap-len(raw)-1)`; test now asserts st_size == MAX_PRESET_BYTES precisely.
+- **`idempotent` ruff/mypy cleanup**: `test_preset_security.py` had an unused `type: ignore[list-item]` (heterogeneous tuple infers object) — removed; import order fixed by ruff.
+- **`test_api.py` missed by the "nine" grep**: the API seed test's name is `test_list_node_types_lists_seed_nodes` (no "nine"/"9") so the phase-2 sweep did not flag it; only the FULL 4.1 suite run caught it. Lesson: seed-count greps must search the set contents, not just test names.
+- **Untracked leftover `test_inbetween.py`** (repo root, WIP scratch, pre-existing) is NOT part of this change; it is the ONLY source of the 20 ruff repo-wide findings (committed scope ruff is clean). Left untouched, never committed.
