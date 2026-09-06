@@ -15,6 +15,10 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    # retargeting §14: preset ingestion uses yaml.safe_load only (SDD §4.2
+    # threat "Preset ingestion"; soft constraint sign-off recorded in
+    # openspec/changes/retargeting/apply-progress.md §3.2).
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +35,8 @@ dev = [
     "hypothesis>=6.100",
     "import-linter>=2.0",
     "ruff>=0.4",
+    # mypy stubs for the pyyaml runtime dependency (pyyaml itself is untyped).
+    "types-PyYAML>=6.0",
 ]
 
 [project.scripts]
