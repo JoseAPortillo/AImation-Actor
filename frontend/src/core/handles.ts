@@ -25,6 +25,7 @@ const CATEGORY_COLORS: Record<NodeCategory, string> = {
   source: "#2563eb",
   ai: "#7c3aed",
   cleanup: "#059669",
+  enrichment: "#0ea5e9",
   rigging: "#d97706",
   output: "#dc2626",
   logic: "#0891b2",
