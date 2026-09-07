@@ -57,24 +57,24 @@ Chain strategy: feature-branch-chain
 ## Phase 4: Schema, Registry Wiring, Seed Counts
 
 - [x] 4.1 `aimation_actor_core/domain/pipeline/schema.py`: additive `NodeCategory.ENRICHMENT = "enrichment"` (SEED)
-- [ ] 4.2 RED `tests/infrastructure/test_inbetween_generation_registry.py`: 9 seeds, ENRICHMENT, NEUTRAL_ANIMATION ports (SEED)
-- [ ] 4.3 GREEN `aimation_actor_core/infrastructure/virtual/node_registry.py`: register 9th seed after temporal-cleanup; docstring 8→9 (SEED)
-- [ ] 4.4 Re-export `InbetweenGenerationNode` in `aimation_actor_core/infrastructure/ai_models/__init__.py`
-- [ ] 4.5 Seed sets 8→9: `tests/infrastructure/test_executor.py`, `tests/infrastructure/test_temporal_cleanup_registry.py`, `tests/api/test_api.py` (SEED)
+- [x] 4.2 RED `tests/infrastructure/test_inbetween_generation_registry.py`: 9 seeds, ENRICHMENT, NEUTRAL_ANIMATION ports (SEED)
+- [x] 4.3 GREEN `aimation_actor_core/infrastructure/virtual/node_registry.py`: register 9th seed after temporal-cleanup; docstring 8→9 (SEED)
+- [x] 4.4 Re-export `InbetweenGenerationNode` in `aimation_actor_core/infrastructure/ai_models/__init__.py`
+- [x] 4.5 Seed sets 8→9: `tests/infrastructure/test_executor.py`, `tests/infrastructure/test_temporal_cleanup_registry.py`, `tests/api/test_api.py` (SEED)
 
 ## Phase 5: Frontend TS Sync + Golden Fixture
 
-- [ ] 5.1 `frontend/src/api/types.ts`: `NodeCategory` += `"enrichment"` (SEED)
-- [ ] 5.2 `frontend/src/core/handles.ts`: `CATEGORY_COLORS` += enrichment (SEED)
-- [ ] 5.3 `frontend/src/components/palette/Palette.tsx`: `CATEGORY_LABEL` + `CATEGORY_ORDER` after "cleanup" (SEED)
-- [ ] 5.4 `frontend/src/test/fixtures/nodeCatalog.json`: golden entry — `enrichment` category, motion ports, 5 params (SEED)
+- [x] 5.1 `frontend/src/api/types.ts`: `NodeCategory` += `"enrichment"` (SEED)
+- [x] 5.2 `frontend/src/core/handles.ts`: `CATEGORY_COLORS` += enrichment (SEED)
+- [x] 5.3 `frontend/src/components/palette/Palette.tsx`: `CATEGORY_LABEL` + `CATEGORY_ORDER` after "cleanup" (SEED)
+- [x] 5.4 `frontend/src/test/fixtures/nodeCatalog.json`: golden entry — `enrichment` category, motion ports, 5 params (SEED)
 
 ## Phase 6: Integration Verify
 
-- [ ] 6.1 `.\\.venv\\Scripts\\python.exe -m pytest` full suite green
-- [ ] 6.2 Grep `import numpy|from numpy` in `aimation_actor_core/domain/` → zero matches
-- [ ] 6.3 `npm test` in `frontend/` green — fixture no drift
-- [ ] 6.4 Chain `video-source→pose-2d→pose-3d→video-to-motion→temporal-cleanup→inbetween-generation` valid DAG (SEED)
-- [ ] 6.5 §3.2: threat-model entry + Security Champion sign-off before archive
+- [x] 6.1 `.\\.venv\\Scripts\\python.exe -m pytest` full suite green
+- [x] 6.2 Grep `import numpy|from numpy` in `aimation_actor_core/domain/` → zero matches
+- [x] 6.3 `npm test` in `frontend/` green — fixture no drift
+- [x] 6.4 Chain `video-source→pose-2d→pose-3d→video-to-motion→temporal-cleanup→inbetween-generation` valid DAG (SEED)
+- [x] 6.5 §3.2: threat-model entry applied (docs/SDD.md §4.2 row for ENRICHMENT nodes); **Security Champion sign-off PENDING — human gate, recorded in apply-progress for the maintainer before archive**
 
 Deferred (NOT tasks): arcs, procedural overlap, IK/FK blending, secondary motion, per-bone easing, downsampling, full gimbal-lock fix, contacts/keyposes/tracking remap — future changes.

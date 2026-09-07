@@ -328,5 +328,66 @@
         "description": "Frames to maintain foot lock after contact loss"
       }
     ]
+  },
+  {
+    "type": "inbetween-generation",
+    "category": "enrichment",
+    "title": "In-Between Generation",
+    "description": "Resample, ease, filter rotation continuity, and smooth tangents",
+    "inputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "outputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "interpolation_method",
+        "data_type": "string",
+        "required": false,
+        "default": "cubic",
+        "description": "\"linear\" or \"cubic\" interpolation"
+      },
+      {
+        "name": "target_fps",
+        "data_type": "number",
+        "required": false,
+        "default": 30.0,
+        "description": "Target frame rate to upsample onto"
+      },
+      {
+        "name": "easing",
+        "data_type": "string",
+        "required": false,
+        "default": "none",
+        "description": "\"none\", \"ease-in\", \"ease-out\" or \"ease-in-out\""
+      },
+      {
+        "name": "euler_filter",
+        "data_type": "boolean",
+        "required": false,
+        "default": true,
+        "description": "Canonicalize rotation sign continuity"
+      },
+      {
+        "name": "tangent_smoothing",
+        "data_type": "number",
+        "required": false,
+        "default": 0.0,
+        "description": "Smoothing intensity in [0, 1]"
+      }
+    ]
   }
 ]
