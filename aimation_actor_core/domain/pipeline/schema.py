@@ -19,6 +19,7 @@ class NodeCategory(StrEnum):
     SOURCE = "source"
     AI = "ai"
     CLEANUP = "cleanup"
+    ENRICHMENT = "enrichment"
     RIGGING = "rigging"
     OUTPUT = "output"
     LOGIC = "logic"

@@ -51,12 +51,12 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: INode Adapter — TDD
 
-- [ ] 3.1 RED `tests/infrastructure/test_inbetween_generation.py`: type `inbetween-generation`, ENRICHMENT, **explicit ports `motion: NEUTRAL_ANIMATION`→`motion: NEUTRAL_ANIMATION`**, 5 params+defaults, execute `to_thread`→NeutralMotion, validate rejects bad enum/range/fps/bool (VALIDATE)
-- [ ] 3.2 GREEN `aimation_actor_core/infrastructure/ai_models/inbetween_generation.py`: `InbetweenGenerationNode(INode)` — schema, coercion, execute, validate; mirrors `TemporalCleanupNode` (VALIDATE)
+- [x] 3.1 RED `tests/infrastructure/test_inbetween_generation.py`: type `inbetween-generation`, ENRICHMENT, **explicit ports `motion: NEUTRAL_ANIMATION`→`motion: NEUTRAL_ANIMATION`**, 5 params+defaults, execute `to_thread`→NeutralMotion, validate rejects bad enum/range/fps/bool (VALIDATE)
+- [x] 3.2 GREEN `aimation_actor_core/infrastructure/ai_models/inbetween_generation.py`: `InbetweenGenerationNode(INode)` — schema, coercion, execute, validate; mirrors `TemporalCleanupNode` (VALIDATE)
 
 ## Phase 4: Schema, Registry Wiring, Seed Counts
 
-- [ ] 4.1 `aimation_actor_core/domain/pipeline/schema.py`: additive `NodeCategory.ENRICHMENT = "enrichment"` (SEED)
+- [x] 4.1 `aimation_actor_core/domain/pipeline/schema.py`: additive `NodeCategory.ENRICHMENT = "enrichment"` (SEED)
 - [ ] 4.2 RED `tests/infrastructure/test_inbetween_generation_registry.py`: 9 seeds, ENRICHMENT, NEUTRAL_ANIMATION ports (SEED)
 - [ ] 4.3 GREEN `aimation_actor_core/infrastructure/virtual/node_registry.py`: register 9th seed after temporal-cleanup; docstring 8→9 (SEED)
 - [ ] 4.4 Re-export `InbetweenGenerationNode` in `aimation_actor_core/infrastructure/ai_models/__init__.py`
