@@ -41,13 +41,13 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Domain Trajectory Math (rotation, smoothing, pipeline) — TDD
 
-- [ ] 2.1 RED: q/-q → positive dot; shortest arc = canonicalized slerp; disabled passthrough; near-antipodal nlerp no-NaN (ROT)
-- [ ] 2.2 GREEN `_apply_rotation_filter`: sign canonicalization on resampled seq, slerp flips far endpoint, nlerp if `|dot|>1-1e-6`/`sinθ<1e-6`; **canonicalize pre+post interpolation** (ROT)
-- [ ] 2.3 RED: identity at 0; translation variance non-increasing for a<b in (0,1] (SMOOTH)
-- [ ] 2.4 GREEN `_apply_tangent_smooth`: centered box `1+round(intensity*9)`; **translation axes only, rotations untouched** (SMOOTH)
-- [ ] 2.5 RED: stage-spy order, run-twice byte-identical, invariants; new frames `confidence=None`; **`tracking`/`contacts`/`keyposes` passthrough (MVP)** (ORDER)
-- [ ] 2.6 GREEN `enrich_motion`: resample→ease→rotation→smooth, meta updated, `validate_invariants()` last (ORDER)
-- [ ] 2.7 Re-export `enrich_motion` in `aimation_actor_core/domain/animation/__init__.py`
+- [x] 2.1 RED: q/-q → positive dot; shortest arc = canonicalized slerp; disabled passthrough; near-antipodal nlerp no-NaN (ROT)
+- [x] 2.2 GREEN `_apply_rotation_filter`: sign canonicalization on resampled seq, slerp flips far endpoint, nlerp if `|dot|>1-1e-6`/`sinθ<1e-6`; **canonicalize pre+post interpolation** (ROT)
+- [x] 2.3 RED: identity at 0; translation variance non-increasing for a<b in (0,1] (SMOOTH)
+- [x] 2.4 GREEN `_apply_tangent_smooth`: centered box `1+round(intensity*9)`; **translation axes only, rotations untouched** (SMOOTH)
+- [x] 2.5 RED: stage-spy order, run-twice byte-identical, invariants; new frames `confidence=None`; **`tracking`/`contacts`/`keyposes` passthrough (MVP)** (ORDER)
+- [x] 2.6 GREEN `enrich_motion`: resample→ease→rotation→smooth, meta updated, `validate_invariants()` last (ORDER)
+- [x] 2.7 Re-export `enrich_motion` in `aimation_actor_core/domain/animation/__init__.py`
 
 ## Phase 3: INode Adapter — TDD
 
