@@ -30,7 +30,6 @@ from aimation_actor_core.domain.animation.inbetween import (
     _apply_tangent_smooth,
     _ease,
     _resample,
-    _slerp,
     enrich_motion,
 )
 from aimation_actor_core.domain.animation.neutral_motion import (
@@ -41,6 +40,7 @@ from aimation_actor_core.domain.animation.neutral_motion import (
     NeutralMotion,
     TrackingInfo,
 )
+from aimation_actor_core.domain.animation.quat import slerp
 from aimation_actor_core.domain.animation.skeleton import Bone, Skeleton
 
 # --------------------------------------------------------------------------- #
@@ -120,7 +120,7 @@ def _quat_norm(q: tuple[float, float, float, float]) -> float:
 
 
 # --------------------------------------------------------------------------- #
-# ROT — task 2.1 (RED: _slerp / _apply_rotation_filter do not exist yet)
+# ROT — task 2.1 (RED: slerp / _apply_rotation_filter do not exist yet)
 # --------------------------------------------------------------------------- #
 
 
@@ -144,34 +144,34 @@ class TestRotationFilter:
         assert out is motion
         assert _rotations(out) == rotations
 
-    def test_slerp_shortest_arc_canonicalizes_negative_dot_pair(self) -> None:
+    def testslerp_shortest_arc_canonicalizes_negative_dot_pair(self) -> None:
         """Slerping the negated 120°-about-z quaternion follows the 60° short arc."""
         q_rot = (0.5, 0.0, 0.0, math.sqrt(3.0) / 2.0)  # 120° about z
         q_neg = (-q_rot[0], -q_rot[1], -q_rot[2], -q_rot[3])  # same rotation, dot<0
         assert _quat_dot((1.0, 0.0, 0.0, 0.0), q_neg) < 0.0
-        mid = _slerp((1.0, 0.0, 0.0, 0.0), q_neg, 0.5)
+        mid = slerp((1.0, 0.0, 0.0, 0.0), q_neg, 0.5)
         # Short arc: identity -> 120°-about-z passes through 60°-about-z.
         expected = (math.cos(math.radians(30.0)), 0.0, 0.0, math.sin(math.radians(30.0)))
         assert mid == pytest.approx(expected, abs=1e-6)
 
-    def test_slerp_antipodal_uses_nlerp_no_nan(self) -> None:
+    def testslerp_antipodal_uses_nlerp_no_nan(self) -> None:
         """Near-antipodal pair falls back to nlerp: finite, unit norm, no NaN."""
         q0 = (1.0, 0.0, 0.0, 0.0)
         w = -(1.0 - 1e-7)
         z = math.sqrt(1.0 - w * w)
         q1 = (w, 0.0, 0.0, z)  # dot(q0, q1) ≈ -1 -> nlerp path
-        mid = _slerp(q0, q1, 0.5)
+        mid = slerp(q0, q1, 0.5)
         assert all(math.isfinite(c) for c in mid)
         assert _quat_norm(mid) == pytest.approx(1.0, abs=1e-6)
         # nlerp(t=0.5) of the canonicalized pair: mid stays near the start quaternion.
         assert mid[0] == pytest.approx(1.0, abs=1e-4)
 
-    def test_slerp_endpoint_consistency(self) -> None:
+    def testslerp_endpoint_consistency(self) -> None:
         """Slerp reproduces its endpoints: t=0 -> q0, t=1 -> canonical q1."""
         q0 = (1.0, 0.0, 0.0, 0.0)
         q1 = (0.0, 0.0, 0.0, 1.0)
-        assert _slerp(q0, q1, 0.0) == pytest.approx(q0)
-        assert _slerp(q0, q1, 1.0) == pytest.approx(q1, abs=1e-6)
+        assert slerp(q0, q1, 0.0) == pytest.approx(q0)
+        assert slerp(q0, q1, 1.0) == pytest.approx(q1, abs=1e-6)
 
     def test_resample_then_filter_positive_dot_unit_norm(self) -> None:
         """Composition: slerped resample + post filter keep dots positive, unit norm."""

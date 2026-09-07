@@ -17,6 +17,7 @@ from aimation_actor_core.infrastructure.ai_models.inbetween_generation import (
 )
 from aimation_actor_core.infrastructure.ai_models.pose_2d import Pose2DNode
 from aimation_actor_core.infrastructure.ai_models.pose_3d import Pose3DNode
+from aimation_actor_core.infrastructure.ai_models.retarget_map import RetargetMapNode
 from aimation_actor_core.infrastructure.ai_models.temporal_cleanup import TemporalCleanupNode
 from aimation_actor_core.infrastructure.ai_models.video_to_motion import VideoToMotionNode
 from aimation_actor_core.infrastructure.video.frame_extractor import (
@@ -55,8 +56,9 @@ def seeded_node_registry(media_root: Path = Path("media")) -> StaticNodeRegistry
 
     Registers the three virtual seed nodes plus the real AI preprocessing
     nodes ``video-source``, ``pose-2d``, ``pose-3d``, the terminal
-    ``video-to-motion`` converter, the ``temporal-cleanup`` post-processor
-    and the ``inbetween-generation`` enrichment node — nine seeds total.
+    ``video-to-motion`` converter, the ``temporal-cleanup`` post-processor,
+    the ``inbetween-generation`` enrichment node and the ``retarget-map``
+    rigging node — ten seeds total.
     ``media_root`` allowlists the video paths that ``video-source`` may read
     (path allowlist, SDD §4.3).
 
@@ -74,4 +76,5 @@ def seeded_node_registry(media_root: Path = Path("media")) -> StaticNodeRegistry
     registry.register(VideoToMotionNode())
     registry.register(TemporalCleanupNode())
     registry.register(InbetweenGenerationNode())
+    registry.register(RetargetMapNode())
     return registry

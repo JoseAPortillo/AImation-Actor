@@ -4,11 +4,38 @@ Provides the default ``Root + 21`` neutral skeleton in T-pose, up-Y, with
 LOCAL rest offsets in centimetres and parents-before-children dict order.
 This is the reference hierarchy shared by the converter and retargeting
 pipelines; no external asset is required.
+
+Bone names use the plan §14.2 canonical ``Left…/Right…`` form (ADR-001).
+Legacy ``L…/R…`` names are mapped to them by :data:`LEGACY_BONE_RENAME_MAP`
+— an explicit table, never a naive prefix rewrite (``Root`` starts with ``R``).
 """
 
 from __future__ import annotations
 
 from aimation_actor_core.domain.animation.skeleton import Bone, Skeleton
+
+#: ADR-001: explicit 16-entry legacy ``L…/R…`` → canonical ``Left…/Right…``
+#: bone-name table used by the NeutralMotion 0.2 → 0.3 migration. A naive
+#: ``L→Left``/``R→Right`` prefix rewrite is forbidden because ``Root`` starts
+#: with ``R`` (and would become ``Rightoot``); every rename is spelled out.
+LEGACY_BONE_RENAME_MAP: dict[str, str] = {
+    "LShoulder": "LeftShoulder",
+    "LArm": "LeftArm",
+    "LForeArm": "LeftForeArm",
+    "LHand": "LeftHand",
+    "RShoulder": "RightShoulder",
+    "RArm": "RightArm",
+    "RForeArm": "RightForeArm",
+    "RHand": "RightHand",
+    "LUpLeg": "LeftUpLeg",
+    "LLeg": "LeftLeg",
+    "LFoot": "LeftFoot",
+    "LToeBase": "LeftToeBase",
+    "RUpLeg": "RightUpLeg",
+    "RLeg": "RightLeg",
+    "RFoot": "RightFoot",
+    "RToeBase": "RightToeBase",
+}
 
 #: The 21 §14.2 bones in T-pose (plus ``Root`` = 22). Rest offsets are LOCAL
 #: (relative to each bone's parent) in centimetres, up-Y: the torso chain
@@ -23,21 +50,29 @@ DEFAULT_NEUTRAL_SKELETON = Skeleton(
         "Chest": Bone(name="Chest", parent="Spine", rest_position=(0.0, 15.0, 0.0)),
         "Neck": Bone(name="Neck", parent="Chest", rest_position=(0.0, 20.0, 0.0)),
         "Head": Bone(name="Head", parent="Neck", rest_position=(0.0, 18.0, 0.0)),
-        "LShoulder": Bone(name="LShoulder", parent="Chest", rest_position=(-15.0, 6.0, 0.0)),
-        "LArm": Bone(name="LArm", parent="LShoulder", rest_position=(-15.0, 0.0, 0.0)),
-        "LForeArm": Bone(name="LForeArm", parent="LArm", rest_position=(-25.0, 0.0, 0.0)),
-        "LHand": Bone(name="LHand", parent="LForeArm", rest_position=(-22.0, 0.0, 0.0)),
-        "RShoulder": Bone(name="RShoulder", parent="Chest", rest_position=(15.0, 6.0, 0.0)),
-        "RArm": Bone(name="RArm", parent="RShoulder", rest_position=(15.0, 0.0, 0.0)),
-        "RForeArm": Bone(name="RForeArm", parent="RArm", rest_position=(25.0, 0.0, 0.0)),
-        "RHand": Bone(name="RHand", parent="RForeArm", rest_position=(22.0, 0.0, 0.0)),
-        "LUpLeg": Bone(name="LUpLeg", parent="Hips", rest_position=(0.0, -8.0, 0.0)),
-        "LLeg": Bone(name="LLeg", parent="LUpLeg", rest_position=(0.0, -40.0, 0.0)),
-        "LFoot": Bone(name="LFoot", parent="LLeg", rest_position=(0.0, -42.0, 0.0)),
-        "LToeBase": Bone(name="LToeBase", parent="LFoot", rest_position=(0.0, -2.0, 18.0)),
-        "RUpLeg": Bone(name="RUpLeg", parent="Hips", rest_position=(0.0, -8.0, 0.0)),
-        "RLeg": Bone(name="RLeg", parent="RUpLeg", rest_position=(0.0, -40.0, 0.0)),
-        "RFoot": Bone(name="RFoot", parent="RLeg", rest_position=(0.0, -42.0, 0.0)),
-        "RToeBase": Bone(name="RToeBase", parent="RFoot", rest_position=(0.0, -2.0, 18.0)),
+        "LeftShoulder": Bone(name="LeftShoulder", parent="Chest", rest_position=(-15.0, 6.0, 0.0)),
+        "LeftArm": Bone(name="LeftArm", parent="LeftShoulder", rest_position=(-15.0, 0.0, 0.0)),
+        "LeftForeArm": Bone(name="LeftForeArm", parent="LeftArm", rest_position=(-25.0, 0.0, 0.0)),
+        "LeftHand": Bone(name="LeftHand", parent="LeftForeArm", rest_position=(-22.0, 0.0, 0.0)),
+        "RightShoulder": Bone(name="RightShoulder", parent="Chest", rest_position=(15.0, 6.0, 0.0)),
+        "RightArm": Bone(name="RightArm", parent="RightShoulder", rest_position=(15.0, 0.0, 0.0)),
+        "RightForeArm": Bone(
+            name="RightForeArm",
+            parent="RightArm",
+            rest_position=(25.0, 0.0, 0.0),
+        ),
+        "RightHand": Bone(name="RightHand", parent="RightForeArm", rest_position=(22.0, 0.0, 0.0)),
+        "LeftUpLeg": Bone(name="LeftUpLeg", parent="Hips", rest_position=(0.0, -8.0, 0.0)),
+        "LeftLeg": Bone(name="LeftLeg", parent="LeftUpLeg", rest_position=(0.0, -40.0, 0.0)),
+        "LeftFoot": Bone(name="LeftFoot", parent="LeftLeg", rest_position=(0.0, -42.0, 0.0)),
+        "LeftToeBase": Bone(name="LeftToeBase", parent="LeftFoot", rest_position=(0.0, -2.0, 18.0)),
+        "RightUpLeg": Bone(name="RightUpLeg", parent="Hips", rest_position=(0.0, -8.0, 0.0)),
+        "RightLeg": Bone(name="RightLeg", parent="RightUpLeg", rest_position=(0.0, -40.0, 0.0)),
+        "RightFoot": Bone(name="RightFoot", parent="RightLeg", rest_position=(0.0, -42.0, 0.0)),
+        "RightToeBase": Bone(
+            name="RightToeBase",
+            parent="RightFoot",
+            rest_position=(0.0, -2.0, 18.0),
+        ),
     }
 )

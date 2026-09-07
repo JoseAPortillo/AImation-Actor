@@ -12,8 +12,10 @@ domain *timing* math:
 
 Slice 2 (PR2) adds the domain *trajectory* math:
 
-- :func:`_slerp` — sign-canonicalized shortest-arc interpolation with an
-  anti-NaN nlerp fallback near antipodal pairs (ROT).
+- :func:`quat.slerp <aimation_actor_core.domain.animation.quat.slerp>` —
+  sign-canonicalized shortest-arc interpolation with an anti-NaN nlerp
+  fallback near antipodal pairs, promoted to :mod:`aimation_actor_core.domain.animation.quat`
+  without behavior change (ROT).
 - :func:`_apply_rotation_filter` — post-pass sign canonicalization of each
   joint's rotation track (ROT).
 - :func:`_apply_tangent_smooth` — centered-box smoothing, translation axes
@@ -32,6 +34,7 @@ from dataclasses import dataclass
 
 from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform3D
 from aimation_actor_core.domain.animation.neutral_motion import NeutralMotion
+from aimation_actor_core.domain.animation.quat import quat_dot, quat_negate, slerp
 
 #: Valid interpolation methods.
 _VALID_INTERPOLATION = frozenset({"linear", "cubic"})
@@ -254,7 +257,7 @@ def _resample(
             q1 = motion.frames[index + 1].pose.transforms[bone].rotation
             transforms[bone] = Transform3D(
                 translation=vals,
-                rotation=_slerp(q0, q1, u),
+                rotation=slerp(q0, q1, u),
                 scale=orig.scale,
             )
         frames.append(
@@ -270,89 +273,6 @@ def _resample(
     return motion.model_copy(update={"frames": frames, "meta": meta})
 
 
-# --------------------------------------------------------------------------- #
-# Quaternion helpers (ROT) — shortest-arc interpolation, anti-NaN fallback
-# --------------------------------------------------------------------------- #
-
-#: Threshold beyond which slerp degenerates (nearly parallel quaternions);
-#: the division by ``sin(theta)`` would lose precision / produce NaN.
-_SLERP_EPS: float = 1e-6
-
-
-def _quat_dot(
-    qa: tuple[float, float, float, float], qb: tuple[float, float, float, float]
-) -> float:
-    """Dot product of two quaternions ``(w, x, y, z)``."""
-    return qa[0] * qb[0] + qa[1] * qb[1] + qa[2] * qb[2] + qa[3] * qb[3]
-
-
-def _quat_negate(q: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    """Negate a quaternion (``-q`` encodes the same rotation as ``q``)."""
-    return (-q[0], -q[1], -q[2], -q[3])
-
-
-def _quat_normalize(q: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    """Rescale ``q`` to unit norm; a zero quaternion stays zero."""
-    norm = math.sqrt(_quat_dot(q, q))
-    if norm == 0.0:
-        return q
-    inv = 1.0 / norm
-    return (q[0] * inv, q[1] * inv, q[2] * inv, q[3] * inv)
-
-
-def _slerp(
-    q0: tuple[float, float, float, float],
-    q1: tuple[float, float, float, float],
-    t: float,
-) -> tuple[float, float, float, float]:
-    """Spherical interpolation between two unit quaternions along the short arc.
-
-    The far endpoint is sign-canonicalized first (``-q`` is the same rotation as
-    ``q``): when the pair's dot product is negative the second endpoint is
-    flipped, so the interpolation follows the short arc. Near-parallel pairs
-    (``|dot| > 1 - 1e-6``, i.e. ``sin(theta) < 1e-6``) use normalized linear
-    interpolation instead of slerp to avoid dividing by ~zero (anti-NaN). The
-    result is a unit quaternion; endpoints are reproduced exactly at ``t=0``
-    and ``t=1``.
-    """
-    # Canonicalize pre-interpolation: flip the far endpoint onto the short arc.
-    dot = _quat_dot(q0, q1)
-    if dot < 0.0:
-        q1 = _quat_negate(q1)
-        dot = -dot
-    dot = min(1.0, max(-1.0, dot))  # clamp float noise
-
-    if dot > 1.0 - _SLERP_EPS:
-        # Nearly parallel: nlerp — no acos/sin division, hence no NaN.
-        blend = (
-            q0[0] + t * (q1[0] - q0[0]),
-            q0[1] + t * (q1[1] - q0[1]),
-            q0[2] + t * (q1[2] - q0[2]),
-            q0[3] + t * (q1[3] - q0[3]),
-        )
-        return _quat_normalize(blend)
-
-    theta = math.acos(dot)
-    sin_theta = math.sin(theta)
-    if sin_theta < _SLERP_EPS:  # numerical guard; unreachable after clamp
-        blend = (
-            q0[0] + t * (q1[0] - q0[0]),
-            q0[1] + t * (q1[1] - q0[1]),
-            q0[2] + t * (q1[2] - q0[2]),
-            q0[3] + t * (q1[3] - q0[3]),
-        )
-        return _quat_normalize(blend)
-
-    w0 = math.sin((1.0 - t) * theta) / sin_theta
-    w1 = math.sin(t * theta) / sin_theta
-    return (
-        w0 * q0[0] + w1 * q1[0],
-        w0 * q0[1] + w1 * q1[1],
-        w0 * q0[2] + w1 * q1[2],
-        w0 * q0[3] + w1 * q1[3],
-    )
-
-
 def _canonicalize_rotation_track(
     track: list[tuple[float, float, float, float]],
 ) -> list[tuple[float, float, float, float]]:
@@ -365,8 +285,8 @@ def _canonicalize_rotation_track(
     """
     out: list[tuple[float, float, float, float]] = []
     for rotation in track:
-        if out and _quat_dot(out[-1], rotation) < 0.0:
-            rotation = _quat_negate(rotation)
+        if out and quat_dot(out[-1], rotation) < 0.0:
+            rotation = quat_negate(rotation)
         out.append(rotation)
     return out
 

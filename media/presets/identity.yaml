@@ -1,0 +1,34 @@
+# Retarget identity preset (retargeting §14, task 3.5).
+#
+# Every neutral bone maps to itself with an identity rotation offset, no axis
+# correction, and scale (1,1,1) — the no-op retarget used as the shipped
+# example and reference harness. Bone names are the ADR-001 canonical
+# Left…/Right… form (plan §14.2). This is the seeded preset consumed by
+# RetargetMapNode via yaml.safe_load (allowlisted root, size-capped).
+mapping:
+  Root: Root
+  Hips: Hips
+  Spine: Spine
+  Chest: Chest
+  Neck: Neck
+  Head: Head
+  LeftShoulder: LeftShoulder
+  LeftArm: LeftArm
+  LeftForeArm: LeftForeArm
+  LeftHand: LeftHand
+  RightShoulder: RightShoulder
+  RightArm: RightArm
+  RightForeArm: RightForeArm
+  RightHand: RightHand
+  LeftUpLeg: LeftUpLeg
+  LeftLeg: LeftLeg
+  LeftFoot: LeftFoot
+  LeftToeBase: LeftToeBase
+  RightUpLeg: RightUpLeg
+  RightLeg: RightLeg
+  RightFoot: RightFoot
+  RightToeBase: RightToeBase
+use_root_translation: true
+foot_ik: false
+scale_source_height: false
+preserve_keyframes: false

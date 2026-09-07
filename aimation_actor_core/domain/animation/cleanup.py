@@ -42,8 +42,8 @@ DEFAULT_HEIGHT_THRESHOLD = 10.0
 #: min frames to hold a contact once entered (flicker suppression).
 DEFAULT_HYSTERESIS_FRAMES = 4
 
-#: Local foot bones (children of each leg).
-_FOOT_BONES = ("LFoot", "RFoot")
+#: Local foot bones (children of each leg), canonical names (ADR-001).
+_FOOT_BONES = ("LeftFoot", "RightFoot")
 #: Contact feed keys for each foot.
 _FEED_KEYS = ("left_foot", "right_foot")
 #: The hips bone — the root whose drift is normalized and which is raised.
@@ -348,8 +348,8 @@ def _apply_ground_clamp(motion: NeutralMotion, params: CleanupParams) -> Neutral
 
     result = motion
     for i in range(len(result.frames)):
-        ly = _world_y_for(result, i, "LFoot")
-        ry = _world_y_for(result, i, "RFoot")
+        ly = _world_y_for(result, i, "LeftFoot")
+        ry = _world_y_for(result, i, "RightFoot")
         penetration = min(0.0, ly, ry)
         if penetration < 0.0:
             result = _raise_bone(result, _ROOT_BONE, -penetration)

@@ -65,7 +65,7 @@ class TestScale:
             [_frame(keypoints=[_kp("left_shoulder", x=0.4, y=0.35, z=0.5)])],
             only_local=False,
         )
-        trans = motion.frames[0].pose.transforms["LShoulder"].translation
+        trans = motion.frames[0].pose.transforms["LeftShoulder"].translation
         assert trans[0] == pytest.approx(0.4 * DEFAULT_PERSON_HEIGHT_CM)
         assert trans[1] == pytest.approx((1.0 - 0.35) * DEFAULT_PERSON_HEIGHT_CM)
         assert trans[2] == pytest.approx(0.5 * DEFAULT_PERSON_HEIGHT_CM)
@@ -75,8 +75,8 @@ class TestScale:
         frame = _frame(keypoints=[_kp("right_wrist", x=0.7, y=0.65, z=0.6)])
         default = convert_keypoints_to_motion([frame], only_local=False)
         override = convert_keypoints_to_motion([frame], person_height_cm=185.0, only_local=False)
-        d = default.frames[0].pose.transforms["RForeArm"].translation
-        o = override.frames[0].pose.transforms["RForeArm"].translation
+        d = default.frames[0].pose.transforms["RightForeArm"].translation
+        o = override.frames[0].pose.transforms["RightForeArm"].translation
         ratio = 185.0 / DEFAULT_PERSON_HEIGHT_CM
         assert o[0] == pytest.approx(d[0] * ratio)
         assert o[1] == pytest.approx(d[1] * ratio)
@@ -92,7 +92,7 @@ class TestYFlip:
         """With up-Y scene coords the head must be above the feet (flipped)."""
         motion = convert_keypoints_to_motion([_standing_frame()], only_local=False)
         head_y = motion.frames[0].pose.transforms["Head"].translation[1]
-        lfoot_y = motion.frames[0].pose.transforms["LFoot"].translation[1]
+        lfoot_y = motion.frames[0].pose.transforms["LeftFoot"].translation[1]
         assert head_y > lfoot_y
 
 
@@ -100,7 +100,7 @@ class TestLocalOffsets:
     """Abs→local derivation."""
 
     def test_local_is_abs_child_minus_abs_parent(self) -> None:
-        """local(LArm) = abs(LArm) − abs(LShoulder) along X with default only_local."""
+        """local(LeftArm) = abs(LeftArm) − abs(LeftShoulder) along X with default only_local."""
         frame = _frame(
             keypoints=[
                 _kp("left_shoulder", x=0.40, y=0.35),
@@ -108,7 +108,7 @@ class TestLocalOffsets:
             ]
         )
         motion = convert_keypoints_to_motion([frame])  # only_local=True default
-        local = motion.frames[0].pose.transforms["LArm"].translation
+        local = motion.frames[0].pose.transforms["LeftArm"].translation
         assert local[0] == pytest.approx((0.35 - 0.40) * DEFAULT_PERSON_HEIGHT_CM)
         assert local[1] == pytest.approx(((1.0 - 0.50) - (1.0 - 0.35)) * DEFAULT_PERSON_HEIGHT_CM)
 
@@ -116,7 +116,7 @@ class TestLocalOffsets:
         """only_local=False returns absolute scene positions, not the diff."""
         frame = _frame(keypoints=[_kp("left_elbow", x=0.35, y=0.50)])
         motion = convert_keypoints_to_motion([frame], only_local=False)
-        abs_x = motion.frames[0].pose.transforms["LArm"].translation[0]
+        abs_x = motion.frames[0].pose.transforms["LeftArm"].translation[0]
         assert abs_x == pytest.approx(0.35 * DEFAULT_PERSON_HEIGHT_CM)
 
     def test_missing_parent_keeps_rest_offset(self) -> None:
@@ -197,8 +197,8 @@ class TestMissingAndInvalidLabels:
         assert len(pose) == 22  # all neutral bones present; the unknown label is ignored
         # The mapped bone moved, the unmapped bone (e.g. Head) kept rest.
         assert (
-            pose["LShoulder"].translation
-            != DEFAULT_NEUTRAL_SKELETON.bones["LShoulder"].rest_position
+            pose["LeftShoulder"].translation
+            != DEFAULT_NEUTRAL_SKELETON.bones["LeftShoulder"].rest_position
         )
         assert pose["Head"].translation == DEFAULT_NEUTRAL_SKELETON.bones["Head"].rest_position
 

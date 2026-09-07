@@ -77,7 +77,8 @@ class TestNodes:
         assert r.status_code == 200
         types = {schema["type"] for schema in r.json()}
         # Three virtual seed nodes plus the real AI video-source, pose-2d,
-        # pose-3d, video-to-motion, temporal-cleanup and inbetween-generation nodes.
+        # pose-3d, video-to-motion, temporal-cleanup, inbetween-generation
+        # and retarget-map nodes.
         assert types == {
             "pass-through",
             "merge",
@@ -88,6 +89,7 @@ class TestNodes:
             "video-to-motion",
             "temporal-cleanup",
             "inbetween-generation",
+            "retarget-map",
         }
 
     def test_list_node_types_empty_registry(self) -> None:

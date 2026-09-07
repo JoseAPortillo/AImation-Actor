@@ -26,6 +26,15 @@ from aimation_actor_core.domain.animation.neutral_motion import (
     NeutralMeta,
     NeutralMotion,
     TrackingInfo,
+    UnsupportedNeutralVersionError,
+    migrate_neutral_motion,
+)
+from aimation_actor_core.domain.animation.quat import (
+    quat_dot,
+    quat_multiply,
+    quat_negate,
+    quat_normalize,
+    slerp,
 )
 from aimation_actor_core.domain.animation.skeleton import Bone, Skeleton
 from aimation_actor_core.domain.animation.skeleton_presets import DEFAULT_NEUTRAL_SKELETON
@@ -56,6 +65,13 @@ __all__ = [
     "Skeleton",
     "TrackingInfo",
     "Transform3D",
+    "UnsupportedNeutralVersionError",
     "cleanup_motion",
     "enrich_motion",
+    "migrate_neutral_motion",
+    "quat_dot",
+    "quat_multiply",
+    "quat_negate",
+    "quat_normalize",
+    "slerp",
 ]

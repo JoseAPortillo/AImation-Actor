@@ -23,7 +23,7 @@ The system MUST smooth per-joint translation jitter using a deterministic, state
 
 ### Requirement: Foot-contact detection with hysteresis
 
-The system MUST detect foot contact frames for LFoot/RFoot using a velocity + height heuristic and MUST write results to `NeutralMotion.contacts["left_foot"]` / `["right_foot"]`. Detection MUST use hysteresis to prevent flicker at contact boundaries.
+The system MUST detect foot contact frames for LeftFoot/RightFoot using a velocity + height heuristic and MUST write results to `NeutralMotion.contacts["left_foot"]` / `["right_foot"]`. Detection MUST use hysteresis to prevent flicker at contact boundaries.
 
 - GIVEN a frame where a foot's translation velocity is below threshold AND height is near the ground
 - WHEN contact is evaluated
