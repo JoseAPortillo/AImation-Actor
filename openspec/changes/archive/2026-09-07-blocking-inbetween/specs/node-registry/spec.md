@@ -1,36 +1,8 @@
-# node-registry Specification
+# node-registry — Delta Specs
 
-## Purpose
+== Capability: node-registry (MODIFIED) ==
 
-The read-only node allowlist and its seed nodes, surfaced via `/nodes/types`. Nodes are registered statically at import time, never from user input (SDD §4.3).
-
-## Requirements
-
-### Requirement: Allowlist-only node lookup
-
-The registry MUST expose lookup (`get`), membership (`contains`), and schema listing (`list_schemas`) over a static set of node types. Unknown types MUST resolve to "not found" and MUST be rejected before execution, never executed.
-
-#### Scenario: Unknown type not found
-
-- GIVEN a registry seeded with known node types
-- WHEN `contains("UnknownNode")` is called
-- THEN it returns `False` and `get` returns `None`
-
-#### Scenario: Known type resolves
-
-- GIVEN a registered node type
-- WHEN `get("<type>")` is called
-- THEN the matching `INode` instance is returned
-
-### Requirement: Static registration only
-
-Node types MUST be registered at import/composition-root time. User-supplied input MUST NOT be able to register a node type.
-
-#### Scenario: Registry has no user-driven registration path
-
-- GIVEN the registry interface
-- WHEN an API request attempts to add a node type
-- THEN no such operation exists or is reachable through the allowlist
+## MODIFIED Requirements
 
 ### Requirement: Seed nodes
 

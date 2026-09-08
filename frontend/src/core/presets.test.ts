@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { presets, videoToMotionPreset, videoToMotionEnrichedPreset, findPreset } from "./presets";
+import { presets, videoToMotionPreset, videoToMotionEnrichedPreset, blockingToMotionPreset, findPreset } from "./presets";
 import { parseGraph, serializeGraph } from "./serialize";
 
 describe("presets", () => {
@@ -7,11 +7,14 @@ describe("presets", () => {
     expect(presets().map((p) => p.id)).toEqual([
       "video-to-motion",
       "video-to-motion-enriched",
+      "blocking-to-motion",
     ]);
     expect(presets()[0].title).toBe("Video to Motion");
     expect(presets()[0].description.length).toBeGreaterThan(0);
     expect(presets()[1].title).toBe("Video to Motion (Enriched)");
     expect(presets()[1].description.length).toBeGreaterThan(0);
+    expect(presets()[2].title).toBe("Blocking to Motion");
+    expect(presets()[2].description.length).toBeGreaterThan(0);
   });
 
   it("returns a fresh, independent graph instance per call", () => {
@@ -141,6 +144,54 @@ describe("presets", () => {
       expect(ib.easing).toBe("ease-in-out");
       expect(ib.euler_filter).toBe(true);
       expect(ib.tangent_smoothing).toBe(0.0);
+    });
+
+    it("builds a canonical v1.0 graph that round-trips through parseGraph", () => {
+      const result = parseGraph(serializeGraph(graph));
+      expect(result.ok).toBe(true);
+      const roundTripped = result.ok ? result.graph : undefined;
+      expect(roundTripped).toEqual(graph);
+      expect(roundTripped?.version).toBe("1.0");
+    });
+  });
+
+  describe("Blocking to Motion graph wiring", () => {
+    const { graph } = blockingToMotionPreset();
+
+    it("chains 2 nodes: blocking-input -> inbetween-generation", () => {
+      expect(graph.nodes.map((n) => n.type)).toEqual([
+        "blocking-input",
+        "inbetween-generation",
+      ]);
+      // Stable ids for idempotent merge.
+      expect(graph.nodes.map((n) => n.id)).toEqual([
+        "blocking-input",
+        "inbetween-generation",
+      ]);
+    });
+
+    it("gives nodes flow layout positions", () => {
+      for (const n of graph.nodes) {
+        expect(n.position).toEqual(
+          expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+        );
+      }
+    });
+
+    it("wires 1 edge from blocking-input.motion to inbetween-generation.motion", () => {
+      expect(graph.edges.length).toBe(1);
+      expect(graph.edges[0]).toEqual({
+        id: "blocking-input-motion-inbetween-generation-motion",
+        source: { node: "blocking-input", port: "motion" },
+        target: { node: "inbetween-generation", port: "motion" },
+      });
+    });
+
+    it("seeds preserve_keyposes true and a 30fps target on inbetween-generation", () => {
+      const byId = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
+      const ib = byId["inbetween-generation"].params;
+      expect(ib.preserve_keyposes).toBe(true);
+      expect(ib.target_fps).toBe(30);
     });
 
     it("builds a canonical v1.0 graph that round-trips through parseGraph", () => {

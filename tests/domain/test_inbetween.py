@@ -29,6 +29,7 @@ from aimation_actor_core.domain.animation.inbetween import (
     _apply_rotation_filter,
     _apply_tangent_smooth,
     _ease,
+    _remap_keyposes,
     _resample,
     enrich_motion,
 )
@@ -528,10 +529,14 @@ class TestEnrichMotion:
         real_smooth = inbetween_module._apply_tangent_smooth
 
         def spy_resample(
-            motion: NeutralMotion, target_fps: float, method: str, easing: str
+            motion: NeutralMotion,
+            target_fps: float,
+            method: str,
+            easing: str,
+            preserve_keyposes: bool = False,
         ) -> NeutralMotion:
             calls.append("resample")
-            return real_resample(motion, target_fps, method, easing)
+            return real_resample(motion, target_fps, method, easing, preserve_keyposes)
 
         def spy_rotation(motion: NeutralMotion, enabled: bool) -> NeutralMotion:
             calls.append("rotation")
@@ -628,3 +633,212 @@ class TestEnrichMotion:
         # With the filter off, no sign canonicalization happens anywhere, so the
         # middle key's rotation keeps its original sign at its timeline position.
         assert out.frames[2].pose.transforms["B"].rotation == rotations[1]
+# --------------------------------------------------------------------------- #
+# KEY-LOCK / REMAP / DEGENERATE — REQ-05, REQ-06, REQ-07 (RED-first, blocking-inbetween)
+# --------------------------------------------------------------------------- #
+
+
+def _with_keyposes(
+    motion: NeutralMotion,
+    frames_weights: list[tuple[int, float]],
+) -> NeutralMotion:
+    return motion.model_copy(
+        update={"keyposes": [KeyPose(frame=f, weight=w) for f, w in frames_weights]}
+    )
+
+
+class TestPreserveKeyposesParam:
+    """preserve_keyposes param wiring (REQ-05)."""
+
+    def test_param_exists_defaults_false(self) -> None:
+        p = InbetweenParams()
+        assert p.preserve_keyposes is False
+
+    def test_param_accepts_true(self) -> None:
+        assert InbetweenParams(preserve_keyposes=True).preserve_keyposes is True
+
+
+class TestResampleKeyLock:
+    """REQ-05 key-lock: authored value emitted exactly at the key position."""
+
+    def test_key_lock_holds_authored_value_at_locked_frame(self) -> None:
+        """Interior key @ weight=1.0 is emitted exactly at its output position."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0])
+        motion = _with_keyposes(motion, [(2, 1.0)])
+        out = _resample(motion, target_fps=48.0, method="cubic", easing="none",
+                        preserve_keyposes=True)
+        # n_in=3 -> n_out=5; key source idx 1 -> out idx 2 (frame 3), exact 5.0.
+        assert out.frames[2].pose.transforms["B"].translation[0] == pytest.approx(5.0)
+        out.validate_invariants()
+
+    def test_off_grid_key_snaps_to_nearest_in_grid_frame(self) -> None:
+        """A key whose position is fractional snaps to the nearest output frame."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0, 30.0])
+        motion = _with_keyposes(motion, [(2, 1.0)])
+        out = _resample(motion, target_fps=60.0, method="cubic", easing="none",
+                        preserve_keyposes=True)
+        # n_in=4 -> n_out=8; key src idx 1 pos = 1*7/3 = 2.333 -> nearest idx 2.
+        assert out.frames[2].pose.transforms["B"].translation[0] == pytest.approx(5.0)
+        # Without key-lock, index 2 is a blend (not 5.0) -> the lock really ran.
+        unlocked = _resample(motion, target_fps=60.0, method="cubic", easing="none",
+                             preserve_keyposes=False)
+        assert unlocked.frames[2].pose.transforms["B"].translation[0] != pytest.approx(5.0)
+        out.validate_invariants()
+
+    def test_off_by_default_interpolated_equally(self) -> None:
+        """preserve_keyposes=False keeps existing equal-interpolation behavior."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0, 30.0])
+        motion = _with_keyposes(motion, [(2, 1.0)])
+        out = _resample(motion, target_fps=60.0, method="cubic", easing="none")
+        # Byte-identical to a call with preserve_keyposes explicitly False.
+        same = _resample(motion, target_fps=60.0, method="cubic", easing="none",
+                         preserve_keyposes=False)
+        assert out.model_dump_json() == same.model_dump_json()
+        # And with the key-lock ON, it differs (proves the lock is active).
+        locked = _resample(motion, target_fps=60.0, method="cubic", easing="none",
+                           preserve_keyposes=True)
+        assert locked.model_dump_json() != out.model_dump_json()
+
+
+class TestRemapKeyposes:
+    """REQ-06 keypose frame-index remap."""
+
+    def test_remap_maps_key_to_output_grid_frame(self) -> None:
+        """Source frame 2 (idx 1) @ 30->60 with 3 frames -> remapped frame 3."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        motion = _with_keyposes(motion, [(2, 1.0)])
+        out = enrich_motion(
+            motion, InbetweenParams(target_fps=60, preserve_keyposes=True)
+        )
+        # n_in=3 -> n_out=5; key src idx 1 -> out idx 2 -> frame number 3.
+        assert [(k.frame, k.weight) for k in out.keyposes] == [(3, 1.0)]
+        assert all(k.frame <= out.meta.duration_frames for k in out.keyposes)
+
+    def test_passthrough_when_no_resample(self) -> None:
+        """No upsample (target_fps <= fps) leaves keyposes unchanged (REQ-06 SC-02)."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        motion = _with_keyposes(motion, [(2, 1.0)])
+        out = enrich_motion(
+            motion, InbetweenParams(target_fps=24, preserve_keyposes=True)
+        )
+        assert [(k.frame, k.weight) for k in out.keyposes] == [(2, 1.0)]
+
+    def test_single_frame_passthrough(self) -> None:
+        """A single-frame motion passes keyposes through unchanged."""
+        motion = _make_motion(fps=30.0, xs=[7.0])
+        motion = _with_keyposes(motion, [(1, 1.0)])
+        out = enrich_motion(
+            motion, InbetweenParams(target_fps=60, preserve_keyposes=True)
+        )
+        assert out.keyposes == motion.keyposes
+
+    def test_remap_function_directly(self) -> None:
+        """The pure ``_remap_keyposes`` helper maps correctly and stays in-duration."""
+        keyposes = [KeyPose(frame=2, weight=1.0), KeyPose(frame=3, weight=0.5)]
+        out = _remap_keyposes(keyposes, source_frames=[1, 2, 3, 4], n_out=8, n_in=4)
+        # idx1 -> round(1*7/3)=2 -> frame 3; idx2 -> round(2*7/3)=5 -> frame 6.
+        assert [(k.frame, k.weight) for k in out] == [(3, 1.0), (6, 0.5)]
+        # Weight < exact-lock still gets remapped (all keyposes are remapped).
+        assert all(k.frame >= 1 for k in out)
+
+
+class TestKeyLockDegenerateSafety:
+    """REQ-07 degenerate key-lock resample — total, no div/0, never non-finite."""
+
+    def _safe(
+        self,
+        motion: NeutralMotion,
+        params: InbetweenParams | None = None,
+    ) -> None:
+        out = enrich_motion(motion, params or InbetweenParams(
+            target_fps=60, preserve_keyposes=True, tangent_smoothing=0.8))
+        out.validate_invariants()
+        for f in out.frames:
+            for t in f.pose.transforms.values():
+                assert all(c == c for c in t.translation)  # no NaN
+                assert all(c == c for c in t.rotation)
+
+    def test_no_keys_is_safe(self) -> None:
+        """Empty keyposes behaves exactly like preserve_keyposes=False (SC-01)."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0])
+        off = enrich_motion(motion, InbetweenParams(target_fps=60))
+        on = enrich_motion(motion, InbetweenParams(target_fps=60, preserve_keyposes=True))
+        assert on.model_dump_json() == off.model_dump_json()
+
+    def test_single_key_is_safe(self) -> None:
+        """One preserved key -> valid doc, key exact at its position (SC-02)."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0, 30.0])
+        motion = _with_keyposes(motion, [(2, 1.0)])
+        self._safe(motion)
+        out = enrich_motion(motion, InbetweenParams(target_fps=60, preserve_keyposes=True))
+        assert out.frames[2].pose.transforms["B"].translation[0] == pytest.approx(5.0)
+
+    def test_duplicate_keys_collapsed(self) -> None:
+        """Duplicate source frames collapse deterministically, no division error (SC-03)."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0, 30.0])
+        motion = _with_keyposes(motion, [(2, 1.0), (2, 0.8), (2, 1.0)])
+        self._safe(motion)
+        out = enrich_motion(motion, InbetweenParams(target_fps=60, preserve_keyposes=True))
+        assert out.frames[2].pose.transforms["B"].translation[0] == pytest.approx(5.0)
+
+    def test_adjacent_keys_are_safe(self) -> None:
+        """Two preserved keys at adjacent frames are both exact (SC-04)."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0, 30.0])
+        motion = _with_keyposes(motion, [(2, 1.0), (3, 1.0)])
+        self._safe(motion)
+        out = enrich_motion(motion, InbetweenParams(target_fps=60, preserve_keyposes=True))
+# src idx1 -> out idx2 (frame3) == 5.0; src idx2 -> out idx5 (frame6) == 20.0.
+        assert out.frames[2].pose.transforms["B"].translation[0] == pytest.approx(5.0)
+        assert out.frames[5].pose.transforms["B"].translation[0] == pytest.approx(20.0)
+
+    def test_keys_at_every_output_frame_are_safe(self) -> None:
+        """Every source frame is a locked key -> all exact, valid doc (REQ-07)."""
+        motion = _make_motion(fps=24.0, xs=[0.0, 5.0, 20.0, 30.0])
+        motion = _with_keyposes(motion, [(1, 1.0), (2, 1.0), (3, 1.0), (4, 1.0)])
+        self._safe(motion)
+        out = enrich_motion(motion, InbetweenParams(target_fps=60, preserve_keyposes=True))
+        # Each source key is exact at its output position.
+        assert out.frames[0].pose.transforms["B"].translation[0] == pytest.approx(0.0)
+        assert out.frames[2].pose.transforms["B"].translation[0] == pytest.approx(5.0)
+        assert out.frames[5].pose.transforms["B"].translation[0] == pytest.approx(20.0)
+        assert out.frames[7].pose.transforms["B"].translation[0] == pytest.approx(30.0)
+
+    def test_equal_fps_passthrough_with_all_keys_locked_is_safe(self) -> None:
+        """Equal-fps passthrough: all-locked keys stay exact, no NaN/div-0 (D8).
+
+        Threat-model guard: ``_resample`` is upsample-only (no downsample), so
+        every source frame survives 1:1; the degenerate ``n_out <= n_in``
+        branch of the key-lock math is exercised here in its identity form
+        (no two keys collapse, all outputs finite).
+        """
+        motion = _make_motion(fps=60.0, xs=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+        motion = _with_keyposes(
+            motion,
+            [(1, 1.0), (2, 1.0), (3, 1.0), (4, 1.0), (5, 1.0), (6, 1.0)],
+        )
+        self._safe(motion, InbetweenParams(
+            target_fps=60, preserve_keyposes=True, tangent_smoothing=0.8))
+        out = enrich_motion(motion, InbetweenParams(target_fps=60, preserve_keyposes=True))
+        assert len(out.frames) == 6
+        ys = [f.pose.transforms["B"].translation[0] for f in out.frames]
+        assert ys == pytest.approx([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+        assert out.keyposes == motion.keyposes  # identity remap on passthrough
+
+    def test_off_grid_keys_through_full_pipeline_are_safe(self) -> None:
+        """Off-grid keys survive the whole enrich chain — no NaN after smoothing.
+
+        Threat-model guard (D4/REQ-07): authored keys that do not line up with
+        a 60fps grid are snapped, then run through rotation filter + tangent
+        smoothing; output must stay valid and finite.
+        """
+        motion = _make_motion(fps=24.0, xs=[0.0, 2.0, 10.0, 11.0, 20.0])
+        motion = _with_keyposes(motion, [(1, 1.0), (3, 1.0), (5, 1.0)])
+        self._safe(motion)
+        out = enrich_motion(motion, InbetweenParams(
+            target_fps=60, preserve_keyposes=True, tangent_smoothing=0.8))
+        # Locked frames keep authored values exactly (D5), despite smoothing.
+        # src idx 0/2/4 -> out frames 1/6/11 (5->60fps grid).
+        by_frame = {f.frame: f for f in out.frames}
+        assert by_frame[1].pose.transforms["B"].translation[0] == pytest.approx(0.0)
+        assert by_frame[6].pose.transforms["B"].translation[0] == pytest.approx(10.0)
+        assert by_frame[11].pose.transforms["B"].translation[0] == pytest.approx(20.0)

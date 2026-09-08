@@ -115,12 +115,18 @@ export interface NeutralMotionMeta {
   graph_hash: string;
 }
 
+/** A single authored key pose: source frame number (1-based) + lock weight. */
+export interface KeyPose {
+  frame: number;
+  weight: number;
+}
+
 export interface NeutralMotionDoc {
   meta: NeutralMotionMeta;
   skeleton: SkeletonDoc;
   frames: MotionFrame[];
   contacts?: Record<string, unknown>;
-  keyposes?: unknown[];
+  keyposes?: KeyPose[];
   tracking?: {
     confidence_per_frame: number[];
   };

@@ -148,13 +148,55 @@ export const videoToMotionEnrichedPreset = (): Preset => ({
 });
 
 /**
+ * "Blocking to Motion": blocking payload -> neutral motion, key-locked and
+ * upsampled to 30fps with authored key-pose timing/values held exact.
+ */
+export const blockingToMotionPreset = (): Preset => ({
+  id: "blocking-to-motion",
+  title: "Blocking to Motion",
+  description:
+    "Turns a blocking payload into a neutral motion and upsamples it, preserving the authored blocking key poses exactly.",
+  graph: {
+    version: "1.0",
+    nodes: [
+      {
+        id: "blocking-input",
+        type: "blocking-input",
+        position: { x: 40, y: 120 },
+        params: {},
+      },
+      {
+        id: "inbetween-generation",
+        type: "inbetween-generation",
+        position: { x: 320, y: 120 },
+        params: {
+          interpolation_method: "cubic",
+          target_fps: 30,
+          easing: "none",
+          euler_filter: true,
+          tangent_smoothing: 0.0,
+          preserve_keyposes: true,
+        },
+      },
+    ],
+    edges: [
+      {
+        id: "blocking-input-motion-inbetween-generation-motion",
+        source: { node: "blocking-input", port: "motion" },
+        target: { node: "inbetween-generation", port: "motion" },
+      },
+    ],
+  },
+});
+
+/**
  * All available presets, in display order.
  *
  * The array is a function so each call yields a fresh graph instance (callers
  * may mutate layout/params without leaking state across renders).
  */
 export function presets(): Preset[] {
-  return [videoToMotionPreset(), videoToMotionEnrichedPreset()];
+  return [videoToMotionPreset(), videoToMotionEnrichedPreset(), blockingToMotionPreset()];
 }
 
 /** Look up a preset by its stable id. */

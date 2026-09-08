@@ -387,6 +387,13 @@
         "required": false,
         "default": 0.0,
         "description": "Smoothing intensity in [0, 1]"
+      },
+      {
+        "name": "preserve_keyposes",
+        "data_type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Hold authored key-pose values/timing exact during upsample"
       }
     ]
   },
@@ -448,6 +455,31 @@
         "required": false,
         "default": null,
         "description": "Override the preset preserve_keyframes (node wins)"
+      }
+    ]
+  },
+  {
+    "type": "blocking-input",
+    "category": "source",
+    "title": "Blocking Input",
+    "description": "Convert a blocking payload into a neutral motion",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "motion",
+        "data_type": "neutral_animation",
+        "required": true,
+        "default": null,
+        "description": ""
+      }
+    ],
+    "params": [
+      {
+        "name": "blocking",
+        "data_type": "string",
+        "required": true,
+        "default": null,
+        "description": "JSON-encoded blocking payload"
       }
     ]
   }

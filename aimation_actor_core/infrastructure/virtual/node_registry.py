@@ -12,6 +12,9 @@ from pathlib import Path
 from aimation_actor_core.domain.pipeline.node import INode
 from aimation_actor_core.domain.pipeline.registry import NodeRegistry
 from aimation_actor_core.domain.pipeline.schema import NodeSchema
+from aimation_actor_core.infrastructure.ai_models.blocking_input import (
+    BlockingInputNode,
+)
 from aimation_actor_core.infrastructure.ai_models.inbetween_generation import (
     InbetweenGenerationNode,
 )
@@ -57,8 +60,8 @@ def seeded_node_registry(media_root: Path = Path("media")) -> StaticNodeRegistry
     Registers the three virtual seed nodes plus the real AI preprocessing
     nodes ``video-source``, ``pose-2d``, ``pose-3d``, the terminal
     ``video-to-motion`` converter, the ``temporal-cleanup`` post-processor,
-    the ``inbetween-generation`` enrichment node and the ``retarget-map``
-    rigging node — ten seeds total.
+    the ``inbetween-generation`` enrichment node, the ``retarget-map``
+    rigging node and the ``blocking-input`` SOURCE node — eleven seeds total.
     ``media_root`` allowlists the video paths that ``video-source`` may read
     (path allowlist, SDD §4.3).
 
@@ -77,4 +80,5 @@ def seeded_node_registry(media_root: Path = Path("media")) -> StaticNodeRegistry
     registry.register(TemporalCleanupNode())
     registry.register(InbetweenGenerationNode())
     registry.register(RetargetMapNode())
+    registry.register(BlockingInputNode())
     return registry

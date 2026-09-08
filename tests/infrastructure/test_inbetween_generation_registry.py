@@ -38,8 +38,8 @@ class TestSeededRegistry:
         assert [port.data_type for port in schema.inputs] == [DataType.NEUTRAL_ANIMATION]
         assert [port.data_type for port in schema.outputs] == [DataType.NEUTRAL_ANIMATION]
 
-    def test_registry_has_ten_seeds(self) -> None:
-        """Should register exactly ten seed node types."""
+    def test_registry_has_eleven_seeds(self) -> None:
+        """Should register exactly eleven seed node types."""
         registry = seeded_node_registry()
         types = {schema.type for schema in registry.list_schemas()}
         assert types == {
@@ -53,6 +53,7 @@ class TestSeededRegistry:
             "temporal-cleanup",
             "inbetween-generation",
             "retarget-map",
+            "blocking-input",
         }
 
     def test_inbetween_generation_category_is_enrichment(self) -> None:
@@ -60,6 +61,18 @@ class TestSeededRegistry:
         registry = seeded_node_registry()
         schemas = {schema.type: schema for schema in registry.list_schemas()}
         assert schemas["inbetween-generation"].category == NodeCategory.ENRICHMENT
+
+    def test_blocking_input_is_source_with_neutral_animation_output(self) -> None:
+        """Should register blocking-input as SOURCE with NEUTRAL_ANIMATION output."""
+        registry = seeded_node_registry()
+        schemas = {schema.type: schema for schema in registry.list_schemas()}
+        assert "blocking-input" in schemas
+        schema = schemas["blocking-input"]
+        assert schema.category == NodeCategory.SOURCE
+        assert schema.inputs == []
+        assert [port.name for port in schema.outputs] == ["motion"]
+        assert [port.data_type for port in schema.outputs] == [DataType.NEUTRAL_ANIMATION]
+        assert [port.name for port in schema.params] == ["blocking"]
 
 
 class TestEnrichmentPipelineChain:

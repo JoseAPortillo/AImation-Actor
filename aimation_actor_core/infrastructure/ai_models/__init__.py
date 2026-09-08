@@ -1,5 +1,6 @@
 """AI models infrastructure (pose-2d and future AI stages)."""
 
+from aimation_actor_core.infrastructure.ai_models.blocking_input import BlockingInputNode
 from aimation_actor_core.infrastructure.ai_models.estimators import (
     OnnxBackend,
     PoseEstimator,
@@ -21,6 +22,7 @@ from aimation_actor_core.infrastructure.ai_models.temporal_cleanup import Tempor
 from aimation_actor_core.infrastructure.ai_models.video_to_motion import VideoToMotionNode
 
 __all__ = [
+    "BlockingInputNode",
     "HeuristicLiftingBackend",
     "InbetweenGenerationNode",
     "LiftingBackend",

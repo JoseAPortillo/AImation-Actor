@@ -83,8 +83,8 @@ def test_seeded_registry_lists_ten_seed_nodes() -> None:
     registry = seeded_node_registry()
     schemas = {schema.type for schema in registry.list_schemas()}
     # Three virtual seed nodes plus the real AI video-source, pose-2d,
-    # pose-3d, video-to-motion, temporal-cleanup, inbetween-generation
-    # and retarget-map nodes.
+    # pose-3d, video-to-motion, temporal-cleanup, inbetween-generation,
+    # retarget-map and blocking-input nodes.
     assert schemas == {
         "pass-through",
         "merge",
@@ -96,6 +96,7 @@ def test_seeded_registry_lists_ten_seed_nodes() -> None:
         "temporal-cleanup",
         "inbetween-generation",
         "retarget-map",
+        "blocking-input",
     }
 
 

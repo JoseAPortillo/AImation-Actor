@@ -4,6 +4,14 @@ Re-exports the animation domain contracts so consumers import from
 ``aimation_actor_core.domain.animation`` rather than deep submodules.
 """
 
+from aimation_actor_core.domain.animation.blocking_input import (
+    DEFAULT_BLOCKING_FPS,
+    EXACT_LOCK_MIN,
+    MAX_KEYPOSES,
+    BlockingInput,
+    BlockingKeyPose,
+    blocking_to_neutral_motion,
+)
 from aimation_actor_core.domain.animation.cleanup import (
     DEFAULT_BETA,
     DEFAULT_HEIGHT_THRESHOLD,
@@ -41,15 +49,19 @@ from aimation_actor_core.domain.animation.skeleton_presets import DEFAULT_NEUTRA
 
 __all__ = [
     "Bone",
+    "BlockingInput",
+    "BlockingKeyPose",
     "COCO_TO_NEUTRAL",
     "CleanupParams",
     "ContactFeed",
     "DEFAULT_BETA",
+    "DEFAULT_BLOCKING_FPS",
     "DEFAULT_HEIGHT_THRESHOLD",
     "DEFAULT_HYSTERESIS_FRAMES",
     "DEFAULT_MIN_CUTOFF",
     "DEFAULT_NEUTRAL_SKELETON",
     "DEFAULT_VELOCITY_THRESHOLD",
+    "EXACT_LOCK_MIN",
     "FootContact",
     "Frame",
     "HierarchyError",
@@ -59,6 +71,7 @@ __all__ = [
     "Keypoints2D",
     "Keypoints3D",
     "KeyPose",
+    "MAX_KEYPOSES",
     "NeutralMeta",
     "NeutralMotion",
     "Pose",
@@ -66,6 +79,7 @@ __all__ = [
     "TrackingInfo",
     "Transform3D",
     "UnsupportedNeutralVersionError",
+    "blocking_to_neutral_motion",
     "cleanup_motion",
     "enrich_motion",
     "migrate_neutral_motion",

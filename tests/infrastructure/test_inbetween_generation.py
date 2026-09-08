@@ -73,7 +73,7 @@ class TestInbetweenGenerationNodeSchema:
         assert schema.outputs[0].data_type == DataType.NEUTRAL_ANIMATION
 
     def test_schema_params(self) -> None:
-        """Should declare the five enrichment params with their defaults."""
+        """Should declare the six enrichment params with their defaults."""
         schema = InbetweenGenerationNode.get_schema()
         param_names = [p.name for p in schema.params]
         assert param_names == [
@@ -82,6 +82,7 @@ class TestInbetweenGenerationNodeSchema:
             "easing",
             "euler_filter",
             "tangent_smoothing",
+            "preserve_keyposes",
         ]
         defaults = {p.name: p.default for p in schema.params}
         assert defaults["interpolation_method"] == "cubic"
@@ -89,6 +90,7 @@ class TestInbetweenGenerationNodeSchema:
         assert defaults["easing"] == "none"
         assert defaults["euler_filter"] is True
         assert defaults["tangent_smoothing"] == 0.0
+        assert defaults["preserve_keyposes"] is False
 
 
 class TestInbetweenGenerationNodeExecute:
@@ -128,6 +130,21 @@ class TestInbetweenGenerationNodeExecute:
         motion = result.values["motion"]
         assert isinstance(motion, NeutralMotion)
         assert [f.frame for f in motion.frames] == [1, 2, 3, 4, 5, 6]
+
+    @pytest.mark.asyncio
+    async def test_execute_passes_preserve_keyposes_through(
+        self, context: ExecutionContext
+    ) -> None:
+        """Should forward preserve_keyposes into InbetweenParams."""
+        node = InbetweenGenerationNode()
+        result = await node.execute(
+            inputs={"motion": _motion()},
+            params={"target_fps": 120.0, "preserve_keyposes": True},
+            context=context,
+        )
+        motion = result.values["motion"]
+        assert isinstance(motion, NeutralMotion)
+        motion.validate_invariants()
 
     @pytest.mark.asyncio
     async def test_uses_asyncio_to_thread(self, context: ExecutionContext) -> None:
@@ -185,6 +202,7 @@ class TestInbetweenGenerationNodeValidate:
                 "euler_filter": False,
                 "tangent_smoothing": 0.5,
                 "target_fps": 60,
+                "preserve_keyposes": True,
             }
         )
         assert result.valid
@@ -231,5 +249,13 @@ class TestInbetweenGenerationNodeValidate:
         """Should reject a non-boolean euler_filter."""
         node = InbetweenGenerationNode()
         result = await node.validate({"euler_filter": "yes"})
+        assert not result.valid
+        assert result.errors
+
+    @pytest.mark.asyncio
+    async def test_validate_rejects_non_bool_preserve_keyposes(self) -> None:
+        """Should reject a non-boolean preserve_keyposes."""
+        node = InbetweenGenerationNode()
+        result = await node.validate({"preserve_keyposes": "yes"})
         assert not result.valid
         assert result.errors

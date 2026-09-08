@@ -22,6 +22,7 @@ from aimation_actor_core.domain.animation.inbetween import (
     DEFAULT_EASING,
     DEFAULT_EULER_FILTER,
     DEFAULT_INTERPOLATION_METHOD,
+    DEFAULT_PRESERVE_KEYPOSES,
     DEFAULT_TANGENT_SMOOTHING,
     DEFAULT_TARGET_FPS,
     InbetweenParams,
@@ -96,6 +97,13 @@ class InbetweenGenerationNode(INode):
                     default=DEFAULT_TANGENT_SMOOTHING,
                     description="Smoothing intensity in [0, 1]",
                 ),
+                PortSpec(
+                    name="preserve_keyposes",
+                    data_type=DataType.BOOLEAN,
+                    required=False,
+                    default=DEFAULT_PRESERVE_KEYPOSES,
+                    description="Hold authored key-pose values/timing exact during upsample",
+                ),
             ],
         )
 
@@ -126,6 +134,7 @@ class InbetweenGenerationNode(INode):
             easing=str(params.get("easing", DEFAULT_EASING)),
             euler_filter=bool(params.get("euler_filter", DEFAULT_EULER_FILTER)),
             tangent_smoothing=float(params.get("tangent_smoothing", DEFAULT_TANGENT_SMOOTHING)),
+            preserve_keyposes=bool(params.get("preserve_keyposes", DEFAULT_PRESERVE_KEYPOSES)),
         )
 
         # Run the enrichment math off the event loop (design D7).
@@ -136,10 +145,11 @@ class InbetweenGenerationNode(INode):
         """Validate parameters (design D6).
 
         ``interpolation_method`` must be in {"linear","cubic"}, ``easing`` in
-        {"none","ease-in","ease-out","ease-in-out"}, ``euler_filter`` must be a
-        bool, ``tangent_smoothing`` must be a number in [0,1], and
-        ``target_fps`` must be a positive number. Invalid enum/range/fps/bool
-        values are rejected before execution. All params are optional.
+        {"none","ease-in","ease-out","ease-in-out"}, ``euler_filter`` and
+        ``preserve_keyposes`` must be bools, ``tangent_smoothing`` must be a
+        number in [0,1], and ``target_fps`` must be a positive number. Invalid
+        enum/range/fps/bool values are rejected before execution. All params
+        are optional.
         """
         errors: list[str] = []
         if "interpolation_method" in params and params["interpolation_method"] is not None:
@@ -157,6 +167,9 @@ class InbetweenGenerationNode(INode):
         if "euler_filter" in params and params["euler_filter"] is not None:
             if not isinstance(params["euler_filter"], bool):
                 errors.append("euler_filter must be a boolean")
+        if "preserve_keyposes" in params and params["preserve_keyposes"] is not None:
+            if not isinstance(params["preserve_keyposes"], bool):
+                errors.append("preserve_keyposes must be a boolean")
         for key in ("tangent_smoothing", "target_fps"):
             if key in params and params[key] is not None:
                 value = params[key]

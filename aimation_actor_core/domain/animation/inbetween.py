@@ -32,8 +32,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from aimation_actor_core.domain.animation.blocking_input import EXACT_LOCK_MIN
 from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform3D
-from aimation_actor_core.domain.animation.neutral_motion import NeutralMotion
+from aimation_actor_core.domain.animation.neutral_motion import KeyPose, NeutralMotion
 from aimation_actor_core.domain.animation.quat import quat_dot, quat_negate, slerp
 
 #: Valid interpolation methods.
@@ -46,6 +47,7 @@ DEFAULT_TARGET_FPS: float = 30.0
 DEFAULT_EASING: str = "none"
 DEFAULT_EULER_FILTER: bool = True
 DEFAULT_TANGENT_SMOOTHING: float = 0.0
+DEFAULT_PRESERVE_KEYPOSES: bool = False
 
 
 def _value_error(message: str) -> ValueError:
@@ -66,6 +68,9 @@ class InbetweenParams:
             (default ``True``; unused by slice 1 resampling).
         tangent_smoothing: Smoothing intensity in ``[0, 1]`` (default ``0.0``;
             unused by slice 1 resampling).
+        preserve_keyposes: Whether to hold authored key-pose values/timing exact
+            during upsample (key-lock, default ``False``). When ``False`` the
+            resample behavior is identical to the pre-key-lock stage.
 
     Raises:
         ValueError: If any field is an invalid enum, out of range, or a
@@ -77,6 +82,7 @@ class InbetweenParams:
     easing: str = DEFAULT_EASING
     euler_filter: bool = DEFAULT_EULER_FILTER
     tangent_smoothing: float = DEFAULT_TANGENT_SMOOTHING
+    preserve_keyposes: bool = DEFAULT_PRESERVE_KEYPOSES
 
     def __post_init__(self) -> None:
         if self.interpolation_method not in _VALID_INTERPOLATION:
@@ -90,6 +96,10 @@ class InbetweenParams:
             )
         if not isinstance(self.euler_filter, bool):
             raise _value_error(f"euler_filter must be a bool, got {self.euler_filter!r}")
+        if not isinstance(self.preserve_keyposes, bool):
+            raise _value_error(
+                f"preserve_keyposes must be a bool, got {self.preserve_keyposes!r}"
+            )
         if not 0.0 <= self.tangent_smoothing <= 1.0:
             raise _value_error(
                 f"tangent_smoothing must be in [0, 1], got {self.tangent_smoothing!r}"
@@ -179,6 +189,7 @@ def _resample(
     target_fps: float,
     method: str = DEFAULT_INTERPOLATION_METHOD,
     easing: str = DEFAULT_EASING,
+    preserve_keyposes: bool = DEFAULT_PRESERVE_KEYPOSES,
 ) -> NeutralMotion:
     """Upsample ``motion`` onto the ``target_fps`` grid; pass through otherwise.
 
@@ -189,6 +200,11 @@ def _resample(
         method: ``"cubic"`` (cubic-Hermite) or ``"linear"``.
         easing: One of the easing curves from :func:`_ease`, fused into the
             per-interval timing.
+        preserve_keyposes: When ``True``, hold the authored pose value of every
+            key pose with ``weight >= EXACT_LOCK_MIN`` exactly at the output
+            frame nearest its timeline position (key-lock, REQ-05). When
+            ``False`` (default) every source frame is interpolated equally, so
+            the byte-level behavior is unchanged.
 
     Returns:
         A new :class:`NeutralMotion` with resampled frames on the target grid,
@@ -269,8 +285,89 @@ def _resample(
             )
         )
 
+    # Key-lock (REQ-05 / D4): re-emit the authored pose value exactly at the
+    # nearest in-grid output frame for each key pose in the exact-lock band.
+    if preserve_keyposes:
+        locks = _locked_output_frames(motion, n_out)
+        for out_idx, pose in locks.items():
+            frames[out_idx] = frames[out_idx].model_copy(update={"pose": pose})
+
     meta = motion.meta.model_copy(update={"fps": float(target_fps), "duration_frames": n_out})
     return motion.model_copy(update={"frames": frames, "meta": meta})
+
+
+def _locked_output_frames(
+    motion: NeutralMotion,
+    n_out: int,
+    exact_lock_min: float = EXACT_LOCK_MIN,
+) -> dict[int, Pose]:
+    """Map output grid indices -> authored pose for exact-lock key poses (D4).
+
+    Only key poses with ``weight >= exact_lock_min`` participate in the lock.
+    Each maps to the output index nearest its timeline position
+    (``round(si * (n_out - 1) / (n_in - 1))``); a key that references a
+    non-source frame snaps to the nearest present source frame first. The
+    result is total on degenerate inputs (never divides by zero, never yields
+    an out-of-range index).
+    """
+    n_in = len(motion.frames)
+    if n_in <= 1 or n_out < 1:
+        return {}
+
+    frame_to_idx = {f.frame: i for i, f in enumerate(motion.frames)}
+    source_frames = [f.frame for f in motion.frames]
+    locks: dict[int, Pose] = {}
+    for kp in motion.keyposes:
+        if kp.weight < exact_lock_min:
+            continue
+        si = frame_to_idx.get(kp.frame)
+        if si is None:
+            si = min(range(n_in), key=lambda i: abs(source_frames[i] - kp.frame))
+        out_idx = round(si * (n_out - 1) / (n_in - 1))
+        out_idx = min(max(out_idx, 0), n_out - 1)
+        locks[out_idx] = motion.frames[si].pose
+    return locks
+
+
+def _remap_keyposes(
+    keyposes: list[KeyPose],
+    source_frames: list[int],
+    n_out: int,
+    n_in: int | None = None,
+) -> list[KeyPose]:
+    """Remap key-pose frame indices from the source grid onto the output grid.
+
+    ``_remap_keyposes`` lives here (not inside ``_resample``) because it needs
+    the finalized output grid size, which is only known once resampling has
+    produced ``n_out`` (D9). Each key maps to the output frame nearest its
+    source index (1-based frame numbers), and every resulting frame stays
+    within ``[1, n_out]``. Total on degenerate inputs.
+    """
+    if n_in is None:
+        n_in = len(source_frames)
+    if n_in <= 1 or n_out < 1:
+        return list(keyposes)
+
+    frame_to_idx = {f: i for i, f in enumerate(source_frames)}
+    out: list[KeyPose] = []
+    for kp in keyposes:
+        si = frame_to_idx.get(kp.frame)
+        if si is None:
+            si = min(range(n_in), key=lambda i: abs(source_frames[i] - kp.frame))
+        out_idx = round(si * (n_out - 1) / (n_in - 1))
+        out_idx = min(max(out_idx, 0), n_out - 1)
+        out.append(kp.model_copy(update={"frame": out_idx + 1}))
+    return out
+
+
+def _apply_locks(motion: NeutralMotion, locks: dict[int, Pose]) -> NeutralMotion:
+    """Overwrite the given output-frame poses with the exact authored values."""
+    if not locks:
+        return motion
+    frames = list(motion.frames)
+    for idx, pose in locks.items():
+        frames[idx] = frames[idx].model_copy(update={"pose": pose})
+    return motion.model_copy(update={"frames": frames})
 
 
 def _canonicalize_rotation_track(
@@ -412,16 +509,45 @@ def enrich_motion(
     3. :func:`_apply_tangent_smooth` applies the centered box to translation
        axes when ``tangent_smoothing > 0``.
 
+    When ``params.preserve_keyposes`` is ``True`` the exact authored values of
+    key-locked key poses are re-applied **after** the rotation filter and
+    tangent-smoothing passes (D5) — otherwise those post-processing stages
+    would corrupt the locked values — and key-pose frame indices are remapped
+    onto the output grid via :func:`_remap_keyposes` (REQ-06). When no
+    upsample occurred (``len(out.frames) == len(motion.frames)``) the key-pose
+    frames and values are left untouched.
+
     The stage is stateless and deterministic — identical inputs yield
     byte-identical outputs — and :meth:`NeutralMotion.validate_invariants` runs
     last, so the returned document always satisfies the neutral-motion
     invariants. ``contacts``, ``keyposes`` and ``tracking`` pass through
-    unmodified (MVP; frame references may be stale after upsample — remap is
-    deferred). ``params=None`` uses :class:`InbetweenParams` defaults.
+    unmodified except for the key-pose remap described above (MVP; arbitrary
+    contact frame references are deferred). ``params=None`` uses
+    :class:`InbetweenParams` defaults.
     """
     p = params if params is not None else InbetweenParams()
-    out = _resample(motion, p.target_fps, p.interpolation_method, p.easing)
+    n_in = len(motion.frames)
+    out = _resample(
+        motion,
+        p.target_fps,
+        p.interpolation_method,
+        p.easing,
+        preserve_keyposes=p.preserve_keyposes,
+    )
     out = _apply_rotation_filter(out, enabled=p.euler_filter)
     out = _apply_tangent_smooth(out, intensity=p.tangent_smoothing)
+    if p.preserve_keyposes and len(out.frames) != n_in:
+        # D5: re-apply the exact-lock authored values after the post-processing
+        # passes (rotation filter and tangent smoothing) would otherwise move them.
+        locks = _locked_output_frames(motion, len(out.frames))
+        out = _apply_locks(out, locks)
+        # REQ-06: remap key-pose frame indices onto the finalized output grid.
+        remapped = _remap_keyposes(
+            list(motion.keyposes),
+            [f.frame for f in motion.frames],
+            len(out.frames),
+            n_in,
+        )
+        out = out.model_copy(update={"keyposes": remapped})
     out.validate_invariants()
     return out
