@@ -1,9 +1,12 @@
-import { memo, useState, useEffect } from "react";
+import { memo, useState, useEffect, useMemo } from "react";
 import type { NodeProps } from "@xyflow/react";
 import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
+import { useJobStore } from "../../state/useJobStore";
+import { extractNodeMotion } from "../../core/motionView";
 import { getCategoryColor } from "../../core/handles";
 import { NodeWrapper } from "./NodeWrapper";
+import { NodeMotionPreview } from "./NodeMotionPreview";
 import { CollapsibleSection } from "./CollapsibleSection";
 
 type Props = NodeProps<FlowNode>;
@@ -26,6 +29,14 @@ export const SchemaNode = memo(function SchemaNode({
 }: Props) {
   const { schema, params } = data;
   const updateParams = useFlowStore((s) => s.updateParams);
+  const status = useJobStore((s) => s.status);
+  const result = useJobStore((s) => s.result);
+
+  // Per-node motion preview shown only when this node produced a motion output.
+  const motion = useMemo(
+    () => (status === "succeeded" ? extractNodeMotion(result, id) : null),
+    [status, result, id],
+  );
 
   const handleParamChange = (paramName: string, value: unknown) => {
     updateParams(id, { ...params, [paramName]: value });
@@ -44,6 +55,9 @@ export const SchemaNode = memo(function SchemaNode({
         data_type: p.data_type,
       }))}
     >
+      {/* Inline motion preview (rendered before description) */}
+      {motion !== null && <NodeMotionPreview motion={motion} />}
+
       {/* Description */}
       {schema.description && (
         <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>

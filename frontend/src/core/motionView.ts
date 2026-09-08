@@ -13,6 +13,26 @@ import type {
 /* ── extraction ──────────────────────────────────────────────────────────── */
 
 /**
+ * Type-guard: does `candidate` look like a NeutralMotionDoc?
+ *
+ * Checks for the three required top-level keys (`meta`, `skeleton`, `frames`)
+ * and that `frames` is an array.  Exported so extraction helpers and tests can
+ * share the same predicate.
+ */
+export function isNeutralMotionDoc(
+  candidate: unknown,
+): candidate is NeutralMotionDoc {
+  return (
+    !!candidate &&
+    typeof candidate === "object" &&
+    "meta" in candidate &&
+    "skeleton" in candidate &&
+    "frames" in candidate &&
+    Array.isArray((candidate as { frames?: unknown }).frames)
+  );
+}
+
+/**
  * Pull the NeutralMotion payload out of a raw job result.
  *
  * Results from a graph run are keyed by node id:
@@ -36,24 +56,52 @@ export function extractMotion(
   for (const v of Object.values(outputs)) {
     if (!v || typeof v !== "object") continue;
 
-    const looksLikeDoc = (candidate: unknown): candidate is NeutralMotionDoc =>
-      !!candidate &&
-      typeof candidate === "object" &&
-      "meta" in candidate &&
-      "skeleton" in candidate &&
-      "frames" in candidate &&
-      Array.isArray((candidate as { frames?: unknown }).frames);
-
     if (
       typeof v === "object" &&
       "motion" in v &&
-      looksLikeDoc((v as { motion?: unknown }).motion)
+      isNeutralMotionDoc((v as { motion?: unknown }).motion)
     ) {
       return (v as { motion: NeutralMotionDoc }).motion;
     }
 
-    if (looksLikeDoc(v)) return v;
+    if (isNeutralMotionDoc(v)) return v;
   }
+
+  return null;
+}
+
+/**
+ * Extract the NeutralMotion payload for a *specific* node from a graph result.
+ *
+ * Unlike `extractMotion` (which returns the first motion found across all
+ * outputs), this targets a single node id so the per-node preview knows
+ * exactly which output belongs to it.
+ *
+ * Returns `null` when:
+ *   - `result` is null or has no `outputs`
+ *   - `nodeId` is not present in outputs
+ *   - The value for `nodeId` is not a motion-shaped object (direct doc or
+ *     `{ motion: NeutralMotionDoc }` wrapper)
+ */
+export function extractNodeMotion(
+  result: Record<string, unknown> | null,
+  nodeId: string,
+): NeutralMotionDoc | null {
+  if (!result || typeof result !== "object") return null;
+
+  const outputs = result.outputs as Record<string, unknown> | undefined;
+  if (!outputs || typeof outputs !== "object") return null;
+
+  const v = outputs[nodeId];
+  if (!v || typeof v !== "object") return null;
+
+  // Wrapper form: { motion: NeutralMotionDoc }
+  if ("motion" in v && isNeutralMotionDoc((v as { motion?: unknown }).motion)) {
+    return (v as { motion: NeutralMotionDoc }).motion;
+  }
+
+  // Direct doc form: the value IS the NeutralMotionDoc.
+  if (isNeutralMotionDoc(v)) return v;
 
   return null;
 }

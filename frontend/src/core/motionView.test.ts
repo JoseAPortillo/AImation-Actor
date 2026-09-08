@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { extractMotion, absolutePositions, drawBones } from "./motionView";
+import {
+  extractMotion,
+  extractNodeMotion,
+  isNeutralMotionDoc,
+  absolutePositions,
+  drawBones,
+} from "./motionView";
 import type { NeutralMotionDoc } from "../api/types";
 
 /* ── fixtures ────────────────────────────────────────────────────────────── */
@@ -165,6 +171,92 @@ describe("extractMotion", () => {
     const motion = extractMotion(result);
     expect(motion).not.toBeNull();
     expect(motion!.meta.fps).toBe(24);
+  });
+});
+
+/* ── extractNodeMotion ───────────────────────────────────────────────────── */
+
+describe("extractNodeMotion", () => {
+  it("returns the doc from a { motion: doc } wrapper for the given node", () => {
+    const result = {
+      outputs: {
+        "blocking-input_ab12cd": { motion: miniSkeleton() },
+      },
+    };
+    const motion = extractNodeMotion(result, "blocking-input_ab12cd");
+    expect(motion).not.toBeNull();
+    expect(motion!.meta.fps).toBe(24);
+  });
+
+  it("returns the doc when the node output value IS the doc directly", () => {
+    const result = {
+      outputs: {
+        "n_ef34gh": miniSkeleton(),
+      },
+    };
+    const motion = extractNodeMotion(result, "n_ef34gh");
+    expect(motion).not.toBeNull();
+    expect(Object.keys(motion!.skeleton.bones)).toHaveLength(3);
+  });
+
+  it("returns null for a missing node id", () => {
+    const result = {
+      outputs: {
+        "other-node": miniSkeleton(),
+      },
+    };
+    expect(extractNodeMotion(result, "blocking-input_ab12cd")).toBeNull();
+  });
+
+  it("returns null when the node id exists but its output is not motion-shaped", () => {
+    const result = {
+      outputs: {
+        "blocking-input_ab12cd": { frames: "yes" },
+      },
+    };
+    expect(extractNodeMotion(result, "blocking-input_ab12cd")).toBeNull();
+  });
+
+  it("returns null when the wrapper motion is missing required fields", () => {
+    const result = {
+      outputs: {
+        "blocking-input_ab12cd": { motion: { meta: {}, skeleton: {} } },
+      },
+    };
+    expect(extractNodeMotion(result, "blocking-input_ab12cd")).toBeNull();
+  });
+
+  it("returns null for a null result", () => {
+    expect(extractNodeMotion(null, "blocking-input_ab12cd")).toBeNull();
+  });
+
+  it("returns null when outputs key is missing", () => {
+    expect(extractNodeMotion({}, "blocking-input_ab12cd")).toBeNull();
+  });
+
+  it("returns null when the node value is a non-motion primitive", () => {
+    const result = {
+      outputs: {
+        "blocking-input_ab12cd": 42,
+      },
+    };
+    expect(extractNodeMotion(result, "blocking-input_ab12cd")).toBeNull();
+  });
+});
+
+/* ── isNeutralMotionDoc ──────────────────────────────────────────────────── */
+
+describe("isNeutralMotionDoc", () => {
+  it("returns true for a well-formed doc", () => {
+    expect(isNeutralMotionDoc(miniSkeleton())).toBe(true);
+  });
+
+  it("returns false for null / primitives / non-motion objects", () => {
+    expect(isNeutralMotionDoc(null)).toBe(false);
+    expect(isNeutralMotionDoc(undefined)).toBe(false);
+    expect(isNeutralMotionDoc(42)).toBe(false);
+    expect(isNeutralMotionDoc({ meta: {}, skeleton: {} })).toBe(false);
+    expect(isNeutralMotionDoc({ frames: "yes" })).toBe(false);
   });
 });
 
