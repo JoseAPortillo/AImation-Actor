@@ -216,13 +216,14 @@ def _resample(
     if n_in <= 1 or target_fps <= motion.meta.fps:
         return motion
 
-    source_fps = motion.meta.fps
-    span = (n_in - 1) / source_fps
+    first_time = motion.frames[0].time
+    last_time = motion.frames[-1].time
+    span = last_time - first_time
+    if span <= 0:
+        return motion
     n_out = int(span * target_fps) + 1
     if n_out < 2:
         return motion
-
-    first_time = motion.frames[0].time
     bones = list(motion.frames[0].pose.transforms.keys())
     n_src = n_in - 1
 

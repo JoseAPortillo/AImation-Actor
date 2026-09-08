@@ -842,3 +842,144 @@ class TestKeyLockDegenerateSafety:
         assert by_frame[1].pose.transforms["B"].translation[0] == pytest.approx(0.0)
         assert by_frame[6].pose.transforms["B"].translation[0] == pytest.approx(10.0)
         assert by_frame[11].pose.transforms["B"].translation[0] == pytest.approx(20.0)
+
+
+# --------------------------------------------------------------------------- #
+# SPARSE RESAMPLE — timestamp-based span (bug fix regression)
+# --------------------------------------------------------------------------- #
+
+
+def _make_sparse_motion() -> NeutralMotion:
+    """Build a sparse 2-frame NeutralMotion matching blocking output.
+
+    Two keyposes at frame 1 and frame 30 with fps=24, so
+    ``time = frame / 24``.  The bone ``B`` translates along Y from 0 to 30
+    (identity rotation and translation[0]/translation[2] = 0 elsewhere).
+    """
+    frames = [
+        Frame(
+            frame=1,
+            time=1.0 / 24.0,
+            pose=Pose(
+                transforms={
+                    "B": Transform3D(
+                        translation=(0.0, 0.0, 0.0),
+                        rotation=(1.0, 0.0, 0.0, 0.0),
+                    )
+                }
+            ),
+        ),
+        Frame(
+            frame=30,
+            time=30.0 / 24.0,
+            pose=Pose(
+                transforms={
+                    "B": Transform3D(
+                        translation=(0.0, 30.0, 0.0),
+                        rotation=(1.0, 0.0, 0.0, 0.0),
+                    )
+                }
+            ),
+        ),
+    ]
+    motion = NeutralMotion(
+        skeleton=_single_bone_skeleton(),
+        meta=NeutralMeta(fps=24.0),
+        frames=frames,
+    )
+    motion.validate_invariants()
+    return motion
+
+
+class TestSparseResample:
+    """Timestamp-based span: sparse motions resample correctly."""
+
+    def test_sparse_upsample_frame_count(self) -> None:
+        """2 frames @24fps spanning 29/24s upsampled to 30fps -> 37 frames.
+
+        span = 30/24 - 1/24 = 29/24.0
+        n_out = int(29/24 * 30) + 1 = int(36.25) + 1 = 37
+        """
+        motion = _make_sparse_motion()
+        out = enrich_motion(motion, InbetweenParams(target_fps=30))
+        assert len(out.frames) == 37
+        assert out.frames[0].frame == 1
+        assert out.frames[-1].frame == 37
+        assert out.meta.fps == 30.0
+        assert out.meta.duration_frames == 37
+
+    def test_sparse_upsample_interpolation_happens(self) -> None:
+        """A middle frame's Y translation is strictly between 0 and 30."""
+        motion = _make_sparse_motion()
+        out = enrich_motion(motion, InbetweenParams(target_fps=30))
+        # Middle frame (index 18 of 37) should be interpolated, not an endpoint.
+        mid_y = out.frames[18].pose.transforms["B"].translation[1]
+        assert 0.0 < mid_y < 30.0
+
+    def test_sparse_upsample_preserve_keyposes(self) -> None:
+        """With preserve_keyposes=True, authored values land at first/last output.
+
+        Key frames remap to [1, 37]; LeftArm Y at those frames is exactly 0
+        and 30.
+        """
+        motion = _make_sparse_motion()
+        motion = _with_keyposes(motion, [(1, 1.0), (30, 1.0)])
+        out = enrich_motion(
+            motion, InbetweenParams(target_fps=30, preserve_keyposes=True)
+        )
+        assert len(out.frames) == 37
+        # Keypose frame indices remapped: src idx 0 -> out idx 0 (frame 1),
+        # src idx 1 -> out idx 36 (frame 37).
+        assert sorted(kp.frame for kp in out.keyposes) == [1, 37]
+        assert out.frames[0].pose.transforms["B"].translation[1] == pytest.approx(0.0)
+        assert out.frames[-1].pose.transforms["B"].translation[1] == pytest.approx(30.0)
+
+
+class TestDenseRegression:
+    """Dense motions still produce the same frame count as the old formula."""
+
+    def test_dense_frame_count_matches_old_formula(self) -> None:
+        """Dense 3-frame @30fps -> target 60fps: span = 2/30 -> n_out = 5.
+
+        Old formula: (n_in-1)/fps = 2/30, same as last_time - first_time.
+        """
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        out = _resample(motion, target_fps=60.0, method="cubic", easing="none")
+        n_in = len(motion.frames)
+        span = (n_in - 1) / 30.0  # equivalent to last_time - first_time for dense
+        expected_n_out = int(span * 60.0) + 1
+        assert len(out.frames) == expected_n_out == 5
+
+    def test_dense_4frame_matches_old_formula(self) -> None:
+        """Dense 4-frame @30fps -> target 120fps: span = 3/30 -> n_out = 13."""
+        motion = _make_motion(fps=30.0, xs=[3.0, -7.0, 12.0, 2.0])
+        out = _resample(motion, target_fps=120.0, method="cubic", easing="none")
+        n_in = len(motion.frames)
+        span = (n_in - 1) / 30.0
+        expected_n_out = int(span * 120.0) + 1
+        assert len(out.frames) == expected_n_out == 13
+
+
+class TestEqualFpsPassthrough:
+    """target_fps == meta.fps returns the input motion unchanged."""
+
+    def test_equal_fps_sparse_returns_same_frames(self) -> None:
+        """target_fps == 24 with meta.fps == 24 -> no new frames generated."""
+        motion = _make_sparse_motion()  # fps=24
+        out = enrich_motion(motion, InbetweenParams(target_fps=24))
+        # enrich_motion runs the full pipeline so the object is not identical,
+        # but the frame count and values must match the input exactly.
+        assert len(out.frames) == len(motion.frames)
+        for a, b in zip(out.frames, motion.frames, strict=True):
+            assert a.frame == b.frame
+            assert a.time == pytest.approx(b.time)
+            assert a.pose.transforms["B"].translation == pytest.approx(
+                b.pose.transforms["B"].translation
+            )
+
+    def test_equal_fps_dense_returns_same_frames(self) -> None:
+        """target_fps == 30 with meta.fps == 30 -> no new frames generated."""
+        motion = _make_motion(fps=30.0, xs=[0.0, 5.0, 20.0])
+        out = enrich_motion(motion, InbetweenParams(target_fps=30))
+        assert len(out.frames) == len(motion.frames)
+        assert _xs(out) == pytest.approx(_xs(motion))
