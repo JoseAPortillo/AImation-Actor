@@ -11,6 +11,8 @@ import { useJobStore } from "../../state/useJobStore";
 import { validateRunReadiness } from "../../state/useJobStore";
 import { useFlowStore } from "../../state/useFlowStore";
 import { fromFlow } from "../../core/serialize";
+import { extractMotion } from "../../core/motionView";
+import { MotionViewer } from "../motion/MotionViewer";
 
 export interface RunControlsProps {
   /** Error surface for non-job failures (HTTP-3). */
@@ -30,6 +32,7 @@ export function RunControls({ onError }: RunControlsProps) {
   const edges = useFlowStore((s) => s.edges);
   const readiness = validateRunReadiness(nodes);
   const busy = status === "queued" || status === "running";
+  const motion = extractMotion(result);
 
   async function handleRun() {
     try {
@@ -107,21 +110,61 @@ export function RunControls({ onError }: RunControlsProps) {
         </div>
       )}
       {result && (
-        <pre
-          data-testid="job-result"
-          style={{
-            fontSize: 12,
-            maxHeight: 120,
-            overflow: "auto",
-            background: "#2a2a2a",
-            color: "#e0e0e0",
-            border: "1px solid #444",
-            borderRadius: 4,
-            padding: "4px 8px",
-          }}
-        >
-          {JSON.stringify(result, null, 2)}
-        </pre>
+        <>
+          {status === "succeeded" && motion !== null && (
+            <div
+              data-testid="job-result-viewer"
+              style={{
+                background: "#1a1a1a",
+                border: "1px solid #333",
+                borderRadius: 8,
+                padding: 12,
+              }}
+            >
+              <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "#e0e0e0" }}>
+                Result
+              </h3>
+              <MotionViewer motion={motion} />
+              <details data-testid="job-result-raw">
+                <summary style={{ fontSize: 13, color: "#9ca3af", cursor: "pointer" }}>
+                  Raw JSON
+                </summary>
+                <pre
+                  data-testid="job-result"
+                  style={{
+                    fontSize: 12,
+                    maxHeight: 120,
+                    overflow: "auto",
+                    background: "#2a2a2a",
+                    color: "#e0e0e0",
+                    border: "1px solid #444",
+                    borderRadius: 4,
+                    padding: "4px 8px",
+                  }}
+                >
+                  {JSON.stringify(result, null, 2)}
+                </pre>
+              </details>
+            </div>
+          )}
+          {motion === null && (
+            <pre
+              data-testid="job-result"
+              style={{
+                fontSize: 12,
+                maxHeight: 120,
+                overflow: "auto",
+                background: "#2a2a2a",
+                color: "#e0e0e0",
+                border: "1px solid #444",
+                borderRadius: 4,
+                padding: "4px 8px",
+              }}
+            >
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          )}
+        </>
       )}
     </div>
   );

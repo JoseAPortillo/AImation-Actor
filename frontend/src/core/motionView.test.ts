@@ -103,6 +103,69 @@ describe("extractMotion", () => {
     };
     expect(extractMotion(result)).toBeNull();
   });
+
+  it("extracts motion from an arbitrary node id wrapping { motion: doc }", () => {
+    const result = {
+      outputs: {
+        "n_ab12cd": {
+          motion: miniSkeleton(),
+        },
+      },
+    };
+    const motion = extractMotion(result);
+    expect(motion).not.toBeNull();
+    expect(motion!.meta.fps).toBe(24);
+  });
+
+  it("extracts motion when an output value IS the doc directly", () => {
+    const result = {
+      outputs: {
+        "n_ef34gh": miniSkeleton(),
+      },
+    };
+    const motion = extractMotion(result);
+    expect(motion).not.toBeNull();
+    expect(Object.keys(motion!.skeleton.bones)).toHaveLength(3);
+  });
+
+  it("returns the FIRST valid motion when multiple outputs exist", () => {
+    const first = miniSkeleton();
+    first.meta = { ...first.meta, fps: 30 };
+    const second = miniSkeleton();
+    second.meta = { ...second.meta, fps: 60 };
+    const result = {
+      outputs: {
+        "n_first": first,
+        "n_second": { motion: second },
+      },
+    };
+    const motion = extractMotion(result);
+    expect(motion).not.toBeNull();
+    expect(motion!.meta.fps).toBe(30);
+  });
+
+  it("returns null when outputs exist but none contains a motion-shaped value", () => {
+    const result = {
+      outputs: {
+        "n_one": { frames: "yes" },
+        "n_two": { something: 1 },
+      },
+    };
+    expect(extractMotion(result)).toBeNull();
+  });
+
+  it("still works through the legacy video-to-motion path", () => {
+    const result = {
+      outputs: {
+        "video-to-motion": {
+          motion: miniSkeleton(),
+        },
+      },
+    };
+    const motion = extractMotion(result);
+    expect(motion).not.toBeNull();
+    expect(motion!.meta.fps).toBe(24);
+  });
 });
 
 /* ── absolutePositions ───────────────────────────────────────────────────── */

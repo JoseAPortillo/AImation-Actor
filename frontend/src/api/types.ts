@@ -40,6 +40,7 @@ export interface PortSpec {
   required: boolean;
   default: string | number | boolean | null;
   description: string;
+  widget?: string | null;
 }
 
 export interface NodeSchema {

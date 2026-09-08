@@ -13,10 +13,17 @@ import type {
 /* ── extraction ──────────────────────────────────────────────────────────── */
 
 /**
- * Pull the NeutralMotion payload out of the raw job result.
+ * Pull the NeutralMotion payload out of a raw job result.
  *
- * Expected path: `result.outputs["video-to-motion"]["motion"]`
- * Returns `null` when the structure is missing or malformed.
+ * Results from a graph run are keyed by node id:
+ *
+ *   `result.outputs["<any-node-id>"]["motion"]`    (blocking-input, video-to-motion)
+ *   `result.outputs["<any-node-id>"]`              (direct doc as the node value)
+ *
+ * The first motion-shaped value found across all outputs wins. Returns `null`
+ * when the structure is missing or nothing looks like a motion, keeping
+ * backward compatibility with the legacy `video-to-motion` node id (Simple
+ * Mode's preset uses that stable id).
  */
 export function extractMotion(
   result: Record<string, unknown> | null,
@@ -26,21 +33,29 @@ export function extractMotion(
   const outputs = result.outputs as Record<string, unknown> | undefined;
   if (!outputs || typeof outputs !== "object") return null;
 
-  const vtm = outputs["video-to-motion"] as Record<string, unknown> | undefined;
-  if (!vtm || typeof vtm !== "object") return null;
+  for (const v of Object.values(outputs)) {
+    if (!v || typeof v !== "object") continue;
 
-  const motion = vtm.motion;
-  if (
-    !motion ||
-    typeof motion !== "object" ||
-    !("meta" in motion) ||
-    !("skeleton" in motion) ||
-    !("frames" in motion)
-  ) {
-    return null;
+    const looksLikeDoc = (candidate: unknown): candidate is NeutralMotionDoc =>
+      !!candidate &&
+      typeof candidate === "object" &&
+      "meta" in candidate &&
+      "skeleton" in candidate &&
+      "frames" in candidate &&
+      Array.isArray((candidate as { frames?: unknown }).frames);
+
+    if (
+      typeof v === "object" &&
+      "motion" in v &&
+      looksLikeDoc((v as { motion?: unknown }).motion)
+    ) {
+      return (v as { motion: NeutralMotionDoc }).motion;
+    }
+
+    if (looksLikeDoc(v)) return v;
   }
 
-  return motion as unknown as NeutralMotionDoc;
+  return null;
 }
 
 /* ── FK accumulation ─────────────────────────────────────────────────────── */

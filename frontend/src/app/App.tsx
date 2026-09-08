@@ -5,6 +5,7 @@ import { ConnectionBanner } from "../components/shell/ConnectionBanner";
 import { Palette } from "../components/palette/Palette";
 import { FlowCanvas } from "../components/canvas/FlowCanvas";
 import { GraphIO } from "../components/graphio/GraphIO";
+import { PropertiesPanel } from "../components/properties/PropertiesPanel";
 import { RunControls } from "../components/job/RunControls";
 import { SimpleMode } from "../components/simple/SimpleMode";
 import { useHealthCheck } from "../state/useHealthCheck";
@@ -105,6 +106,12 @@ export function App() {
                 <FlowCanvas />
               </div>
             </section>
+            <aside
+              data-testid="properties-host"
+              style={{ width: "300px", borderLeft: "1px solid #333", background: "#1a1a1a", padding: "12px", overflow: "auto" }}
+            >
+              <PropertiesPanel />
+            </aside>
           </>
         )}
       </main>

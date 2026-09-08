@@ -57,6 +57,9 @@ class PortSpec(BaseModel):
         required: Whether the port must be connected/provided.
         default: Optional static default value for parameters.
         description: Human-readable purpose.
+        widget: Widget hint for the properties panel; ``"json"`` means render
+            as a JSON editor (textarea + file load); None = default widget by
+            data_type.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -66,6 +69,7 @@ class PortSpec(BaseModel):
     required: bool = True
     default: str | int | float | bool | None = None
     description: str = Field(default="")
+    widget: str | None = None
 
 
 class NodeSchema(BaseModel):

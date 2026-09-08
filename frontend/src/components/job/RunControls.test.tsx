@@ -9,6 +9,48 @@ import type { NodeSchema } from "../../api/types";
 const catalog = nodeCatalogFixture as NodeSchema[];
 const videoSource = catalog.find((n) => n.type === "video-source")!;
 
+/** Minimal NeutralMotionDoc-shaped result value for viewer tests. */
+function motionResult(): Record<string, unknown> {
+  return {
+    outputs: {
+      n_ab12cd: {
+        motion: {
+          meta: {
+            version: "1.0",
+            fps: 24,
+            units: "m",
+            up_axis: "Y",
+            source_type: "neutral",
+            duration_frames: 1,
+            style: "default",
+            model_version: "0.1",
+            graph_hash: "abc",
+          },
+          skeleton: {
+            bones: {
+              Root: { name: "Root", parent: null, rest_position: [0, 0, 0] },
+              Hips: { name: "Hips", parent: "Root", rest_position: [0, 1, 0] },
+            },
+          },
+          frames: [
+            {
+              frame: 1,
+              time: 0,
+              pose: {
+                transforms: {
+                  Root: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+                  Hips: { translation: [0, 0.5, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+                },
+              },
+              confidence: 0.9,
+            },
+          ],
+        },
+      },
+    },
+  };
+}
+
 function readyNode(): ReturnType<typeof makeNode> {
   return makeNode("src", { video_path: "ok.avi", end: 5, resize: 64 });
 }
@@ -106,5 +148,31 @@ describe("RunControls logs + results (GE-1, GE-2)", () => {
     renderRun();
     expect(screen.getByTestId("job-error")).toHaveTextContent("boom");
     expect(screen.getByTestId("job-logs")).toHaveTextContent("step 1");
+  });
+});
+
+describe("RunControls motion viewer", () => {
+  it("renders the viewer and raw details when the result contains a motion", () => {
+    useJobStore.setState({
+      status: "succeeded",
+      logs: [],
+      result: motionResult(),
+    });
+    renderRun();
+    expect(screen.getByTestId("job-result-viewer")).toBeInTheDocument();
+    expect(screen.getByTestId("job-result-raw")).toBeInTheDocument();
+    // The raw <pre> still exists inside the details.
+    expect(screen.getByTestId("job-result")).toBeInTheDocument();
+  });
+
+  it("does not render the viewer when the result lacks a motion-shaped value", () => {
+    useJobStore.setState({
+      status: "succeeded",
+      logs: [],
+      result: { outputs: { src: { frames: "yes" } } },
+    });
+    renderRun();
+    expect(screen.queryByTestId("job-result-viewer")).toBeNull();
+    expect(screen.getByTestId("job-result")).toBeInTheDocument();
   });
 });

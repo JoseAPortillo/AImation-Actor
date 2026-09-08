@@ -97,7 +97,21 @@ class BlockingInputNode(INode):
                     name="blocking",
                     data_type=DataType.STRING,
                     required=True,
-                    description="JSON-encoded blocking payload",
+                    widget="json",
+                    description=(
+                        "JSON-encoded blocking payload. The payload is a JSON "
+                        "object with an optional `skeleton` (defaults to the "
+                        "neutral skeleton when omitted) and a required "
+                        "`keyposes` array (1-1000). Each keypose has: "
+                        "`frame` (int >= 1, unique); `pose` (object naming "
+                        "every bone of the resolved skeleton: "
+                        "{bone_name: {translation: [x,y,z], rotation: "
+                        "[w,x,y,z], scale: [x,y,z]}}); optional `weight` "
+                        "([0,1], default 1.0). "
+                        'Example: {"keyposes":[{"frame":1,"pose":{"hip":'
+                        '{"translation":[0,0,0],"rotation":[1,0,0,0],'
+                        '"scale":[1,1,1]}}}]'
+                    ),
                 ),
             ],
         )

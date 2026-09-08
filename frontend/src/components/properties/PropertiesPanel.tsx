@@ -1,6 +1,9 @@
+import { useRef } from "react";
 import { useFlowStore } from "../../state/useFlowStore";
 import { getDefaultedParams } from "../../core/schema";
 import { validateVideoPath } from "../../core/videoPath";
+import { buildBlockingTemplate } from "../../core/blockingTemplate";
+import { JsonBlockingEditor } from "./JsonBlockingEditor";
 
 /**
  * Schema-driven properties panel (PP-1, PP-2).
@@ -19,6 +22,7 @@ export function PropertiesPanel() {
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const nodes = useFlowStore((s) => s.nodes);
   const updateParams = useFlowStore((s) => s.updateParams);
+  const fileInputs = useRef(new Map<string, HTMLInputElement>());
 
   const node = nodes.find((n) => n.id === selectedNodeId);
   if (!node) return null;
@@ -30,6 +34,36 @@ export function PropertiesPanel() {
 
   function setParam(name: string, value: unknown) {
     updateParams(nodeId, { ...nodeParams, [name]: value });
+  }
+
+  async function loadJsonFile(name: string, file: File | undefined) {
+    if (!file) return;
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      return;
+    }
+    setParam(name, text);
+    const input = fileInputs.current.get(name);
+    if (input) input.value = "";
+  }
+
+  function openFilePicker(name: string) {
+    fileInputs.current.get(name)?.click();
+  }
+
+  function downloadTemplate() {
+    const text = buildBlockingTemplate();
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "blocking-template.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -53,7 +87,63 @@ export function PropertiesPanel() {
               {param.name}
               {param.required ? <span style={{ color: "#c33" }}> *</span> : null}
             </label>
-            {param.data_type === "boolean" ? (
+            {param.widget === "json" ? (
+              <>
+                <JsonBlockingEditor
+                  testId={`param-${param.name}`}
+                  value={value === undefined || value === null ? "" : String(value)}
+                  onChange={(v) => setParam(param.name, v)}
+                />
+                <button
+                  type="button"
+                  data-testid={`param-load-${param.name}`}
+                  onClick={() => openFilePicker(param.name)}
+                  style={{
+                    marginTop: 4,
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    cursor: "pointer",
+                    background: "#2a2a2a",
+                    color: "#ccc",
+                    border: "1px solid #444",
+                    borderRadius: 4,
+                  }}
+                >
+                  Load JSON file
+                </button>
+                <button
+                  type="button"
+                  data-testid={`param-download-template-${param.name}`}
+                  onClick={() => downloadTemplate()}
+                  style={{
+                    marginTop: 4,
+                    marginLeft: 4,
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    cursor: "pointer",
+                    background: "#2a2a2a",
+                    color: "#8ab4f8",
+                    border: "1px solid #555",
+                    borderRadius: 4,
+                  }}
+                >
+                  Download template
+                </button>
+                <input
+                  ref={(el) => {
+                    if (el) fileInputs.current.set(param.name, el);
+                    else fileInputs.current.delete(param.name);
+                  }}
+                  data-testid={`param-file-${param.name}`}
+                  type="file"
+                  accept=".json,application/json,.txt"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    void loadJsonFile(param.name, e.target.files?.[0]);
+                  }}
+                />
+              </>
+            ) : param.data_type === "boolean" ? (
               <input
                 id={`${node.id}-${param.name}`}
                 data-testid={`param-${param.name}`}
