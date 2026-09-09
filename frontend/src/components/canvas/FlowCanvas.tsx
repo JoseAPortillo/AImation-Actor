@@ -2,13 +2,15 @@ import { useCallback, type DragEvent } from "react";
 import {
   ReactFlow,
   Background,
+  MiniMap,
   useReactFlow,
   type Edge,
   type IsValidConnection,
   type NodeTypes,
+  type OnConnectStart,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useFlowStore } from "../../state/useFlowStore";
+import { useFlowStore, type ConnectionOrigin } from "../../state/useFlowStore";
 import { usePaletteStore } from "../../state/usePaletteStore";
 import { portsCompatible } from "../../core/ports";
 import { findOutputPort, findInputPort } from "../../core/schema";
@@ -81,6 +83,38 @@ export function FlowCanvas() {
     [],
   );
 
+  // EC-2 s3: while a connection drag is in flight, record its origin so every
+  // other node's handles can render live validity feedback (valid → glow,
+  // invalid → dimmed) before the drop happens.
+  const onConnectStart: OnConnectStart = useCallback(
+    (_e, params) => {
+      const { nodes } = useFlowStore.getState();
+      const nodeId = params.nodeId;
+      const handleId = params.handleId;
+      const handleType = params.handleType;
+      if (!nodeId || !handleId || !handleType) return;
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      const port =
+        handleType === "source"
+          ? findOutputPort(node.data.schema, handleId)
+          : findInputPort(node.data.schema, handleId);
+      if (!port) return;
+      const origin: ConnectionOrigin = {
+        nodeId,
+        handleId,
+        handleType,
+        dataType: port.data_type,
+      };
+      useFlowStore.getState().setConnectionOrigin(origin);
+    },
+    [],
+  );
+
+  const onConnectEnd = useCallback(() => {
+    useFlowStore.getState().setConnectionOrigin(null);
+  }, []);
+
   return (
     <div data-testid="flow-canvas" style={{ width: "100%", height: "100%" }}>
       {connectionHint ? (
@@ -112,19 +146,33 @@ export function FlowCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         isValidConnection={isValidConnection}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        onNodeDragStart={() => {
+          useFlowStore.getState().commitHistory();
+        }}
         onNodeClick={(_, node) => {
           selectNode(node.id);
           setConnectionHint(null);
+          useFlowStore.getState().setConnectionOrigin(null);
         }}
         onPaneClick={() => {
           selectNode(null);
           setConnectionHint(null);
+          useFlowStore.getState().setConnectionOrigin(null);
         }}
         onDrop={onDrop}
         onDragOver={onDragOver}
         fitView
       >
         <Background gap={16} color="#333" />
+        <MiniMap
+          pannable
+          zoomable
+          maskColor="rgba(18, 18, 18, 0.66)"
+          nodeColor={(n) => (n.selected ? "#2a6f4f" : "#2a2a2a")}
+          nodeStrokeColor={(n) => (n.selected ? "#4ade80" : "#555")}
+        />
       </ReactFlow>
     </div>
   );

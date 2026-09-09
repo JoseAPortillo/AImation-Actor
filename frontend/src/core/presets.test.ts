@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { presets, videoToMotionPreset, videoToMotionEnrichedPreset, blockingToMotionPreset, findPreset } from "./presets";
+import { describe, it, expect, beforeEach } from "vitest";
+import { presets, videoToMotionPreset, videoToMotionEnrichedPreset, blockingToMotionPreset, findPreset, loadCustomPresets, saveCustomPreset, deleteCustomPreset } from "./presets";
+import type { AimGraph } from "./graph";
 import { parseGraph, serializeGraph } from "./serialize";
 
 describe("presets", () => {
@@ -200,6 +201,75 @@ describe("presets", () => {
       const roundTripped = result.ok ? result.graph : undefined;
       expect(roundTripped).toEqual(graph);
       expect(roundTripped?.version).toBe("1.0");
+    });
+  });
+
+  describe("custom presets (localStorage)", () => {
+    const sampleGraph: AimGraph = {
+      version: "1.0",
+      nodes: [
+        { id: "n1", type: "video-source", params: { video_path: "test.mp4" }, position: { x: 0, y: 0 } },
+        { id: "n2", type: "pose-2d", params: {}, position: { x: 200, y: 0 } },
+      ],
+      edges: [
+        { id: "e1", source: { node: "n1", port: "frames" }, target: { node: "n2", port: "frames" } },
+      ],
+    };
+
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it("saves and loads a preset round-trip", () => {
+      const record = saveCustomPreset("My Flow", "A custom preset", sampleGraph);
+      expect(record.id).toMatch(/^custom-/);
+      expect(record.title).toBe("My Flow");
+      expect(record.description).toBe("A custom preset");
+      expect(record.savedAt).toBeTruthy();
+      expect(record.graph).toEqual(sampleGraph);
+
+      const list = loadCustomPresets();
+      expect(list).toHaveLength(1);
+      expect(list[0].id).toBe(record.id);
+      expect(list[0].title).toBe("My Flow");
+      expect(list[0].graph).toEqual(sampleGraph);
+    });
+
+    it("truncates long titles to 80 characters", () => {
+      const longTitle = "A".repeat(120);
+      const record = saveCustomPreset(longTitle, "desc", sampleGraph);
+      expect(record.title.length).toBe(80);
+    });
+
+    it("delete removes a preset", () => {
+      const a = saveCustomPreset("Flow A", "desc A", sampleGraph);
+      const b = saveCustomPreset("Flow B", "desc B", sampleGraph);
+      expect(loadCustomPresets()).toHaveLength(2);
+
+      deleteCustomPreset(a.id);
+      const remaining = loadCustomPresets();
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].id).toBe(b.id);
+    });
+
+    it("delete is a no-op for unknown id", () => {
+      saveCustomPreset("Flow", "desc", sampleGraph);
+      deleteCustomPreset("does-not-exist");
+      expect(loadCustomPresets()).toHaveLength(1);
+    });
+
+    it("corrupt storage degrades to []", () => {
+      localStorage.setItem("aimation.custom-presets.v1", "{not json");
+      expect(loadCustomPresets()).toEqual([]);
+    });
+
+    it("non-array storage degrades to []", () => {
+      localStorage.setItem("aimation.custom-presets.v1", JSON.stringify({ not: "array" }));
+      expect(loadCustomPresets()).toEqual([]);
+    });
+
+    it("empty storage returns []", () => {
+      expect(loadCustomPresets()).toEqual([]);
     });
   });
 });

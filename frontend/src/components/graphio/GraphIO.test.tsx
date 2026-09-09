@@ -5,6 +5,7 @@ import { useFlowStore } from "../../state/useFlowStore";
 import nodeCatalogFixture from "../../test/fixtures/nodeCatalog.json";
 import type { NodeSchema } from "../../api/types";
 import { serializeGraph, fromFlow } from "../../core/serialize";
+import { loadCustomPresets } from "../../core/presets";
 
 const catalog = nodeCatalogFixture as NodeSchema[];
 const videoSource = catalog.find((n) => n.type === "video-source")!;
@@ -47,6 +48,7 @@ const V01_CANONICAL = V10_CANONICAL.replace('"1.0"', '"0.1"');
 
 beforeEach(() => {
   useFlowStore.setState({ nodes: [], edges: [], selectedNodeId: null, connectionHint: null });
+  localStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -153,5 +155,70 @@ describe("GraphIO load (AR-2)", () => {
     });
     expect(useFlowStore.getState().nodes).toHaveLength(1);
     expect(useFlowStore.getState().nodes[0].id).toBe("existing");
+  });
+});
+
+describe("GraphIO save preset", () => {
+  it("saves the current canvas as a custom preset", async () => {
+    const pose2d = catalog.find((n) => n.type === "pose-2d")!;
+    useFlowStore.setState({
+      nodes: [
+        {
+          id: "src",
+          type: "schema",
+          position: { x: 0, y: 0 },
+          data: { schema: videoSource, params: { video_path: "clip.avi" } },
+        },
+        {
+          id: "p2d",
+          type: "schema",
+          position: { x: 200, y: 0 },
+          data: { schema: pose2d, params: {} },
+        },
+      ],
+      edges: [
+        {
+          id: "e1",
+          source: "src",
+          sourceHandle: "frames",
+          target: "p2d",
+          targetHandle: "frames",
+        },
+      ],
+    });
+
+    render(<GraphIO catalog={catalogProvider} />);
+    fireEvent.click(screen.getByTestId("graphio-save-preset"));
+    fireEvent.change(screen.getByTestId("graphio-preset-title"), { target: { value: "My Saved Flow" } });
+    fireEvent.click(screen.getByTestId("graphio-preset-confirm"));
+
+    const list = loadCustomPresets();
+    expect(list).toHaveLength(1);
+    expect(list[0].title).toBe("My Saved Flow");
+    expect(list[0].graph.nodes.map((n) => n.type)).toEqual(["video-source", "pose-2d"]);
+    expect(list[0].graph.edges).toHaveLength(1);
+    expect(await screen.findByTestId("graphio-preset-saved")).toBeInTheDocument();
+  });
+
+  it("rejects an empty canvas", async () => {
+    render(<GraphIO catalog={catalogProvider} />);
+    fireEvent.click(screen.getByTestId("graphio-save-preset"));
+    fireEvent.change(screen.getByTestId("graphio-preset-title"), { target: { value: "Empty" } });
+    fireEvent.click(screen.getByTestId("graphio-preset-confirm"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("graphio-error")).toHaveTextContent("Cannot save an empty canvas as a preset.");
+    });
+    expect(loadCustomPresets()).toHaveLength(0);
+  });
+
+  it("cancel hides the form", () => {
+    render(<GraphIO catalog={catalogProvider} />);
+    fireEvent.click(screen.getByTestId("graphio-save-preset"));
+    expect(screen.getByTestId("graphio-preset-title")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("graphio-preset-cancel"));
+    expect(screen.queryByTestId("graphio-preset-title")).not.toBeInTheDocument();
+    expect(loadCustomPresets()).toHaveLength(0);
   });
 });

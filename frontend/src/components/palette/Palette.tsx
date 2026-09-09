@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ApiClient } from "../../api/ApiClient";
 import type { NodeCategory, NodeSchema } from "../../api/types";
 import { usePaletteStore } from "../../state/usePaletteStore";
@@ -27,8 +27,9 @@ const CATEGORY_LABEL: Record<NodeCategory, string> = {
 /**
  * Live schema-driven palette (NP-1, NP-2). Node types come from
  * `GET /nodes/types` at runtime (never hardcoded) and are grouped by category.
- * Clicking an entry adds an instance to the canvas. Fetch failures surface a
- * retryable error state, and `retry` re-fetches without a reload.
+ * Clicking an entry adds an instance to the canvas. A search box filters the
+ * catalog case-insensitively by title/type/description. Fetch failures surface
+ * a retryable error state, and `retry` re-fetches without a reload.
  */
 export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
   const catalog = usePaletteStore((s) => s.catalog);
@@ -36,6 +37,7 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
   const error = usePaletteStore((s) => s.error);
   const fetchCatalog = usePaletteStore((s) => s.fetch);
   const retry = usePaletteStore((s) => s.retry);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (status === "idle") {
@@ -43,9 +45,19 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
     }
   }, [status, fetchCatalog, client]);
 
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? catalog.filter(
+        (n) =>
+          n.title.toLowerCase().includes(needle) ||
+          n.type.toLowerCase().includes(needle) ||
+          (n.description ?? "").toLowerCase().includes(needle),
+      )
+    : catalog;
+
   const grouped = CATEGORY_ORDER.map((category) => ({
     category,
-    nodes: catalog.filter((n) => n.category === category),
+    nodes: visible.filter((n) => n.category === category),
   })).filter((g) => g.nodes.length > 0);
 
   function handleAdd(schema: NodeSchema) {
@@ -70,6 +82,26 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
   return (
     <div data-testid="palette">
       <h2 style={{ fontSize: "14px", margin: "0 0 8px", color: "#e0e0e0" }}>Nodes</h2>
+      <input
+        data-testid="palette-search"
+        type="search"
+        placeholder="Search nodes…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        aria-label="Search nodes"
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          marginBottom: 8,
+          padding: "5px 8px",
+          background: "#121212",
+          color: "#ccc",
+          border: "1px solid #444",
+          borderRadius: 4,
+          fontSize: 12,
+          outline: "none",
+        }}
+      />
       {grouped.map((group) => (
         <section key={group.category}>
           <h3 style={{ fontSize: "12px", textTransform: "uppercase", margin: "8px 0 4px", color: "#999" }}>
@@ -107,6 +139,11 @@ export function Palette({ client = new ApiClient() }: { client?: ApiClient }) {
           ))}
         </section>
       ))}
+      {needle && grouped.length === 0 ? (
+        <p data-testid="palette-no-results" style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
+          No nodes match “{query.trim()}”.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -203,3 +203,55 @@ export function presets(): Preset[] {
 export function findPreset(id: string): Preset | undefined {
   return presets().find((p) => p.id === id);
 }
+
+// ---------------------------------------------------------------------------
+// Custom user-saved presets (localStorage persistence)
+// ---------------------------------------------------------------------------
+
+const CUSTOM_PRESETS_KEY = "aimation.custom-presets.v1";
+
+/** A user-saved preset with a timestamp; otherwise identical to Preset. */
+export interface StoredPreset extends Preset {
+  savedAt: string;
+}
+
+/** Load user-saved presets; returns [] on empty/corrupt storage. */
+export function loadCustomPresets(): StoredPreset[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRESETS_KEY);
+    if (raw === null) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as StoredPreset[];
+  } catch {
+    return [];
+  }
+}
+
+/** Save the current graph as a named user preset; returns the stored record. */
+export function saveCustomPreset(
+  title: string,
+  description: string,
+  graph: AimGraph,
+): StoredPreset {
+  // Time-based id with a random suffix so rapid consecutive saves (even within
+  // the same millisecond) never collide — Date.now() alone is not unique.
+  const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const stored: StoredPreset = {
+    id,
+    title: title.slice(0, 80),
+    description,
+    graph,
+    savedAt: new Date().toISOString(),
+  };
+  const list = loadCustomPresets();
+  list.push(stored);
+  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(list));
+  return stored;
+}
+
+/** Delete a user preset by id (no-op when missing). */
+export function deleteCustomPreset(id: string): void {
+  const list = loadCustomPresets().filter((p) => p.id !== id);
+  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(list));
+}

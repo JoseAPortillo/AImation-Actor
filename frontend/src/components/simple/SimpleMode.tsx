@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { usePaletteStore } from "../../state/usePaletteStore";
 import { useUiStore } from "../../state/useUiStore";
 import { useJobStore } from "../../state/useJobStore";
 import { mergeGraphIntoFlow } from "../../core/serialize";
-import { presets } from "../../core/presets";
+import { presets, loadCustomPresets, deleteCustomPreset } from "../../core/presets";
 import { extractMotion } from "../../core/motionView";
 import { MotionViewer } from "../motion/MotionViewer";
 
@@ -22,16 +23,25 @@ export function SimpleMode() {
   const setMode = useUiStore((s) => s.setMode);
   const jobStatus = useJobStore((s) => s.status);
   const jobResult = useJobStore((s) => s.result);
+  const [, setRefresh] = useState(0);
 
   const motion = extractMotion(jobResult);
   const showResult = jobStatus === "succeeded" && motion !== null;
+  const customPresets = loadCustomPresets();
 
   function handlePick(id: string) {
-    const preset = presets().find((p) => p.id === id);
+    const preset =
+      presets().find((p) => p.id === id) ??
+      loadCustomPresets().find((p) => p.id === id);
     if (!preset) return;
     if (catalog.length === 0) return; // not ready yet
     mergeGraphIntoFlow(preset.graph, catalog);
     setMode("advanced");
+  }
+
+  function handleDeleteCustom(id: string) {
+    deleteCustomPreset(id);
+    setRefresh((n) => n + 1);
   }
 
   return (
@@ -106,6 +116,67 @@ export function SimpleMode() {
             </button>
           ))}
         </div>
+      )}
+
+      {customPresets.length > 0 && (
+        <>
+          <h2
+            data-testid="simple-mode-custom-title"
+            style={{ margin: "24px 0 6px", fontSize: 18, color: "#e0e0e0" }}
+          >
+            My Presets
+          </h2>
+          <div
+            data-testid="simple-mode-custom-grid"
+            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}
+          >
+            {customPresets.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                data-testid={`preset-custom-${p.id}`}
+                onClick={() => handlePick(p.id)}
+                style={{
+                  textAlign: "left",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  padding: "14px 16px",
+                  cursor: "pointer",
+                  background: "#1a1a1a",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  color: "#e0e0e0",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>{p.title}</span>
+                  <span
+                    role="button"
+                    data-testid={`preset-custom-delete-${p.id}`}
+                    aria-label="Delete preset"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteCustom(p.id);
+                    }}
+                    style={{
+                      fontSize: 14,
+                      padding: "2px 6px",
+                      cursor: "pointer",
+                      color: "#9ca3af",
+                      borderRadius: 4,
+                      border: "1px solid #444",
+                      background: "transparent",
+                    }}
+                  >
+                    ×
+                  </span>
+                </div>
+                <span style={{ fontSize: 12, color: "#9ca3af" }}>{p.description}</span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
