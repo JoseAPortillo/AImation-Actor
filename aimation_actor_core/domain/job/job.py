@@ -76,6 +76,10 @@ class JobStore(Protocol):
         """Create and schedule a job, returning its initial snapshot."""
         ...
 
+    async def execute_graph_async(self, job_id: str, payload: dict[str, Any]) -> None:
+        """Execute a graph job in the background (updates job status)."""
+        ...
+
     def get(self, job_id: str) -> Job | None:
         """Return the latest job snapshot, or ``None`` if unknown."""
         ...
