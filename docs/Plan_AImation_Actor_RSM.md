@@ -115,13 +115,14 @@ It will allow:
 | 4 | Blender Plugin | Shadow rig, baking, and core integration |
 | 5 | Blocking-to-motion | In-between generation from key poses |
 | 6 | Full node graph | Complete editor with all nodes |
-| 7 | Maya Plugin | Secondary integration |
+| 7 | Maya Plugin | Secondary integration **[DEFERRED: pending Maya license]** |
 
 ---
 
 ## Key Decisions
 
 - Blender is developed before Maya.
+- **Maya plugin is deferred until a Maya license is available.**
 - The MVP does not include face or fingers.
 - The MVP uses a static camera.
 - Processing is local.

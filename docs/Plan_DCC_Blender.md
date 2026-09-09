@@ -18,7 +18,7 @@ This document defines the technical specification for the AImation Actor Blender
 
 The add-on is a **lightweight client** communicating with the external AI Core via HTTP/WebSocket. It performs NO AI processing locally. Responsibilities: UI presentation, viewport/pose capture, shadow rig creation, animation baking, and session management.
 
-> ⚠️ **Note:** This spec is the priority DCC integration; Maya later mirrors the patterns validated here. Sections marked `[TBD]` require validation against Blender 4.x+ API stability.
+> ⚠️ **Note:** This spec is the priority DCC integration; Maya will mirror the patterns validated here **[DEFERRED: pending Maya license]**. Sections marked `[TBD]` require validation against Blender 4.x+ API stability.
 
 ---
 

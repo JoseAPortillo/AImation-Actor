@@ -1361,7 +1361,9 @@ It would be useful to visualize:
 - Per-node profiling.
 - Internal graph marketplace.
 
-### 20.7 MVP Phase 6: Maya Plugin
+### 20.7 MVP Phase 6: Maya Plugin [DEFERRED]
+
+> **Status:** Deferred until Maya license is available. Will resume when license is obtained.
 
 **Objective:** user generates animation without leaving Maya, reusing the integration pattern validated in Blender.
 
@@ -1556,7 +1558,9 @@ aimation-actor serve --port 8765
 
 ---
 
-### Phase 7: Maya Plugin + Tauri Integration (4-6 weeks)
+### Phase 7: Maya Plugin + Tauri Integration (4-6 weeks) [DEFERRED]
+
+> **Status:** Deferred until Maya license is available. Will resume when license is obtained.
 
 **Tasks:**
 
@@ -1632,11 +1636,11 @@ aimation-actor serve --port 8765
 | 0.2 | Local core with API + base Tauri app with minimal React Flow editor (5-6 nodes). |
 | **0.3** | **Basic Blender plugin. Shadow rig. Video-to-motion inside Blender. Tauri integration.** |
 | **0.4** | **Blocking capture in Blender. Procedural in-between generation. Keypose preservation. BlockingInput node.** |
-| 0.5 | Basic Maya plugin. Custom retargeting. Tauri integration. |
+| 0.5 | Basic Maya plugin. Custom retargeting. Tauri integration. **[DEFERRED: pending Maya license]** |
 | **0.6** | **Complete full node graph: all nodes, previews, subgraphs, profiling.** |
 | 0.7 | Generative AI enrichment model. Improved realistic style. MotionEnhancer node. |
 | 0.8 | Internal shared graph marketplace. |
-| 1.0 | Stable tool. Maya and Blender. Character presets. Style management. Local processing. Complete documentation. Active Tauri updater. |
+| 1.0 | Stable tool. Blender (primary). Character presets. Style management. Local processing. Complete documentation. Active Tauri updater. |
 
 ---
 
