@@ -6,6 +6,7 @@ import { mergeGraphIntoFlow } from "../../core/serialize";
 import { presets, loadCustomPresets, deleteCustomPreset } from "../../core/presets";
 import { extractMotion } from "../../core/motionView";
 import { MotionViewer } from "../motion/MotionViewer";
+import { downloadTextFile, motionExportPayloads } from "../../core/export";
 
 /**
  * Simple Mode (AR-3): a curated, no-node-editor entry point.
@@ -80,6 +81,46 @@ export function SimpleMode() {
             Result
           </h3>
           <MotionViewer motion={motion} />
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              type="button"
+              data-testid="simple-mode-export-bvh"
+              onClick={() => {
+                const payloads = motionExportPayloads(motion);
+                downloadTextFile(payloads.bvh.filename, payloads.bvh.content, payloads.bvh.mimeType);
+              }}
+              style={{
+                fontSize: 12,
+                padding: "4px 10px",
+                cursor: "pointer",
+                background: "#2a2a2a",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: 4,
+              }}
+            >
+              Export BVH
+            </button>
+            <button
+              type="button"
+              data-testid="simple-mode-export-json"
+              onClick={() => {
+                const payloads = motionExportPayloads(motion);
+                downloadTextFile(payloads.json.filename, payloads.json.content, payloads.json.mimeType);
+              }}
+              style={{
+                fontSize: 12,
+                padding: "4px 10px",
+                cursor: "pointer",
+                background: "#2a2a2a",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: 4,
+              }}
+            >
+              Export JSON
+            </button>
+          </div>
         </div>
       )}
 

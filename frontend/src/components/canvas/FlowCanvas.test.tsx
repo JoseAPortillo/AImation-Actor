@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { ReactFlowProvider, type Edge } from "@xyflow/react";
 import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
@@ -165,5 +165,106 @@ describe("FlowCanvas live connection validity feedback (EC-2 s3)", () => {
     expect(screen.getByTestId("schema-input-handle")).not.toHaveAttribute(
       "data-invalid",
     );
+  });
+});
+
+describe("FlowCanvas keyboard shortcuts (KP-1)", () => {
+  function press(init: KeyboardEventInit) {
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", init));
+    });
+  }
+
+  it("Delete removes the selected node and clears the selection", async () => {
+    useFlowStore.setState({ nodes: [makeNode(videoSource), makeNode(pose2d)] });
+    useFlowStore.getState().selectNode("video-source_abcdef12");
+    renderCanvas();
+    await screen.findByText("Frame Extractor");
+
+    press({ key: "Delete" });
+
+    const ids = useFlowStore.getState().nodes.map((n) => n.id);
+    expect(ids).not.toContain("video-source_abcdef12");
+    expect(ids).toContain("pose-2d_abcdef12");
+    expect(useFlowStore.getState().selectedNodeId).toBeNull();
+  });
+
+  it("Backspace works the same as Delete", async () => {
+    useFlowStore.setState({ nodes: [makeNode(videoSource)] });
+    useFlowStore.getState().selectNode("video-source_abcdef12");
+    renderCanvas();
+    await screen.findByText("Frame Extractor");
+
+    press({ key: "Backspace" });
+
+    expect(useFlowStore.getState().nodes).toHaveLength(0);
+  });
+
+  it("Ctrl+Z undoes a deletion and Ctrl+Shift+Z redoes it", async () => {
+    useFlowStore.setState({ nodes: [makeNode(videoSource)] });
+    useFlowStore.getState().selectNode("video-source_abcdef12");
+    renderCanvas();
+    await screen.findByText("Frame Extractor");
+
+    press({ key: "Delete" });
+    expect(useFlowStore.getState().nodes).toHaveLength(0);
+
+    press({ key: "z", ctrlKey: true });
+    expect(useFlowStore.getState().nodes).toHaveLength(1);
+
+    press({ key: "z", ctrlKey: true, shiftKey: true });
+    expect(useFlowStore.getState().nodes).toHaveLength(0);
+  });
+
+  it("Ctrl+Y also redoes", async () => {
+    useFlowStore.setState({ nodes: [makeNode(videoSource)] });
+    useFlowStore.getState().selectNode("video-source_abcdef12");
+    renderCanvas();
+    await screen.findByText("Frame Extractor");
+
+    press({ key: "Delete" });
+    press({ key: "z", ctrlKey: true });
+    press({ key: "y", ctrlKey: true });
+    expect(useFlowStore.getState().nodes).toHaveLength(0);
+  });
+
+  it("Ctrl+D duplicates the selected node", async () => {
+    useFlowStore.setState({ nodes: [makeNode(videoSource)] });
+    useFlowStore.getState().selectNode("video-source_abcdef12");
+    renderCanvas();
+    await screen.findByText("Frame Extractor");
+
+    press({ key: "d", ctrlKey: true });
+
+    const nodes = useFlowStore.getState().nodes;
+    expect(nodes).toHaveLength(2);
+    expect(nodes[1].data.schema.type).toBe("video-source");
+    expect(nodes[1].id).not.toBe("video-source_abcdef12");
+  });
+
+  it("Escape clears the selection", async () => {
+    useFlowStore.setState({ nodes: [makeNode(videoSource)] });
+    useFlowStore.getState().selectNode("video-source_abcdef12");
+    renderCanvas();
+    await screen.findByText("Frame Extractor");
+
+    press({ key: "Escape" });
+
+    expect(useFlowStore.getState().selectedNodeId).toBeNull();
+  });
+
+  it("never deletes while focus is inside a text input", async () => {
+    useFlowStore.setState({ nodes: [makeNode(videoSource)] });
+    useFlowStore.getState().selectNode("video-source_abcdef12");
+    renderCanvas();
+    await screen.findByText("Frame Extractor");
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    fireEvent.keyDown(input, { key: "Backspace" });
+    input.remove();
+
+    expect(useFlowStore.getState().nodes).toHaveLength(1);
   });
 });

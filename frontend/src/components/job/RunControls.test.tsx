@@ -5,6 +5,7 @@ import { useFlowStore } from "../../state/useFlowStore";
 import { useJobStore } from "../../state/useJobStore";
 import nodeCatalogFixture from "../../test/fixtures/nodeCatalog.json";
 import type { NodeSchema } from "../../api/types";
+import * as exportModule from "../../core/export";
 
 const catalog = nodeCatalogFixture as NodeSchema[];
 const videoSource = catalog.find((n) => n.type === "video-source")!;
@@ -174,5 +175,75 @@ describe("RunControls motion viewer", () => {
     renderRun();
     expect(screen.queryByTestId("job-result-viewer")).toBeNull();
     expect(screen.getByTestId("job-result")).toBeInTheDocument();
+  });
+});
+
+describe("RunControls export buttons", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders export BVH and JSON buttons when motion is present", () => {
+    useJobStore.setState({
+      status: "succeeded",
+      logs: [],
+      result: motionResult(),
+    });
+    renderRun();
+    expect(screen.getByTestId("export-bvh")).toBeInTheDocument();
+    expect(screen.getByTestId("export-json")).toBeInTheDocument();
+  });
+
+  it("calls downloadTextFile with BVH payload when Export BVH is clicked", async () => {
+    const downloadSpy = vi.spyOn(exportModule, "downloadTextFile").mockImplementation(() => {});
+    vi.spyOn(exportModule, "motionExportPayloads").mockReturnValue({
+      bvh: { filename: "motion.bvh", content: "bvh-content", mimeType: "application/octet-stream" },
+      json: { filename: "motion.json", content: "{}", mimeType: "application/json" },
+    });
+
+    useJobStore.setState({
+      status: "succeeded",
+      logs: [],
+      result: motionResult(),
+    });
+    renderRun();
+
+    fireEvent.click(screen.getByTestId("export-bvh"));
+
+    await waitFor(() => {
+      expect(downloadSpy).toHaveBeenCalledWith("motion.bvh", "bvh-content", "application/octet-stream");
+    });
+  });
+
+  it("calls downloadTextFile with JSON payload when Export JSON is clicked", async () => {
+    const downloadSpy = vi.spyOn(exportModule, "downloadTextFile").mockImplementation(() => {});
+    vi.spyOn(exportModule, "motionExportPayloads").mockReturnValue({
+      bvh: { filename: "motion.bvh", content: "", mimeType: "application/octet-stream" },
+      json: { filename: "motion.json", content: '{"test": true}', mimeType: "application/json" },
+    });
+
+    useJobStore.setState({
+      status: "succeeded",
+      logs: [],
+      result: motionResult(),
+    });
+    renderRun();
+
+    fireEvent.click(screen.getByTestId("export-json"));
+
+    await waitFor(() => {
+      expect(downloadSpy).toHaveBeenCalledWith("motion.json", '{"test": true}', "application/json");
+    });
+  });
+
+  it("does not render export buttons when motion is not present", () => {
+    useJobStore.setState({
+      status: "succeeded",
+      logs: [],
+      result: { outputs: { src: { frames: "yes" } } },
+    });
+    renderRun();
+    expect(screen.queryByTestId("export-bvh")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("export-json")).not.toBeInTheDocument();
   });
 });

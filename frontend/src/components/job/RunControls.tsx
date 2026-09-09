@@ -13,6 +13,7 @@ import { useFlowStore } from "../../state/useFlowStore";
 import { fromFlow } from "../../core/serialize";
 import { extractMotion } from "../../core/motionView";
 import { MotionViewer } from "../motion/MotionViewer";
+import { downloadTextFile, motionExportPayloads } from "../../core/export";
 
 export interface RunControlsProps {
   /** Error surface for non-job failures (HTTP-3). */
@@ -125,6 +126,46 @@ export function RunControls({ onError }: RunControlsProps) {
                 Result
               </h3>
               <MotionViewer motion={motion} />
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button
+                  type="button"
+                  data-testid="export-bvh"
+                  onClick={() => {
+                    const payloads = motionExportPayloads(motion);
+                    downloadTextFile(payloads.bvh.filename, payloads.bvh.content, payloads.bvh.mimeType);
+                  }}
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    cursor: "pointer",
+                    background: "#2a2a2a",
+                    color: "#ccc",
+                    border: "1px solid #444",
+                    borderRadius: 4,
+                  }}
+                >
+                  Export BVH
+                </button>
+                <button
+                  type="button"
+                  data-testid="export-json"
+                  onClick={() => {
+                    const payloads = motionExportPayloads(motion);
+                    downloadTextFile(payloads.json.filename, payloads.json.content, payloads.json.mimeType);
+                  }}
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 10px",
+                    cursor: "pointer",
+                    background: "#2a2a2a",
+                    color: "#ccc",
+                    border: "1px solid #444",
+                    borderRadius: 4,
+                  }}
+                >
+                  Export JSON
+                </button>
+              </div>
               <details data-testid="job-result-raw">
                 <summary style={{ fontSize: 13, color: "#9ca3af", cursor: "pointer" }}>
                   Raw JSON

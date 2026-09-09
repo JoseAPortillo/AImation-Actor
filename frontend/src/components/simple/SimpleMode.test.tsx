@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SimpleMode } from "./SimpleMode";
 import { usePaletteStore } from "../../state/usePaletteStore";
 import { useFlowStore } from "../../state/useFlowStore";
@@ -8,6 +8,7 @@ import { useJobStore } from "../../state/useJobStore";
 import nodeCatalogFixture from "../../test/fixtures/nodeCatalog.json";
 import type { AimGraph } from "../../core/graph";
 import { saveCustomPreset, loadCustomPresets } from "../../core/presets";
+import * as exportModule from "../../core/export";
 
 beforeEach(() => {
   localStorage.clear();
@@ -110,6 +111,129 @@ describe("SimpleMode (AR-3)", () => {
     useJobStore.setState({ status: "failed", result: null });
     render(<SimpleMode />);
     expect(screen.queryByTestId("simple-mode-result")).not.toBeInTheDocument();
+  });
+
+  describe("SimpleMode export buttons", () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("renders export BVH and JSON buttons when result is shown", () => {
+      const motionDoc = {
+        meta: { version: "1.0", fps: 24, units: "m", up_axis: "Y", source_type: "neutral", duration_frames: 1, style: "default", model_version: "0.1", graph_hash: "abc" },
+        skeleton: {
+          bones: {
+            Root: { name: "Root", parent: null, rest_position: [0, 0, 0] },
+            Hips: { name: "Hips", parent: "Root", rest_position: [0, 1, 0] },
+          },
+        },
+        frames: [
+          {
+            frame: 1,
+            time: 0.041,
+            pose: {
+              transforms: {
+                Root: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+                Hips: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+              },
+            },
+          },
+        ],
+      };
+
+      useJobStore.setState({
+        status: "succeeded",
+        result: { outputs: { "video-to-motion": { motion: motionDoc } } },
+      });
+
+      render(<SimpleMode />);
+      expect(screen.getByTestId("simple-mode-export-bvh")).toBeInTheDocument();
+      expect(screen.getByTestId("simple-mode-export-json")).toBeInTheDocument();
+    });
+
+    it("calls downloadTextFile with BVH payload when Export BVH is clicked", async () => {
+      const downloadSpy = vi.spyOn(exportModule, "downloadTextFile").mockImplementation(() => {});
+      vi.spyOn(exportModule, "motionExportPayloads").mockReturnValue({
+        bvh: { filename: "motion.bvh", content: "bvh-content", mimeType: "application/octet-stream" },
+        json: { filename: "motion.json", content: "{}", mimeType: "application/json" },
+      });
+
+      const motionDoc = {
+        meta: { version: "1.0", fps: 24, units: "m", up_axis: "Y", source_type: "neutral", duration_frames: 1, style: "default", model_version: "0.1", graph_hash: "abc" },
+        skeleton: {
+          bones: {
+            Root: { name: "Root", parent: null, rest_position: [0, 0, 0] },
+            Hips: { name: "Hips", parent: "Root", rest_position: [0, 1, 0] },
+          },
+        },
+        frames: [
+          {
+            frame: 1,
+            time: 0.041,
+            pose: {
+              transforms: {
+                Root: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+                Hips: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+              },
+            },
+          },
+        ],
+      };
+
+      useJobStore.setState({
+        status: "succeeded",
+        result: { outputs: { "video-to-motion": { motion: motionDoc } } },
+      });
+
+      render(<SimpleMode />);
+      fireEvent.click(screen.getByTestId("simple-mode-export-bvh"));
+
+      await waitFor(() => {
+        expect(downloadSpy).toHaveBeenCalledWith("motion.bvh", "bvh-content", "application/octet-stream");
+      });
+    });
+
+    it("calls downloadTextFile with JSON payload when Export JSON is clicked", async () => {
+      const downloadSpy = vi.spyOn(exportModule, "downloadTextFile").mockImplementation(() => {});
+      vi.spyOn(exportModule, "motionExportPayloads").mockReturnValue({
+        bvh: { filename: "motion.bvh", content: "", mimeType: "application/octet-stream" },
+        json: { filename: "motion.json", content: '{"test": true}', mimeType: "application/json" },
+      });
+
+      const motionDoc = {
+        meta: { version: "1.0", fps: 24, units: "m", up_axis: "Y", source_type: "neutral", duration_frames: 1, style: "default", model_version: "0.1", graph_hash: "abc" },
+        skeleton: {
+          bones: {
+            Root: { name: "Root", parent: null, rest_position: [0, 0, 0] },
+            Hips: { name: "Hips", parent: "Root", rest_position: [0, 1, 0] },
+          },
+        },
+        frames: [
+          {
+            frame: 1,
+            time: 0.041,
+            pose: {
+              transforms: {
+                Root: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+                Hips: { translation: [0, 0, 0], rotation: [1, 0, 0, 0], scale: [1, 1, 1] },
+              },
+            },
+          },
+        ],
+      };
+
+      useJobStore.setState({
+        status: "succeeded",
+        result: { outputs: { "video-to-motion": { motion: motionDoc } } },
+      });
+
+      render(<SimpleMode />);
+      fireEvent.click(screen.getByTestId("simple-mode-export-json"));
+
+      await waitFor(() => {
+        expect(downloadSpy).toHaveBeenCalledWith("motion.json", '{"test": true}', "application/json");
+      });
+    });
   });
 });
 

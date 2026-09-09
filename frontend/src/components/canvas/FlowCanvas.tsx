@@ -15,6 +15,7 @@ import { usePaletteStore } from "../../state/usePaletteStore";
 import { portsCompatible } from "../../core/ports";
 import { findOutputPort, findInputPort } from "../../core/schema";
 import { SchemaNode } from "./SchemaNode";
+import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 
 const nodeTypes: NodeTypes = { schema: SchemaNode };
 
@@ -28,6 +29,7 @@ const nodeTypes: NodeTypes = { schema: SchemaNode };
  * Incompatible attempts also surface an inline hint (EC-2 s2).
  */
 export function FlowCanvas() {
+  useKeyboardShortcuts();
   const nodes = useFlowStore((s) => s.nodes);
   const edges = useFlowStore((s) => s.edges);
   const connectionHint = useFlowStore((s) => s.connectionHint);
@@ -148,6 +150,7 @@ export function FlowCanvas() {
         isValidConnection={isValidConnection}
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
+        deleteKeyCode={null}
         onNodeDragStart={() => {
           useFlowStore.getState().commitHistory();
         }}
