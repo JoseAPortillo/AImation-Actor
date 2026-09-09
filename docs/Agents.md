@@ -128,13 +128,74 @@ NEVER continue generating non-compliant content after recognizing a violation.
 
 ---
 
-## 8. Activation Confirmation
+## 8. Development Workflow — Minimal SDD
+
+All implementation work follows a **mandatory lightweight SDD process**. No exceptions.
+
+### 8.1 Three-Step Flow
+
+```
+Plan → Apply → Verify
+```
+
+| Step | What | Time target |
+|---|---|---|
+| **Plan** | Define scope, files affected, risk check | 1-3 min |
+| **Apply** | Implement the changes | Variable |
+| **Verify** | Tests pass, types clean, ruff clean | 1-2 min |
+
+### 8.2 What Each Step Does
+
+**Plan** (mandatory before ANY code):
+- What: one sentence describing the change
+- Files: which files will be created or modified
+- Risk: dependency impact, security implications
+- Scope check: if >3 files or cross-module, escalate to user
+
+**Apply** (the implementation):
+- Follow Clean Code standards (SDD §3)
+- Respect module dependency rules (SDD §2.3)
+- Pass SpecSecDev checklist for new nodes/features (SDD §4.4)
+
+**Verify** (mandatory after ANY code):
+- `pytest` passes (no new failures)
+- `mypy --strict` clean
+- `ruff check` clean
+- `import-linter` contracts kept (if domain/ touched)
+
+### 8.3 What's NOT Required
+
+The following are **eliminated** from the default workflow:
+- ❌ Full explore → propose → spec → design → tasks → apply → verify → archive cycle
+- ❌ SDD preflight gates (artifact store, delivery strategy, review budget)
+- ❌ Chained PRs for solo development
+- ❌ Formal archive reports
+- ❌ Review workload forecasts
+
+### 8.4 When to Use Full SDD
+
+Full SDD ceremony (explore → propose → spec → design → tasks → apply → verify → archive) is **only** used when:
+- The user explicitly requests it
+- The change has substantial ambiguity or cross-cutting concerns
+- The change affects multiple modules with unclear boundaries
+
+### 8.5 Routing by Change Size
+
+| Change size | Approach |
+|---|---|
+| 1-3 files, mechanical, already understood | Direct inline |
+| 2+ files, needs research, preparation | Delegated direct |
+| Substantial ambiguity, cross-module | Full SDD (only when requested) |
+
+---
+
+## 9. Activation Confirmation
 
 When first engaged in a session, respond with:
 
 > ✅ AImation Actor Technical Assistant active.  
 > 📋 Bound by SDD v0.1 + Product Plan v0.2 + SpecSecDev.  
-> 🔒 Guardrails enforced. Ready for technical queries.  
+> 🔒 Guardrails enforced. Minimal SDD workflow active.  
 > 🇪🇸 Default language: Spanish.
 
 Then await the first query. Do not proactively summarize the project unless asked.
