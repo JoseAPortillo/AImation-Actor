@@ -150,6 +150,66 @@ describe("PropertiesPanel (PP-1, PP-2)", () => {
     });
   });
 
+  it("converts a loaded NeutralMotion doc into a BlockingInput payload (blocking-input)", async () => {
+    const identityTransform = {
+      translation: [0, 0, 0],
+      rotation: [1, 0, 0, 0],
+      scale: [1, 1, 1],
+    };
+    const pose = { Root: identityTransform, Head: identityTransform };
+    const frames = Array.from({ length: 3 }, (_unused, i) => ({
+      frame: i + 1,
+      time: i / 2,
+      pose: { transforms: pose },
+      confidence: 0.9,
+    }));
+    const neutralDoc = {
+      meta: {
+        version: "1.0",
+        fps: 24,
+        units: "meters",
+        up_axis: "Y-up",
+        source_type: "video",
+        duration_frames: 3,
+        style: "neutral",
+        model_version: "v1",
+        graph_hash: "abc",
+      },
+      skeleton: {
+        bones: {
+          Root: { name: "Root", parent: null, rest_position: [0, 0, 0] },
+          Head: { name: "Head", parent: "Root", rest_position: [0, 1, 0] },
+        },
+      },
+      frames,
+      contacts: {},
+      keyposes: [],
+      tracking: { confidence_per_frame: [0.9, 0.9, 0.9] },
+    };
+
+    useFlowStore.setState({
+      nodes: [makeNode(blockingInput, { blocking: "{}" })],
+      selectedNodeId: `${blockingInput.type}_abcdef12`,
+    });
+    render(<PropertiesPanel />);
+
+    const input = screen.getByTestId("param-file-blocking") as HTMLInputElement;
+    fireFileChange(input, makeJsonFile(JSON.stringify(neutralDoc)));
+
+    await waitFor(() => {
+      const params = useFlowStore.getState().nodes[0].data.params;
+      const parsed = JSON.parse(String(params.blocking)) as Record<string, unknown>;
+      expect(Array.isArray(parsed.keyposes)).toBe(true);
+      expect((parsed.keyposes as unknown[]).length).toBeGreaterThanOrEqual(1);
+      for (const stripped of ["frames", "meta", "contacts", "tracking"]) {
+        expect(parsed).not.toHaveProperty(stripped);
+      }
+    });
+    const note = screen.getByTestId("blocking-convert-note");
+    expect(note).toBeInTheDocument();
+    expect(note).toHaveTextContent("24 fps");
+  });
+
   it("shows a Download template button for a JSON-widget param", () => {
     useFlowStore.setState({
       nodes: [makeNode(blockingInput, { blocking: "{}" })],

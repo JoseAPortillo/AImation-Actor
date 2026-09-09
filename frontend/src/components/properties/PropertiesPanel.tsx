@@ -1,8 +1,9 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useFlowStore } from "../../state/useFlowStore";
 import { getDefaultedParams } from "../../core/schema";
 import { validateVideoPath } from "../../core/videoPath";
 import { buildBlockingTemplate } from "../../core/blockingTemplate";
+import { neutralMotionToBlockingJson } from "../../core/neutralMotionToBlocking";
 import { JsonBlockingEditor } from "./JsonBlockingEditor";
 
 /**
@@ -23,6 +24,7 @@ export function PropertiesPanel() {
   const nodes = useFlowStore((s) => s.nodes);
   const updateParams = useFlowStore((s) => s.updateParams);
   const fileInputs = useRef(new Map<string, HTMLInputElement>());
+  const [convertNote, setConvertNote] = useState<string | null>(null);
 
   const node = nodes.find((n) => n.id === selectedNodeId);
   if (!node) return null;
@@ -44,7 +46,17 @@ export function PropertiesPanel() {
     } catch {
       return;
     }
-    setParam(name, text);
+    const conversion = neutralMotionToBlockingJson(text);
+    if (conversion.json !== null) {
+      setParam(name, conversion.json);
+      setConvertNote(conversion.note);
+    } else if (conversion.note !== null) {
+      setConvertNote(conversion.note);
+      // doc detected but unconvertible: do NOT clobber the current param value
+    } else {
+      setParam(name, text);
+      setConvertNote(null);
+    }
     const input = fileInputs.current.get(name);
     if (input) input.value = "";
   }
@@ -92,8 +104,20 @@ export function PropertiesPanel() {
                 <JsonBlockingEditor
                   testId={`param-${param.name}`}
                   value={value === undefined || value === null ? "" : String(value)}
-                  onChange={(v) => setParam(param.name, v)}
+                  onChange={(v) => {
+                    setConvertNote(null);
+                    setParam(param.name, v);
+                  }}
                 />
+                {convertNote ? (
+                  <span
+                    data-testid="blocking-convert-note"
+                    role="status"
+                    style={{ display: "block", color: "#7cb342", fontSize: "11px", marginTop: "2px" }}
+                  >
+                    {convertNote}
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   data-testid={`param-load-${param.name}`}
