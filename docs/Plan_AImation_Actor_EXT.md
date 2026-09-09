@@ -8,7 +8,7 @@
 | Version | 0.2 |
 | Date | August 28, 2026 |
 | Status | Initial draft for technical and product validation |
-| Target Platforms | **Maya (priority) and Blender (second phase)** |
+| Target Platforms | **Blender (priority) and Maya (second phase)** |
 | Initial Focus | Realistic full-body animation |
 | **Node Editor UI Stack** | **Tauri + React Flow** |
 | **Node Architecture** | **Full node graph** |
@@ -17,7 +17,7 @@
 
 ## 1. Executive Summary
 
-This document defines the initial plan for developing **AImation Actor**, a tool within the AImation family focused on 3D character animation, compatible with **Maya** (priority DCC) and **Blender** (second phase), that uses AI models to generate animation from:
+This document defines the initial plan for developing **AImation Actor**, a tool within the AImation family focused on 3D character animation, compatible with **Blender** (priority DCC) and **Maya** (second phase), that uses AI models to generate animation from:
 
 1. Reference video.
 2. Video with rough animation.
@@ -70,7 +70,7 @@ The tool **should not be seen as a replacement for the animator**, but as an ass
 1. Generate 3D body animation from video.
 2. Generate interpolated animation from manual blocking.
 3. Create a temporary shadow rig inside the DCC.
-4. Function as a tool compatible with Maya (first) and Blender (later).
+4. Function as a tool compatible with Blender (first) and Maya (later).
 5. Maintain a non-destructive workflow for the animator.
 6. Allow preservation of user-defined key poses.
 7. Reduce repetitive in-betweening and basic cleanup tasks.
@@ -99,8 +99,8 @@ The tool **should not be seen as a replacement for the animator**, but as an ass
 - Input from manual blocking.
 - Shadow rig generation.
 - Animation baking.
-- **Priority integration with Maya.**
-- Basic integration with Blender in the second phase.
+- **Priority integration with Blender.**
+- Basic integration with Maya in the second phase.
 - Key pose preservation.
 - Basic motion cleanup.
 - Basic foot contact detection.
@@ -648,7 +648,7 @@ http://127.0.0.1:8765
 
 ### 9.4 Component D: DCC Plugins
 
-Lightweight plugins for **Maya (priority)** and Blender (second phase).
+Lightweight plugins for **Blender (priority)** and **Maya (second phase)**.
 
 **Responsibilities:**
 
@@ -1063,16 +1063,7 @@ The shadow rig is a temporary/simple rig that allows:
 - Capable of displaying simple skeleton, ghost/preview, contacts, and keyframes.
 - Allow global offset, retime, segment replacement, and partial regeneration.
 
-### 15.3 Implementation in Maya (Priority)
-
-- Create dedicated namespace `ai_shadow`.
-- Create temporary joints or controls.
-- Bake animation curves.
-- Optionally use animation layers.
-- Allow copying animation to final rig controls.
-- Store hash of the graph used for possible re-execution.
-
-### 15.4 Implementation in Blender (Second Phase)
+### 15.3 Implementation in Blender (Priority)
 
 - Create dedicated collection `AI_ShadowRig`.
 - Create temporary armature.
@@ -1081,44 +1072,20 @@ The shadow rig is a temporary/simple rig that allows:
 - Use NLA to blend with existing animation.
 - Store metadata in custom properties.
 
+### 15.4 Implementation in Maya (Second Phase)
+
+- Create dedicated namespace `ai_shadow`.
+- Create temporary joints or controls.
+- Bake animation curves.
+- Optionally use animation layers.
+- Allow copying animation to final rig controls.
+- Store hash of the graph used for possible re-execution.
+
 ---
 
-## 16. Maya Integration (Priority DCC)
+## 16. Blender Integration (Priority DCC)
 
 ### 16.1 Technical Considerations
-
-- Use `cmds`, `maya.api.OpenMaya`, and `PySide` for UI.
-- Capture transforms of selected controls.
-- Handle namespaces and references.
-- Support custom rigs with complex constraints.
-- Bake carefully using `bakeResults`.
-- Use animation layers if non-destructive behavior is desired.
-- Mind performance with heavy scenes.
-- Maintain functional undo.
-- **Launch Tauri app via subprocess if not already open.**
-
-### 16.2 Plugin Functions
-
-- Tool panel.
-- Video selection.
-- Selected controls capture.
-- Existing keyframes capture.
-- Job submission to core (simple mode).
-- **Automatic session registration with the core.**
-- **Result reception via WebSocket (live updates).**
-- Shadow rig creation with namespace.
-- Animation curve baking.
-- Import as animation layer.
-- Retarget to custom rigs via YAML/JSON.
-- Animation export.
-- **"Open AImation Flow" button (launches Tauri app).**
-- **Active session indicator with the Tauri app.**
-
----
-
-## 17. Blender Integration (Second Phase)
-
-### 17.1 Technical Considerations
 
 - Use `bpy` to create armatures, actions, and fcurves.
 - Capture poses from `pose.bones`.
@@ -1130,7 +1097,7 @@ The shadow rig is a temporary/simple rig that allows:
 - Handle scene FPS.
 - Respect units and scale.
 
-### 17.2 Plugin Functions
+### 16.2 Plugin Functions
 
 - Tool panel in sidebar.
 - Video selection.
@@ -1146,6 +1113,39 @@ The shadow rig is a temporary/simple rig that allows:
 - Non-destructive preview.
 - Animation export.
 - **"Open AImation Flow" button.**
+
+---
+
+## 17. Maya Integration (Second Phase)
+
+### 17.1 Technical Considerations
+
+- Use `cmds`, `maya.api.OpenMaya`, and `PySide` for UI.
+- Capture transforms of selected controls.
+- Handle namespaces and references.
+- Support custom rigs with complex constraints.
+- Bake carefully using `bakeResults`.
+- Use animation layers if non-destructive behavior is desired.
+- Mind performance with heavy scenes.
+- Maintain functional undo.
+- **Launch Tauri app via subprocess if not already open.**
+
+### 17.2 Plugin Functions
+
+- Tool panel.
+- Video selection.
+- Selected controls capture.
+- Existing keyframes capture.
+- Job submission to core (simple mode).
+- **Automatic session registration with the core.**
+- **Result reception via WebSocket (live updates).**
+- Shadow rig creation with namespace.
+- Animation curve baking.
+- Import as animation layer.
+- Retarget to custom rigs via YAML/JSON.
+- Animation export.
+- **"Open AImation Flow" button (launches Tauri app).**
+- **Active session indicator with the Tauri app.**
 
 ---
 
@@ -1273,7 +1273,7 @@ It would be useful to visualize:
 - Video with **static camera**.
 - Character visible most of the time.
 - Output: shadow rig with baked animation.
-- **Initial integration: Maya first, Blender later.**
+- **Initial integration: Blender first, Maya later.**
 - **Basic Tauri + React Flow node editor (v1 with core nodes).**
 - Internal format: Neutral JSON + optional BVH.
 - In-between generation: procedural first.
@@ -1317,19 +1317,21 @@ It would be useful to visualize:
   - Execution and log visualization.
   - "Video to Motion" preset.
 
-### 20.4 MVP Phase 3: Maya Plugin
+### 20.4 MVP Phase 3: Basic Blender Plugin
 
-**Objective:** user generates animation without leaving Maya.
+**Objective:** Blender is the first DCC integration; Maya reuses the validated pattern once Blender validates it.
 
 **Functions:**
 
-- Same core.
-- Same neutral format.
-- Maya plugin with panel.
-- Shadow rig creation.
-- Baking.
-- Basic integration with selection and keyframes.
-- **Session registration + Tauri app launching.**
+- Simple panel.
+- Select video.
+- Launch generation.
+- See progress.
+- Import result.
+- Create shadow rig.
+- Bake action.
+- Store metadata.
+- **Integration with existing Tauri app.**
 
 ### 20.5 MVP Phase 4: Blocking → In-betweening
 
@@ -1359,21 +1361,19 @@ It would be useful to visualize:
 - Per-node profiling.
 - Internal graph marketplace.
 
-### 20.7 MVP Phase 6: Basic Blender Plugin
+### 20.7 MVP Phase 6: Maya Plugin
 
-**Objective:** once validated in Maya, port functionality to Blender.
+**Objective:** user generates animation without leaving Maya, reusing the integration pattern validated in Blender.
 
 **Functions:**
 
-- Simple panel.
-- Select video.
-- Launch generation.
-- See progress.
-- Import result.
-- Create shadow rig.
-- Bake action.
-- Store metadata.
-- **Integration with existing Tauri app.**
+- Same core.
+- Same neutral format.
+- Maya plugin with panel.
+- Shadow rig creation.
+- Baking.
+- Basic integration with selection and keyframes.
+- **Session registration + Tauri app launching.**
 
 ---
 
@@ -1500,22 +1500,21 @@ aimation-actor serve --port 8765
 
 ---
 
-### Phase 4: Maya Plugin + Tauri Integration (4-6 weeks)
+### Phase 4: Basic Blender Plugin (3-5 weeks)
 
 **Tasks:**
 
-- Maya panel (PySide / cmds).
-- Selection capture.
-- Keyframe capture.
-- Temporary joints/controls creation.
-- Curve baking.
-- Namespace integration.
-- Custom rig support (YAML/JSON).
-- **Automatic session registration with core.**
-- **"Open AImation Flow" button that launches the Tauri app.**
-- **Result reception via WebSocket.**
+- Sidebar UI panel.
+- HTTP connection to core.
+- Video submission.
+- JSON/BVH reception.
+- Armature creation.
+- Keyframe baking.
+- Shadow rig collection.
+- Connection preferences.
+- **Integration with Tauri app.**
 
-**Deliverable:** Maya plugin with video-to-motion and blocking-to-motion flow, integrated with the Tauri app.
+**Deliverable:** Blender add-on capable of generating animation from video, integrated with Tauri.
 
 ---
 
@@ -1557,21 +1556,22 @@ aimation-actor serve --port 8765
 
 ---
 
-### Phase 7: Basic Blender Plugin (3-5 weeks)
+### Phase 7: Maya Plugin + Tauri Integration (4-6 weeks)
 
 **Tasks:**
 
-- Sidebar UI panel.
-- HTTP connection to core.
-- Video submission.
-- JSON/BVH reception.
-- Armature creation.
-- Keyframe baking.
-- Shadow rig collection.
-- Connection preferences.
-- **Integration with Tauri app.**
+- Maya panel (PySide / cmds).
+- Selection capture.
+- Keyframe capture.
+- Temporary joints/controls creation.
+- Curve baking.
+- Namespace integration.
+- Custom rig support (YAML/JSON).
+- **Automatic session registration with core.**
+- **"Open AImation Flow" button that launches the Tauri app.**
+- **Result reception via WebSocket.**
 
-**Deliverable:** Blender add-on capable of generating animation from video, integrated with Tauri.
+**Deliverable:** Maya plugin with video-to-motion and blocking-to-motion flow, integrated with the Tauri app.
 
 ---
 
@@ -1617,7 +1617,7 @@ aimation-actor serve --port 8765
 | 2-3 | Prototype: video → 2D keypoints → basic 3D pose → BVH/JSON export | Basic functional CLI |
 | 4 | Minimum core: CLI, config, basic cleanup, simple foot contact, **/nodes/types endpoint** | AImation Actor Core v0.1 |
 | **5-6** | **Tauri + React Flow setup: base project, canvas, 5-6 core nodes, .aimgraph saving** | **AImation Flow v0.1 (editor MVP)** |
-| 7-8 | **Minimum Maya plugin: panel, core submission, shadow rig creation, bake, Tauri launch** | **Maya Add-on v0.1** |
+| 7-8 | **Minimum Blender plugin: panel, core submission, shadow rig creation, bake, Tauri launch** | **Blender Add-on v0.1** |
 | 9-10 | Minimum blocking: capture 3 poses, generate interpolation, BlockingInput node in React Flow | End-to-end functional blocking flow |
 
 ---
@@ -1630,9 +1630,9 @@ aimation-actor serve --port 8765
 |---|---|
 | 0.1 | Video → rough animation. BVH/JSON output. CLI usage. Validate AI quality. |
 | 0.2 | Local core with API + base Tauri app with minimal React Flow editor (5-6 nodes). |
-| **0.3** | **Basic Maya plugin. Shadow rig. Video-to-motion inside Maya. Tauri integration.** |
-| **0.4** | **Blocking capture in Maya. Procedural in-between generation. Keypose preservation. BlockingInput node.** |
-| 0.5 | Basic Blender plugin. Custom retargeting. Tauri integration. |
+| **0.3** | **Basic Blender plugin. Shadow rig. Video-to-motion inside Blender. Tauri integration.** |
+| **0.4** | **Blocking capture in Blender. Procedural in-between generation. Keypose preservation. BlockingInput node.** |
+| 0.5 | Basic Maya plugin. Custom retargeting. Tauri integration. |
 | **0.6** | **Complete full node graph: all nodes, previews, subgraphs, profiling.** |
 | 0.7 | Generative AI enrichment model. Improved realistic style. MotionEnhancer node. |
 | 0.8 | Internal shared graph marketplace. |
@@ -1788,7 +1788,7 @@ Tauri uses the OS's native Webview (Edge WebView2 on Windows, WebKit on macOS/Li
 A first version would be successful if it achieves:
 
 1. Import a simple video and generate recognizable body animation.
-2. **Create a shadow rig in Maya with baked animation.**
+2. **Create a shadow rig in Blender with baked animation.**
 3. Allow capturing key poses from the viewport.
 4. Generate in-betweens while maintaining key poses.
 5. Notably reduce foot sliding.
@@ -1797,7 +1797,7 @@ A first version would be successful if it achieves:
 8. Be usable by an animator without AI knowledge.
 9. **Provide a functional full node graph editor in Tauri + React Flow.**
 10. **Allow TDs to create, save, and share custom graphs (.aimgraph).**
-11. **Seamless integration between the Tauri app and the Maya plugin (sessions, live updates).**
+11. **Seamless integration between the Tauri app and the Blender plugin (sessions, live updates).**
 
 ---
 
@@ -1816,7 +1816,7 @@ A first version would be successful if it achieves:
 
 **Stage 2:** build the Tauri app with basic React Flow editor (5-6 nodes).
 
-**Stage 3:** build lightweight plugins inside Maya (priority) and Blender (second phase) with Tauri integration.
+**Stage 3:** build lightweight plugins inside Blender (priority) and Maya (second phase) with Tauri integration.
 
 **Stage 4:** expand the node editor to full graph.
 
@@ -1834,7 +1834,7 @@ The recommended architecture for **AImation Actor** is:
 
 - **External AI Core** (Python/FastAPI) for heavy processing.
 - **AImation Flow** (Tauri + React Flow) as standalone visual node editor.
-- **Lightweight Plugins** in Maya (priority) and Blender (second phase) for in-DCC user experience.
+- **Lightweight Plugins** in Blender (priority) and Maya (second phase) for in-DCC user experience.
 - **Neutral Animation Format** to communicate core, Tauri, and plugins.
 - **Non-destructive Shadow Rig** inside each DCC.
 - **Editable Pipeline** by the animator at all times.
@@ -1845,10 +1845,10 @@ The first version must focus on:
 1. Realistic body animation (full body, no hands or face).
 2. Video-to-motion as first flow.
 3. Blocking-to-motion as second flow.
-4. **Maya as first testing ground.**
+4. **Blender as first testing ground.**
 5. **Tauri + React Flow node editor as AImation family differentiator.**
 6. Procedural in-betweening first, generative AI later.
-7. **Blender as second integration.**
+7. **Maya as second integration.**
 8. Artistic control always preserved.
 9. Custom rigs as primary target.
 10. Local processing with 10 GB+ VRAM GPU.

@@ -29,8 +29,8 @@ Its goal is to accelerate blocking, in-betweening, and animation cleanup, always
 
 | DCC | Priority |
 |---|---|
-| Maya | Main priority |
-| Blender | Second phase |
+| Blender | Main priority |
+| Maya | Second phase |
 
 ---
 
@@ -112,16 +112,16 @@ It will allow:
 | 1 | Video-to-motion | CLI capable of generating animation from video |
 | 2 | Core API | Local FastAPI service and neutral format |
 | 3 | AImation Flow | Tauri app with basic React Flow editor |
-| 4 | Maya Plugin | Shadow rig, baking, and core integration |
+| 4 | Blender Plugin | Shadow rig, baking, and core integration |
 | 5 | Blocking-to-motion | In-between generation from key poses |
 | 6 | Full node graph | Complete editor with all nodes |
-| 7 | Blender Plugin | Secondary integration |
+| 7 | Maya Plugin | Secondary integration |
 
 ---
 
 ## Key Decisions
 
-- Maya is developed before Blender.
+- Blender is developed before Maya.
 - The MVP does not include face or fingers.
 - The MVP uses a static camera.
 - Processing is local.
@@ -147,7 +147,7 @@ It will allow:
 ## MVP Success Criteria
 
 - Generate recognizable body animation from video.
-- Create a baked shadow rig in Maya.
+- Create a baked shadow rig in Blender.
 - Capture key poses from the viewport.
 - Generate in-betweens while respecting key poses.
 - Reduce foot sliding.
@@ -160,7 +160,7 @@ It will allow:
 
 **AImation Actor** should start as a focused tool, with:
 
-1. Maya as the main DCC.
+1. Blender as the main DCC.
 2. External AI Core.
 3. Tauri + React Flow node editor.
 4. Non-destructive shadow rig.

@@ -6,19 +6,19 @@
 | **Target DCC** | Blender 4.0+ |
 | **Version** | 0.1 |
 | **Date** | 2026-08-28 |
-| **Depends On** | SDD v0.1 §5.2, §17; Sub-Agent Directives §4.4; Maya Spec v0.1 (parity reference) |
+| **Depends On** | SDD v0.1 §5.2, §17; Sub-Agent Directives §4.4 |
 | **Owner** | `dcc-integrator` sub-agent |
-| **Status** | Draft (Pending Core v0.3 + Maya Plugin v0.3 validation) |
+| **Status** | Draft — Blender is the priority DCC integration; validates the core integration patterns |
 
 ---
 
 ## 1. Overview
 
-This document defines the technical specification for the AImation Actor Blender add-on. It mirrors the Maya Integration Spec where applicable to ensure cross-DCC parity, while adapting to Blender's Python API (`bpy`), data model, and extension system.
+This document defines the technical specification for the AImation Actor Blender add-on, the **priority DCC integration**. The Maya Integration Spec mirrors this document where applicable to ensure cross-DCC parity, while this add-on adapts to Blender's Python API (`bpy`), data model, and extension system.
 
 The add-on is a **lightweight client** communicating with the external AI Core via HTTP/WebSocket. It performs NO AI processing locally. Responsibilities: UI presentation, viewport/pose capture, shadow rig creation, animation baking, and session management.
 
-> ⚠️ **Note:** This spec is drafted early to enable parallel development planning. Implementation begins only after Maya plugin v0.3 validates the core integration patterns. Sections marked `[TBD]` require validation against Blender 4.x+ API stability.
+> ⚠️ **Note:** This spec is the priority DCC integration; Maya later mirrors the patterns validated here. Sections marked `[TBD]` require validation against Blender 4.x+ API stability.
 
 ---
 
@@ -468,4 +468,4 @@ On first enable, if no token:
 | core-architect | | | |
 | QA Engineer | | | |
 
-> ⚠️ This spec is DRAFT until Maya plugin v0.3 validates core integration patterns. Security-auditor sign-off required before implementation begins. Changes require re-approval.
+> ⚠️ This spec validates the core integration patterns as the priority DCC integration. Security-auditor sign-off required before implementation begins. Changes require re-approval.
