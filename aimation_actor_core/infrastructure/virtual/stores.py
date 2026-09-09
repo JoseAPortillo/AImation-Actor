@@ -11,7 +11,6 @@ later phase (SDD §6 deployment/ops).
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from pydantic import ValidationError
@@ -79,11 +78,12 @@ class InMemorySessionStore(SessionStore):
 
 
 class InMemoryJobStore(JobStore):
-    """In-memory job registry with synchronous graph execution.
+    """In-memory job registry with asynchronous graph execution.
 
-    ``GRAPH_EXECUTE`` jobs are delegated to the injected :class:`GraphExecutor`
-    and driven to a terminal state within the request (ADR-002). Other kinds
-    keep the immediate stub completion until their real pipelines land.
+    ``GRAPH_EXECUTE`` jobs are created in QUEUED status and executed in a
+    background task via :meth:`execute_graph_async`. The client polls
+    ``GET /jobs/{job_id}`` for status updates. Other kinds keep the immediate
+    stub completion until their real pipelines land.
     """
 
     def __init__(
@@ -98,7 +98,41 @@ class InMemoryJobStore(JobStore):
     def submit(self, kind: JobKind, payload: dict[str, Any]) -> Job:
         if kind is not JobKind.GRAPH_EXECUTE:
             return self._submit_stub(kind, payload)
-        return self._submit_graph(payload)
+        return self._submit_graph_queued(payload)
+
+    async def execute_graph_async(self, job_id: str, payload: dict[str, Any]) -> None:
+        """Execute a graph job in the background (updates job status)."""
+        if self._executor is None or self._registry is None:
+            raise RuntimeError("graph executor/registry not wired to InMemoryJobStore")
+
+        # Mark as RUNNING
+        self._jobs[job_id] = self._jobs[job_id].model_copy(update={"status": JobStatus.RUNNING})
+
+        try:
+            graph = Graph.model_validate(payload)
+            result = await self._executor.run(graph, self._registry)
+        except (GraphValidationError, NodeExecutionError, ValidationError) as exc:
+            if self._jobs[job_id].status is JobStatus.CANCELLED:
+                return
+            failed = Job(
+                job_id=job_id,
+                kind=JobKind.GRAPH_EXECUTE,
+                status=JobStatus.FAILED,
+                error=str(exc),
+            )
+            self._jobs[job_id] = failed
+            return
+
+        if self._jobs[job_id].status is JobStatus.CANCELLED:
+            return
+        succeeded = Job(
+            job_id=job_id,
+            kind=JobKind.GRAPH_EXECUTE,
+            status=JobStatus.SUCCEEDED,
+            result={"outputs": _json_safe(result.outputs)},
+            logs=result.logs,
+        )
+        self._jobs[job_id] = succeeded
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
@@ -128,37 +162,8 @@ class InMemoryJobStore(JobStore):
         self._jobs[job.job_id] = job
         return job
 
-    def _submit_graph(self, payload: dict[str, Any]) -> Job:
+    def _submit_graph_queued(self, payload: dict[str, Any]) -> Job:
+        """Create a QUEUED graph job (execution happens in background)."""
         job = Job(kind=JobKind.GRAPH_EXECUTE, status=JobStatus.QUEUED)
         self._jobs[job.job_id] = job
-        self._jobs[job.job_id] = job.model_copy(update={"status": JobStatus.RUNNING})
-
-        if self._executor is None or self._registry is None:
-            raise RuntimeError("graph executor/registry not wired to InMemoryJobStore")
-
-        try:
-            graph = Graph.model_validate(payload)
-            result = asyncio.run(self._executor.run(graph, self._registry))
-        except (GraphValidationError, NodeExecutionError, ValidationError) as exc:
-            if self._jobs[job.job_id].status is JobStatus.CANCELLED:
-                return self._jobs[job.job_id]
-            failed = Job(
-                job_id=job.job_id,
-                kind=JobKind.GRAPH_EXECUTE,
-                status=JobStatus.FAILED,
-                error=str(exc),
-            )
-            self._jobs[job.job_id] = failed
-            return failed
-
-        if self._jobs[job.job_id].status is JobStatus.CANCELLED:
-            return self._jobs[job.job_id]
-        succeeded = Job(
-            job_id=job.job_id,
-            kind=JobKind.GRAPH_EXECUTE,
-            status=JobStatus.SUCCEEDED,
-            result={"outputs": _json_safe(result.outputs)},
-            logs=result.logs,
-        )
-        self._jobs[job.job_id] = succeeded
-        return succeeded
+        return job

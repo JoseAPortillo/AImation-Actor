@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from aimation_actor_core.api.deps import get_job_store, require_token
 from aimation_actor_core.domain.job.job import Job, JobKind, JobStatus, JobStore
@@ -52,20 +52,24 @@ def blocking_to_motion(
 @router.post(
     "/graph/execute",
     response_model=Job,
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Execute a complete node graph",
 )
-def graph_execute(
+async def graph_execute(
     graph: Graph,
+    background_tasks: BackgroundTasks,
     store: JobStore = Depends(get_job_store),
 ) -> Job:
-    """Validate and execute a node graph to a terminal state inline (ADR-002).
+    """Enqueue a node graph for background execution (async, non-blocking).
 
     The validated :class:`Graph` is serialized and delegated to the injected
-    :class:`JobStore`, which re-validates and drives it against the node
-    registry.
+    :class:`JobStore`, which creates a QUEUED job and schedules execution in
+    a background task. The client polls ``GET /jobs/{job_id}`` for status.
     """
-    return store.submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
+    payload = graph.model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    background_tasks.add_task(store.execute_graph_async, job.job_id, payload)
+    return job
 
 
 @router.get("/{job_id}", response_model=Job, summary="Job status")
