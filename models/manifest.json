@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "name": "rtmpose-light",
+      "kind": "pose-2d",
+      "version": "s_20230709",
+      "file": "rtmpose.onnx",
+      "url": "https://download.openmmlab.com/mmpose/top_down/rtmpose/rtmpose_s/rtmpose_s_8xb256-420e_coco-256x192-271c2d01_20230709.onnx",
+      "sha256": "",
+      "license": "Apache-2.0",
+      "description": "RTMPose-S body keypoint model (COCO 17 keypoints), ONNX. Apache-2.0 — commercial friendly (docs/model-licenses.md)."
+    },
+    {
+      "name": "motionbert",
+      "kind": "pose-3d",
+      "version": "0.1",
+      "file": "motionbert.onnx",
+      "url": "",
+      "sha256": "",
+      "license": "MIT",
+      "description": "MotionBERT 3D lifting backend (MIT). ONNX export pending — do not install yet; backend lands in a follow-up change."
+    }
+  ]
+}

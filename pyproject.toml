@@ -35,6 +35,8 @@ dev = [
 
 [project.scripts]
 aimation = "aimation_actor_core.cli:main"
+aimation-models = "aimation_actor_core.models_cli:main"
+aimation-eval = "aimation_actor_core.eval_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["aimation_actor_core"]

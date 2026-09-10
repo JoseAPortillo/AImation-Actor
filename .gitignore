@@ -35,3 +35,9 @@ node_modules/
 frontend/dist/
 frontend/src-tauri/target/
 frontend/*.tsbuildinfo
+
+# Model binaries (manifest.json IS committed)
+models/*.onnx
+models/*.pth
+models/*.pb
+models/*.engine
