@@ -41,3 +41,6 @@ models/*.onnx
 models/*.pth
 models/*.pb
 models/*.engine
+
+# Blender addon build artifacts
+*.zip
