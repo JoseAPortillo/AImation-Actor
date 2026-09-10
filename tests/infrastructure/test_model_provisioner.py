@@ -4,13 +4,15 @@ Uses an injected in-memory opener (dict url→bytes), so no network is ever
 touched. Covers: verified install, hash-mismatch rejection with no residue,
 TOFU rejection without an explicit opt-in (and without calling the opener),
 TOFU hash recording into a rewritten manifest, license gating before any
-download, and missing-URL rejection.
+download, missing-URL rejection, and zip+extract (archive_inner) mode.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -182,3 +184,148 @@ def test_verify_installed_delegates_to_registry_status(tmp_path: Path) -> None:
 
     (tmp_path / "rtmpose.onnx").write_bytes(PAYLOAD)
     assert provisioner.verify_installed(spec) is True  # installed
+
+
+# ---------------------------------------------------------------------------
+# archive_inner (zip+extract) tests
+# ---------------------------------------------------------------------------
+
+MEMBER_PATH = "rtmpose-ort/rtmdet-nano/end2end.onnx"
+MEMBER_CONTENT = b"extracted onnx payload for archive_inner test"
+MEMBER_DIGEST = hashlib.sha256(MEMBER_CONTENT).hexdigest()
+ZIP_URL = "https://example.invalid/rtmpose-cpu.zip"
+
+
+def _build_zip(*members: tuple[str, bytes]) -> bytes:
+    """Build an in-memory zip archive containing the given members."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, content in members:
+            zf.writestr(name, content)
+    return buf.getvalue()
+
+
+def _zip_entry(**overrides: object) -> dict[str, object]:
+    """An RTMDet-nano-like catalog entry with archive_inner set."""
+    entry: dict[str, object] = {
+        "name": "rtmdet-nano",
+        "kind": "person-detector",
+        "version": "coco-person_20230504",
+        "file": "rtmdet-nano.onnx",
+        "url": ZIP_URL,
+        "sha256": MEMBER_DIGEST,
+        "license": "Apache-2.0",
+        "description": "test zip+extract entry",
+        "archive_inner": MEMBER_PATH,
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_install_archive_inner_extracts_and_verifies(tmp_path: Path) -> None:
+    """zip+extract: the extracted member lands at target with correct hash."""
+    zip_bytes = _build_zip((MEMBER_PATH, MEMBER_CONTENT))
+    _write_manifest(tmp_path, [_zip_entry()])
+    opener = _RecordingOpener({ZIP_URL: zip_bytes})
+    registry = ModelRegistry(tmp_path)
+    provisioner = ModelProvisioner(registry, opener=opener)
+
+    target = provisioner.install(
+        registry.get("rtmdet-nano"),
+        accept_license="Apache-2.0",
+    )
+
+    assert target == tmp_path / "rtmdet-nano.onnx"
+    assert target.read_bytes() == MEMBER_CONTENT
+    assert registry.status(registry.get("rtmdet-nano")) == "installed"
+    # Both temp files cleaned up.
+    assert not (tmp_path / "rtmdet-nano.onnx.part").exists()
+    assert not (tmp_path / "rtmdet-nano.onnx.part-extracted").exists()
+    assert opener.calls == [ZIP_URL]
+
+
+def test_install_archive_inner_hash_mismatch_cleans_both_temps(tmp_path: Path) -> None:
+    """zip+extract hash mismatch → error, both .part and .part-extracted removed."""
+    zip_bytes = _build_zip((MEMBER_PATH, MEMBER_CONTENT))
+    _write_manifest(tmp_path, [_zip_entry(sha256="f" * 64)])
+    opener = _RecordingOpener({ZIP_URL: zip_bytes})
+    registry = ModelRegistry(tmp_path)
+    provisioner = ModelProvisioner(registry, opener=opener)
+
+    with pytest.raises(ModelProvisionError, match="hash mismatch"):
+        provisioner.install(registry.get("rtmdet-nano"), accept_license="Apache-2.0")
+
+    assert not (tmp_path / "rtmdet-nano.onnx.part").exists()
+    assert not (tmp_path / "rtmdet-nano.onnx.part-extracted").exists()
+    assert not (tmp_path / "rtmdet-nano.onnx").exists()
+
+
+def test_install_archive_inner_malicious_traversal_rejected(tmp_path: Path) -> None:
+    """Member with ../traversal → ModelProvisionError, nothing written outside root."""
+    malicious_member = "../evil"
+    zip_bytes = _build_zip((malicious_member, b"evil payload"))
+    _write_manifest(tmp_path, [_zip_entry(archive_inner=malicious_member, sha256="")])
+    opener = _RecordingOpener({ZIP_URL: zip_bytes})
+    registry = ModelRegistry(tmp_path)
+    provisioner = ModelProvisioner(registry, opener=opener)
+
+    with pytest.raises(ModelProvisionError, match="traversal"):
+        provisioner.install(
+            registry.get("rtmdet-nano"),
+            accept_license="Apache-2.0",
+            trust_on_first_use=True,
+        )
+
+    # No file should escape the root.
+    assert not (tmp_path.parent / "evil").exists()
+    assert not (tmp_path / "rtmdet-nano.onnx").exists()
+
+
+def test_install_archive_inner_malicious_absolute_rejected(tmp_path: Path) -> None:
+    """Member with absolute path → ModelProvisionError, no files written."""
+    absolute_member = "/etc/evil"
+    zip_bytes = _build_zip((absolute_member, b"evil payload"))
+    _write_manifest(tmp_path, [_zip_entry(archive_inner=absolute_member, sha256="")])
+    opener = _RecordingOpener({ZIP_URL: zip_bytes})
+    registry = ModelRegistry(tmp_path)
+    provisioner = ModelProvisioner(registry, opener=opener)
+
+    with pytest.raises(ModelProvisionError, match="absolute"):
+        provisioner.install(
+            registry.get("rtmdet-nano"),
+            accept_license="Apache-2.0",
+            trust_on_first_use=True,
+        )
+
+
+def test_install_archive_inner_missing_member_raises_and_cleans(tmp_path: Path) -> None:
+    """Member doesn't exist in zip → ModelProvisionError, both temps cleaned."""
+    zip_bytes = _build_zip(("other/file.onnx", b"data"))
+    _write_manifest(tmp_path, [_zip_entry()])
+    opener = _RecordingOpener({ZIP_URL: zip_bytes})
+    registry = ModelRegistry(tmp_path)
+    provisioner = ModelProvisioner(registry, opener=opener)
+
+    with pytest.raises(ModelProvisionError, match="not found in archive"):
+        provisioner.install(registry.get("rtmdet-nano"), accept_license="Apache-2.0")
+
+    assert not (tmp_path / "rtmdet-nano.onnx.part").exists()
+    assert not (tmp_path / "rtmdet-nano.onnx.part-extracted").exists()
+    assert not (tmp_path / "rtmdet-nano.onnx").exists()
+
+
+def test_install_without_archive_inner_unchanged(tmp_path: Path) -> None:
+    """A spec without archive_inner still follows the direct-byte path."""
+    _write_manifest(tmp_path, [_rtmpose_entry()])
+    opener = _RecordingOpener({URL: PAYLOAD})
+    registry = ModelRegistry(tmp_path)
+    provisioner = ModelProvisioner(registry, opener=opener)
+
+    target = provisioner.install(
+        registry.get("rtmpose-light"),
+        accept_license="Apache-2.0",
+    )
+
+    assert target.read_bytes() == PAYLOAD
+    assert not (tmp_path / "rtmpose.onnx.part").exists()
+    assert not (tmp_path / "rtmpose.onnx.part-extracted").exists()

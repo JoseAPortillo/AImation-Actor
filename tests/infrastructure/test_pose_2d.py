@@ -8,6 +8,7 @@ import pytest
 from aimation_actor_core.domain.animation.keypoints import Keypoints2D
 from aimation_actor_core.domain.pipeline.node import ExecutionContext
 from aimation_actor_core.domain.pipeline.schema import DataType, NodeCategory
+from aimation_actor_core.infrastructure.ai_models.estimators import TopDownOnnxBackend
 from aimation_actor_core.infrastructure.ai_models.pose_2d import Pose2DNode
 
 
@@ -135,6 +136,14 @@ class TestPose2DNodeExecute:
         # Should not crash, should use synthetic backend
         assert "keypoints" in result.values
         assert len(result.values["keypoints"]) == 1
+
+    def test_build_backend_onnx_resolves_via_registry(self) -> None:
+        """Should resolve the ONNX backend through the model registry."""
+        node = Pose2DNode()
+        backend = node._build_backend("onnx")
+
+        # Construction resolves manifest entries; does NOT touch binaries (CI-safe).
+        assert isinstance(backend, TopDownOnnxBackend)
 
     @pytest.mark.asyncio
     async def test_execute_uses_asyncio_to_thread(self, context: ExecutionContext) -> None:

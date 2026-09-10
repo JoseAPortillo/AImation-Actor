@@ -27,6 +27,10 @@ class ModelSpec(BaseModel):
         sha256: Expected SHA-256 hex digest; empty means unverified (TOFU).
         license: SPDX license identifier of the artifact.
         description: Human-readable notes (origin, compliance pointers).
+        archive_inner: Optional relative path inside a zip archive to extract.
+            When set, the provisioner downloads the zip, extracts this member,
+            and verifies/installs the extracted file instead of the raw archive.
+            The sha256 refers to the extracted file, not the zip container.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -39,6 +43,7 @@ class ModelSpec(BaseModel):
     sha256: str = ""
     license: str
     description: str = ""
+    archive_inner: str | None = None
 
 
 class ModelManifestError(ValueError):

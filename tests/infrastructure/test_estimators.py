@@ -1,4 +1,4 @@
-"""Tests for PoseEstimator protocol, SyntheticBackend, and OnnxBackend."""
+"""Tests for PoseEstimator protocol, SyntheticBackend, OnnxBackend, and TopDownOnnxBackend."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from aimation_actor_core.infrastructure.ai_models.estimators import (
     OnnxBackend,
     PoseEstimator,
     SyntheticBackend,
+    TopDownOnnxBackend,
 )
 
 _NUM_KEYPOINTS: int = 17
@@ -126,8 +127,9 @@ def _build_trivial_onnx(path: Path) -> None:
 
     The model accepts [1, 3, 256, 192] float32 and returns two outputs
     ``simcc_x`` [1, 17, 384] and ``simcc_y`` [1, 17, 512] — matching
-    RTMPose-S SimCC layout.  The conv weights are random; the model exists
-    solely to exercise the preprocessing → session → decode path.
+    RTMPose-S SimCC layout.  Outputs are constant tensors routed through
+    Identity nodes, so the model exercises the full preprocess → session →
+    decode path without needing real weights.
     """
     try:
         import onnx
@@ -139,29 +141,25 @@ def _build_trivial_onnx(path: Path) -> None:
     out_x = helper.make_tensor_value_info("simcc_x", TensorProto.FLOAT, [1, 17, 384])
     out_y = helper.make_tensor_value_info("simcc_y", TensorProto.FLOAT, [1, 17, 512])
 
-    # A trivial Conv that maps 3→17 channels (spatial dims preserved with
-    # padding) followed by Reshape to produce the SimCC shapes.
-    # Conv: 3→17, kernel 1×1, padding 0 → output [1,17,256,192]
-    w_init = helper.make_tensor(
-        "conv_w", TensorProto.FLOAT, [17, 3, 1, 1], np.random.randn(17, 3, 1, 1).tolist()
+    # Constant tensors with the correct output shapes, routed through Identity.
+    simcc_x_data = np.random.randn(1, 17, 384).astype(np.float32)
+    simcc_x_init = helper.make_tensor(
+        "simcc_x_data", TensorProto.FLOAT, [1, 17, 384], simcc_x_data.tolist()
     )
-    b_init = helper.make_tensor("conv_b", TensorProto.FLOAT, [17], np.zeros(17).tolist())
-    conv_node = helper.make_node("Conv", ["input", "conv_w", "conv_b"], ["conv_out"])
+    id_x = helper.make_node("Identity", ["simcc_x_data"], ["simcc_x"])
 
-    # Reshape conv_out [1,17,256,192] → [1,17,384] for simcc_x
-    shape_x = helper.make_tensor("shape_x", TensorProto.INT64, [3], [1, 17, 384])
-    reshape_x = helper.make_node("Reshape", ["conv_out", "shape_x"], ["simcc_x"])
-
-    # Reshape conv_out [1,17,256,192] → [1,17,512] for simcc_y
-    shape_y = helper.make_tensor("shape_y", TensorProto.INT64, [3], [1, 17, 512])
-    reshape_y = helper.make_node("Reshape", ["conv_out", "shape_y"], ["simcc_y"])
+    simcc_y_data = np.random.randn(1, 17, 512).astype(np.float32)
+    simcc_y_init = helper.make_tensor(
+        "simcc_y_data", TensorProto.FLOAT, [1, 17, 512], simcc_y_data.tolist()
+    )
+    id_y = helper.make_node("Identity", ["simcc_y_data"], ["simcc_y"])
 
     graph = helper.make_graph(
-        [conv_node, reshape_x, reshape_y],
+        [id_x, id_y],
         "trivial_pose",
         [input_tensor],
         [out_x, out_y],
-        initializer=[w_init, b_init, shape_x, shape_y],
+        initializer=[simcc_x_init, simcc_y_init],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
     model.ir_version = 8
@@ -293,3 +291,250 @@ class TestOnnxBackend:
             registry = ModelRegistry(root=Path(tmp_dir))
             with pytest.raises(ModelManifestError):
                 OnnxBackend.from_registry(registry)
+
+
+# ---------------------------------------------------------------------------
+# TopDownOnnxBackend — unit tests (no real model needed)
+# ---------------------------------------------------------------------------
+
+
+class TestTopDownAffine:
+    """Test TopDownAffine forward + inverse round-trip."""
+
+    def test_compute_affine_output_shape(self) -> None:
+        """Should produce a 2×3 affine matrix."""
+        affine, scale, src_x, src_y = TopDownOnnxBackend._compute_affine(
+            box_cx=200.0, box_cy=150.0, box_size=200.0
+        )
+        assert affine.shape == (2, 3)
+        assert scale > 0
+        assert isinstance(src_x, float)
+        assert isinstance(src_y, float)
+
+    def test_affine_maps_center_to_model_center(self) -> None:
+        """The person centre should map to the model input centre."""
+        cx, cy, size = 200.0, 150.0, 200.0
+        affine, _, _, _ = TopDownOnnxBackend._compute_affine(cx, cy, size)
+        # Apply forward affine to the person centre.
+        pt = np.array([cx, cy, 1.0])
+        model_pt = affine @ pt
+        # Should be near (input_w/2, input_h/2) = (96, 128).
+        assert abs(model_pt[0] - 96.0) < 0.01
+        assert abs(model_pt[1] - 128.0) < 0.01
+
+    def test_inverse_affine_round_trip(self) -> None:
+        """Forward then inverse should recover the original point."""
+        cx, cy, size = 300.0, 250.0, 150.0
+        affine, _, _, _ = TopDownOnnxBackend._compute_affine(cx, cy, size)
+        inv = TopDownOnnxBackend._inverse_affine(affine)
+
+        # Pick an arbitrary point in source space.
+        src_pt = np.array([280.0, 220.0])
+        # Forward: source → model.
+        src_h = np.array([src_pt[0], src_pt[1], 1.0])
+        model_pt = affine @ src_h
+        # Inverse: model → source.
+        model_h = np.array([model_pt[0], model_pt[1], 1.0])
+        recovered = inv @ model_h
+
+        assert abs(recovered[0] - src_pt[0]) < 0.001
+        assert abs(recovered[1] - src_pt[1]) < 0.001
+
+    def test_warp_crop_output_shape(self) -> None:
+        """Should produce (input_h, input_w, 3) uint8 crop."""
+        frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        affine, _, _, _ = TopDownOnnxBackend._compute_affine(
+            box_cx=320.0, box_cy=240.0, box_size=200.0
+        )
+        crop = TopDownOnnxBackend._warp_crop(frame, affine)
+        assert crop.shape == (256, 192, 3)
+        assert crop.dtype == np.uint8
+
+    def test_affine_constants_match_mmpose(self) -> None:
+        """Verify the mmpose pipeline.json constants are honoured."""
+        # From pipeline.json: padding=1.25, image_size=[192, 256]
+        # For a person with size=200px:
+        #   scale = 200 × 1.25 / 200 = 1.25
+        #   crop_w = 1.25 × 192 = 240
+        #   crop_h = 1.25 × 256 = 320
+        _, scale, src_x, src_y = TopDownOnnxBackend._compute_affine(
+            box_cx=200.0, box_cy=150.0, box_size=200.0
+        )
+        assert scale == pytest.approx(1.25)
+        # src_x = 200 - 1.25×192/2 = 200 - 120 = 80
+        assert src_x == pytest.approx(80.0)
+        # src_y = 150 - 1.25×256/2 = 150 - 160 = -10
+        assert src_y == pytest.approx(-10.0)
+
+
+# ---------------------------------------------------------------------------
+# TopDownOnnxBackend — orchestration with fake models
+# ---------------------------------------------------------------------------
+
+
+def _build_fake_detector_onnx(path: Path) -> None:
+    """Build a minimal ONNX model that mimics RTMDet-nano output layout.
+
+    Accepts [1, 3, 320, 320] and returns:
+        - dets: [1, 100, 5] — all zeros (no detections).
+        - labels: [1, 100] — all zeros.
+    """
+    try:
+        import onnx
+        from onnx import TensorProto, helper
+    except ImportError:
+        pytest.skip("onnx python package not installed; cannot build fake model")
+
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 320, 320])
+    out_dets = helper.make_tensor_value_info("dets", TensorProto.FLOAT, [1, 100, 5])
+    out_labels = helper.make_tensor_value_info("labels", TensorProto.INT64, [1, 100])
+
+    # Constant tensors that produce zero outputs.
+    dets_init = helper.make_tensor(
+        "dets_zero", TensorProto.FLOAT, [1, 100, 5], np.zeros((1, 100, 5)).tolist()
+    )
+    labels_init = helper.make_tensor(
+        "labels_zero", TensorProto.INT64, [1, 100], np.zeros((1, 100), dtype=np.int64).tolist()
+    )
+
+    # Identity nodes connect initializers to graph outputs.
+    id_dets = helper.make_node("Identity", ["dets_zero"], ["dets"])
+    id_labels = helper.make_node("Identity", ["labels_zero"], ["labels"])
+
+    graph = helper.make_graph(
+        [id_dets, id_labels],
+        "fake_detector",
+        [input_tensor],
+        [out_dets, out_labels],
+        initializer=[dets_init, labels_init],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    onnx.checker.check_model(model)
+    onnx.save(model, str(path))
+
+
+class TestTopDownOnnxBackend:
+    """Test TopDownOnnxBackend orchestration with fake models."""
+
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnxruntime") is None,
+        reason="onnxruntime not installed",
+    )
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnx") is None,
+        reason="onnx python package not installed",
+    )
+    def test_no_person_emits_zero_confidence(self, tmp_path: Path) -> None:
+        """When detector returns no persons, should emit 17 zero-confidence keypoints."""
+        # Build fake detector (returns all zeros → no detections).
+        det_path = tmp_path / "rtmdet-nano.onnx"
+        _build_fake_detector_onnx(det_path)
+        # Use existing fake pose model.
+        pose_path = tmp_path / "rtmpose.onnx"
+        _build_trivial_onnx(pose_path)
+
+        backend = TopDownOnnxBackend(
+            detector_path=det_path,
+            pose_path=pose_path,
+        )
+        frames = [np.zeros((480, 640, 3), dtype=np.uint8) for _ in range(2)]
+        result = backend.estimate(frames)
+
+        assert len(result) == 2
+        for kp2d in result:
+            assert isinstance(kp2d, Keypoints2D)
+            assert len(kp2d.keypoints) == _NUM_KEYPOINTS
+            for kp in kp2d.keypoints:
+                assert kp.confidence == 0.0
+                assert kp.x == 0.0
+                assert kp.y == 0.0
+
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnxruntime") is None,
+        reason="onnxruntime not installed",
+    )
+    def test_implements_pose_estimator_protocol(self) -> None:
+        """TopDownOnnxBackend should satisfy the PoseEstimator protocol."""
+        backend = TopDownOnnxBackend()
+        assert isinstance(backend, PoseEstimator)
+
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnxruntime") is None,
+        reason="onnxruntime not installed",
+    )
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnx") is None,
+        reason="onnx python package not installed",
+    )
+    def test_with_person_detection(self, tmp_path: Path) -> None:
+        """When a person is detected, should produce keypoints with valid range."""
+        # Build fake detector that outputs one person detection.
+        try:
+            import onnx
+            from onnx import TensorProto, helper
+        except ImportError:
+            pytest.skip("onnx python package not installed")
+
+        det_path = tmp_path / "rtmdet-nano.onnx"
+        input_tensor = helper.make_tensor_value_info(
+            "input", TensorProto.FLOAT, [1, 3, 320, 320]
+        )
+        out_dets = helper.make_tensor_value_info("dets", TensorProto.FLOAT, [1, 100, 5])
+        out_labels = helper.make_tensor_value_info("labels", TensorProto.INT64, [1, 100])
+
+        # Build a dets tensor: one person at (50,50,250,350) with score=0.9.
+        dets_data = np.zeros((1, 100, 5), dtype=np.float32)
+        dets_data[0, 0] = [50.0, 50.0, 250.0, 350.0, 0.9]
+        dets_init = helper.make_tensor(
+            "dets_val", TensorProto.FLOAT, [1, 100, 5], dets_data.tolist()
+        )
+        labels_data = np.zeros((1, 100), dtype=np.int64)
+        labels_data[0, 0] = 0  # person class
+        labels_init = helper.make_tensor(
+            "labels_val", TensorProto.INT64, [1, 100], labels_data.tolist()
+        )
+
+        # Identity nodes connect initializers to graph outputs.
+        id_dets = helper.make_node("Identity", ["dets_val"], ["dets"])
+        id_labels = helper.make_node("Identity", ["labels_val"], ["labels"])
+
+        graph = helper.make_graph(
+            [id_dets, id_labels],
+            "fake_detector_with_person",
+            [input_tensor],
+            [out_dets, out_labels],
+            initializer=[dets_init, labels_init],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model.ir_version = 8
+        onnx.checker.check_model(model)
+        onnx.save(model, str(det_path))
+
+        pose_path = tmp_path / "rtmpose.onnx"
+        _build_trivial_onnx(pose_path)
+
+        backend = TopDownOnnxBackend(detector_path=det_path, pose_path=pose_path)
+        frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        result = backend.estimate([frame])
+
+        assert len(result) == 1
+        kp2d = result[0]
+        assert len(kp2d.keypoints) == _NUM_KEYPOINTS
+        # With a detected person, keypoints should have been computed.
+        # The fake pose model produces random-ish SimCC → non-zero coordinates.
+        for kp in kp2d.keypoints:
+            assert 0.0 <= kp.x <= 1.0
+            assert 0.0 <= kp.y <= 1.0
+            assert 0.0 <= kp.confidence <= 1.0
+
+    def test_from_registry_construction(self) -> None:
+        """from_registry should construct without touching binaries."""
+        from aimation_actor_core.infrastructure.models.registry import ModelRegistry
+
+        backend = TopDownOnnxBackend.from_registry(ModelRegistry(root=Path("models")))
+        assert isinstance(backend, TopDownOnnxBackend)
+        assert backend._detector_path is not None
+        assert backend._detector_path.name == "rtmdet-nano.onnx"
+        assert backend._pose_path is not None
+        assert backend._pose_path.name == "rtmpose.onnx"

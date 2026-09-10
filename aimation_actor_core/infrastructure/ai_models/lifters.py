@@ -259,7 +259,7 @@ class OnnxLiftingBackend:
         """
         self.model_path = Path(model_path)
         try:
-            import onnxruntime  # type: ignore[import-not-found]  # noqa: F401
+            import onnxruntime  # type: ignore[import-untyped]  # noqa: F401
         except ImportError as e:
             raise ImportError(
                 "onnxruntime is required for OnnxLiftingBackend but is not installed. "

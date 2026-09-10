@@ -7,7 +7,14 @@ place with ``os.replace`` (atomic within the same filesystem). A recorded
 through an explicit ``--trust-on-first-use`` (TOFU) opt-in, which records the
 observed hash back into ``manifest.json``.
 
-Stdlib only (``urllib``): no httpx/requests dependency is added for downloads.
+When a manifest entry has ``archive_inner`` set, the download is treated as a
+zip archive: after the raw download hash gate, the specified member is
+extracted to a second temp file, verified against ``sha256`` (which now
+refers to the extracted ONNX, not the container zip), and atomically moved to
+the target path. Both temp files are cleaned up on every failure path.
+
+Stdlib only (``urllib``, ``zipfile``): no httpx/requests dependency is added
+for downloads.
 """
 
 from __future__ import annotations
@@ -15,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -44,11 +52,60 @@ def _cleanup(path: Path) -> None:
         pass
 
 
+def extract_member_to(
+    zip_path: Path,
+    member: str,
+    dest: Path,
+) -> None:
+    """Extract ``member`` from the zip at ``zip_path`` into ``dest``.
+
+    Validates that ``member`` is a safe relative path (no absolute prefix or
+    ``..`` traversal) and that it exists inside the archive.
+
+    Args:
+        zip_path: Path to the zip file.
+        member: Relative path of the member inside the zip.
+        dest: Destination file to write the extracted bytes to.
+
+    Raises:
+        ModelProvisionError: If the member path is unsafe, missing, or a
+            directory.
+        OSError: If file I/O fails during extraction.
+    """
+    if not member:
+        raise ModelProvisionError("empty archive member path")
+    # Normalize backslashes (some zips use them) then reject traversal.
+    normalized = member.replace("\\", "/")
+    if os.path.isabs(normalized) or normalized.startswith("/"):
+        raise ModelProvisionError(f"unsafe archive member path (absolute): {member!r}")
+    if ".." in normalized.split("/"):
+        raise ModelProvisionError(f"unsafe archive member path (traversal): {member!r}")
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = zf.namelist()
+        if member not in names:
+            raise ModelProvisionError(
+                f"member {member!r} not found in archive (available: {names[:10]})"
+            )
+        info = zf.getinfo(member)
+        if info.is_dir():
+            raise ModelProvisionError(f"member {member!r} is a directory, not a file")
+        raw = zf.read(member)
+
+    dest.write_bytes(raw)
+
+
 class ModelProvisioner:
     """Installs manifest entries into the registry root.
 
     The HTTP layer is injectable (``opener: Callable[[str], bytes]``) so tests
     can serve canned payloads without any network access.
+
+    When ``spec.archive_inner`` is set, the downloaded payload is treated as a
+    zip archive: the referenced member is extracted, verified against the
+    manifest ``sha256`` (which refers to the extracted file), and atomically
+    moved to the target. Both the raw download temp and the extracted temp are
+    cleaned up on every failure path.
 
     Attributes:
         registry: The catalog/root the provisioner reads from and installs into.
@@ -83,6 +140,11 @@ class ModelProvisioner:
         no residue. Under TOFU, the observed hash is written back into
         ``manifest.json`` (pretty JSON, catalog preserved).
 
+        **Zip+extract mode** — when ``spec.archive_inner`` is non-empty the raw
+        download is written to ``.part``, then the named member is extracted to
+        ``.part-extracted``. The manifest ``sha256`` covers the *extracted*
+        file, not the zip container. Both temps are removed on every failure.
+
         Args:
             spec: The manifest entry to install.
             accept_license: SPDX identifier the user explicitly accepts; must
@@ -113,6 +175,7 @@ class ModelProvisioner:
         self.registry.ensure_root()
         tmp = self.registry.root / f"{spec.file}.part"
         target = self.registry.installed_path(spec)
+        extracted_tmp = self.registry.root / f"{spec.file}.part-extracted"
 
         try:
             data = self._opener(spec.url)
@@ -126,6 +189,41 @@ class ModelProvisioner:
             _cleanup(tmp)
             raise ModelProvisionError(f"failed to write {tmp}: {exc}") from exc
 
+        # --- Zip+extract path ---
+        if spec.archive_inner:
+            try:
+                extract_member_to(tmp, spec.archive_inner, extracted_tmp)
+            except (ModelProvisionError, OSError) as exc:
+                _cleanup(tmp)
+                _cleanup(extracted_tmp)
+                if isinstance(exc, ModelProvisionError):
+                    raise
+                raise ModelProvisionError(
+                    f"failed to extract {spec.archive_inner} from zip: {exc}"
+                ) from exc
+
+            digest = hash_file(extracted_tmp)
+            if spec.sha256:
+                if digest != spec.sha256:
+                    _cleanup(tmp)
+                    _cleanup(extracted_tmp)
+                    raise ModelProvisionError(
+                        f"model hash mismatch for {spec.name}: "
+                        f"expected {spec.sha256}, got {digest}"
+                    )
+            else:
+                self._record_sha256(spec, digest)
+
+            try:
+                os.replace(extracted_tmp, target)
+            except OSError as exc:
+                _cleanup(tmp)
+                _cleanup(extracted_tmp)
+                raise ModelProvisionError(f"failed to install {target}: {exc}") from exc
+            _cleanup(tmp)
+            return target
+
+        # --- Direct byte path (no archive_inner) ---
         digest = hash_file(tmp)
         if spec.sha256:
             if digest != spec.sha256:

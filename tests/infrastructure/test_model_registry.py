@@ -135,3 +135,28 @@ def test_default_root_is_models() -> None:
     """The registry defaults to a relative 'models' root."""
     assert ModelRegistry().root == Path("models")
     assert ModelRegistry().manifest_path == Path("models") / "manifest.json"
+
+
+def test_load_parses_archive_inner_field(tmp_path: Path) -> None:
+    """An entry with archive_inner is parsed correctly; absent means None."""
+    entry_with: dict[str, object] = {
+        "name": "rtmdet-nano",
+        "kind": "person-detector",
+        "file": "rtmdet-nano.onnx",
+        "url": "https://example.invalid/rtmpose-cpu.zip",
+        "sha256": "a" * 64,
+        "license": "Apache-2.0",
+        "archive_inner": "rtmpose-ort/rtmdet-nano/end2end.onnx",
+    }
+    entry_without: dict[str, object] = {
+        "name": "rtmpose-light",
+        "kind": "pose-2d",
+        "file": "rtmpose.onnx",
+        "url": "https://example.invalid/rtmpose.onnx",
+        "sha256": "b" * 64,
+        "license": "Apache-2.0",
+    }
+    _write_manifest(tmp_path, [entry_with, entry_without])
+    specs = ModelRegistry(tmp_path).load()
+    assert specs[0].archive_inner == "rtmpose-ort/rtmdet-nano/end2end.onnx"
+    assert specs[1].archive_inner is None
