@@ -1,17 +1,29 @@
-"""Tests for PoseEstimator protocol and SyntheticBackend."""
+"""Tests for PoseEstimator protocol, SyntheticBackend, and OnnxBackend."""
+
+from __future__ import annotations
 
 import builtins
 import importlib.util
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from aimation_actor_core.domain.animation.keypoints import Keypoints2D
 from aimation_actor_core.infrastructure.ai_models.estimators import (
+    COCO17_LABELS,
     OnnxBackend,
     PoseEstimator,
     SyntheticBackend,
 )
+
+_NUM_KEYPOINTS: int = 17
+
+
+# ---------------------------------------------------------------------------
+# SyntheticBackend
+# ---------------------------------------------------------------------------
 
 
 class TestSyntheticBackend:
@@ -85,7 +97,7 @@ class TestSyntheticBackend:
     def test_estimate_empty_frames(self) -> None:
         """Should handle empty frames list."""
         backend = SyntheticBackend()
-        frames = []
+        frames: list[np.ndarray] = []
 
         result = backend.estimate(frames)
 
@@ -102,6 +114,59 @@ class TestSyntheticBackend:
         json_str = result[0].model_dump_json()
         assert "frame_index" in json_str
         assert "keypoints" in json_str
+
+
+# ---------------------------------------------------------------------------
+# OnnxBackend — unit tests (no real model needed)
+# ---------------------------------------------------------------------------
+
+
+def _build_trivial_onnx(path: Path) -> None:
+    """Build a minimal ONNX model for testing.
+
+    The model accepts [1, 3, 256, 192] float32 and returns two outputs
+    ``simcc_x`` [1, 17, 384] and ``simcc_y`` [1, 17, 512] — matching
+    RTMPose-S SimCC layout.  The conv weights are random; the model exists
+    solely to exercise the preprocessing → session → decode path.
+    """
+    try:
+        import onnx
+        from onnx import TensorProto, helper
+    except ImportError:
+        pytest.skip("onnx python package not installed; cannot build fake model")
+
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 256, 192])
+    out_x = helper.make_tensor_value_info("simcc_x", TensorProto.FLOAT, [1, 17, 384])
+    out_y = helper.make_tensor_value_info("simcc_y", TensorProto.FLOAT, [1, 17, 512])
+
+    # A trivial Conv that maps 3→17 channels (spatial dims preserved with
+    # padding) followed by Reshape to produce the SimCC shapes.
+    # Conv: 3→17, kernel 1×1, padding 0 → output [1,17,256,192]
+    w_init = helper.make_tensor(
+        "conv_w", TensorProto.FLOAT, [17, 3, 1, 1], np.random.randn(17, 3, 1, 1).tolist()
+    )
+    b_init = helper.make_tensor("conv_b", TensorProto.FLOAT, [17], np.zeros(17).tolist())
+    conv_node = helper.make_node("Conv", ["input", "conv_w", "conv_b"], ["conv_out"])
+
+    # Reshape conv_out [1,17,256,192] → [1,17,384] for simcc_x
+    shape_x = helper.make_tensor("shape_x", TensorProto.INT64, [3], [1, 17, 384])
+    reshape_x = helper.make_node("Reshape", ["conv_out", "shape_x"], ["simcc_x"])
+
+    # Reshape conv_out [1,17,256,192] → [1,17,512] for simcc_y
+    shape_y = helper.make_tensor("shape_y", TensorProto.INT64, [3], [1, 17, 512])
+    reshape_y = helper.make_node("Reshape", ["conv_out", "shape_y"], ["simcc_y"])
+
+    graph = helper.make_graph(
+        [conv_node, reshape_x, reshape_y],
+        "trivial_pose",
+        [input_tensor],
+        [out_x, out_y],
+        initializer=[w_init, b_init, shape_x, shape_y],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    onnx.checker.check_model(model)
+    onnx.save(model, str(path))
 
 
 class TestOnnxBackend:
@@ -144,16 +209,87 @@ class TestOnnxBackend:
 
         assert "onnxruntime" in str(exc_info.value).lower()
 
+    def test_missing_model_raises_file_not_found(self) -> None:
+        """Should raise FileNotFoundError with install hint when model is absent."""
+        backend = OnnxBackend(model_path="/nonexistent/path/model.onnx")
+        frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            backend.estimate(frames)
+
+        assert "aimation-models install" in str(exc_info.value).lower()
+
     @pytest.mark.skipif(
         importlib.util.find_spec("onnxruntime") is None,
         reason="onnxruntime not installed",
     )
-    def test_estimate_with_onnxruntime_raises_not_implemented(self) -> None:
-        """Should raise NotImplementedError when onnxruntime is importable."""
-        backend = OnnxBackend(model_path="dummy.onnx")
-        frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnx") is None,
+        reason="onnx python package not installed",
+    )
+    def test_estimate_with_fake_model(self, tmp_path: Path) -> None:
+        """Should return correct structure from a trivial ONNX model.
 
-        with pytest.raises(NotImplementedError) as exc_info:
-            backend.estimate(frames)
+        Uses a fake 1×3×256×192 → simcc_x[1,17,384] + simcc_y[1,17,512]
+        model to exercise the full preprocess → infer → decode pipeline.
+        """
+        model_path = tmp_path / "fake_pose.onnx"
+        _build_trivial_onnx(model_path)
 
-        assert "not yet implemented" in str(exc_info.value).lower()
+        backend = OnnxBackend(model_path=model_path)
+        frames = [
+            np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8),
+            np.random.randint(0, 255, (360, 480, 3), dtype=np.uint8),
+        ]
+
+        result = backend.estimate(frames)
+
+        # One Keypoints2D per frame
+        assert len(result) == 2
+        for kp2d in result:
+            assert isinstance(kp2d, Keypoints2D)
+            assert len(kp2d.keypoints) == _NUM_KEYPOINTS
+
+            for kp in kp2d.keypoints:
+                assert kp.label in COCO17_LABELS
+                assert 0.0 <= kp.x <= 1.0
+                assert 0.0 <= kp.y <= 1.0
+                assert 0.0 <= kp.confidence <= 1.0
+
+        # Labels match COCO-17 order
+        for k, expected_label in enumerate(COCO17_LABELS):
+            assert result[0].keypoints[k].label == expected_label
+
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnxruntime") is None,
+        reason="onnxruntime not installed",
+    )
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnx") is None,
+        reason="onnx python package not installed",
+    )
+    def test_estimate_empty_frames(self, tmp_path: Path) -> None:
+        """Should return empty list when no frames are given."""
+        model_path = tmp_path / "fake_pose.onnx"
+        _build_trivial_onnx(model_path)
+
+        backend = OnnxBackend(model_path=model_path)
+        result = backend.estimate([])
+
+        assert result == []
+
+    @pytest.mark.skipif(
+        importlib.util.find_spec("onnxruntime") is None,
+        reason="onnxruntime not installed",
+    )
+    def test_from_registry_missing_manifest_raises(self) -> None:
+        """from_registry should surface a missing manifest as an error."""
+        from aimation_actor_core.infrastructure.models.registry import (
+            ModelManifestError,
+            ModelRegistry,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            registry = ModelRegistry(root=Path(tmp_dir))
+            with pytest.raises(ModelManifestError):
+                OnnxBackend.from_registry(registry)

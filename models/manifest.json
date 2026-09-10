@@ -4,12 +4,12 @@
     {
       "name": "rtmpose-light",
       "kind": "pose-2d",
-      "version": "s_20230709",
+      "version": "s_body7_20230504",
       "file": "rtmpose.onnx",
-      "url": "https://download.openmmlab.com/mmpose/top_down/rtmpose/rtmpose_s/rtmpose_s_8xb256-420e_coco-256x192-271c2d01_20230709.onnx",
-      "sha256": "",
+      "url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.zip",
+      "sha256": "9aeb635b83f86aea45cf45d85798f7eba1a162de8e0d721c44e54fe5eebaf47d",
       "license": "Apache-2.0",
-      "description": "RTMPose-S body keypoint model (COCO 17 keypoints), ONNX. Apache-2.0 — commercial friendly (docs/model-licenses.md)."
+      "description": "RTMPose-S body keypoint model (COCO 17 keypoints), ONNX. Body7 training. Apache-2.0 — commercial friendly (docs/model-licenses.md)."
     },
     {
       "name": "motionbert",
