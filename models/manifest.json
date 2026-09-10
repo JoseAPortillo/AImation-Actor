@@ -29,8 +29,8 @@
       "file": "motionbert.onnx",
       "url": "",
       "sha256": "",
-      "license": "MIT",
-      "description": "MotionBERT 3D lifting backend (MIT). ONNX export pending — do not install yet; backend lands in a follow-up change."
+      "license": "Apache-2.0",
+      "description": "MotionBERT 3D lifting backend (Apache-2.0). ONNX export pending — do not install yet; backend lands in a follow-up change."
     }
   ]
 }

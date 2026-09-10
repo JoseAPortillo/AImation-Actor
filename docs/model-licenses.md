@@ -17,13 +17,13 @@ the catalog; research-only or otherwise restricted weights are excluded.
 |---|---|---|---|---|
 | RTMPose-S (`rtmpose-light`) | pose-2d | Apache-2.0 | ✅ Yes | **Use** — catalog entry `rtmpose-light` (ONNX, COCO 17 keypoints) |
 | MediaPipe Pose | pose-2d | Apache-2.0 | ✅ Yes | Alternative pose-2d backend (TFLite/ONNX export) if RTMPose underperforms |
-| MotionBERT | pose-3d | MIT | ✅ Yes | **Use** — catalog entry `motionbert`; ONNX export pending, backend lands in a follow-up change |
+| MotionBERT | pose-3d | Apache-2.0 | ✅ Yes | **Use** — catalog entry `motionbert`; ONNX export pending, backend lands in a follow-up change |
 | VideoPose3D | pose-3d | Research-only (non-commercial) | ❌ No | **Do not use** — excluded despite being common in academic pipelines |
 | SMPL / SMPL-X | body model | Restricted (custom SMPL license, redistribution restrictions) | ⚠️ Review | Only after legal review of the specific license terms; not required for the neutral-skeleton pipeline |
 
 Notes:
 
-- Apache-2.0 (RTMPose, MediaPipe) and MIT (MotionBERT) are permissive and
+- Apache-2.0 (RTMPose, MediaPipe, MotionBERT) is permissive and
   commercially safe. VideoPose3D's research-only grant is a hard blocker for a
   commercial product (Risk 4).
 - SMPL-family licenses restrict redistribution and commercial usage; the
