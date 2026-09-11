@@ -44,3 +44,6 @@ models/*.engine
 
 # Blender addon build artifacts
 *.zip
+
+# Build-time tool caches (MotionBERT sources/checkpoint)
+tools/.cache/

@@ -28,9 +28,9 @@
       "version": "0.1",
       "file": "motionbert.onnx",
       "url": "",
-      "sha256": "",
+      "sha256": "651107665ec98794ff493f2fc252e0c89f9c96c5d87fa2c5faa25727c5010858",
       "license": "Apache-2.0",
-      "description": "MotionBERT 3D lifting backend (Apache-2.0). ONNX export pending — do not install yet; backend lands in a follow-up change."
+      "description": "MotionBERT-Lite 3D lifting ONNX (Apache-2.0), exported locally by tools/export_motionbert_onnx.py from the official H36M finetuned checkpoint; generated artifact, not downloaded."
     }
   ]
 }
