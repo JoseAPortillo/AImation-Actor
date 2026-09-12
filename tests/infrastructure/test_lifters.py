@@ -10,6 +10,7 @@ import pytest
 
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
 from aimation_actor_core.infrastructure.ai_models.lifters import (
+    _COCO_TO_H36M,
     MOTIONBERT_H36M_LABELS,
     HeuristicLiftingBackend,
     LiftingBackend,
@@ -601,3 +602,87 @@ class TestOnnxLiftingBackend:
         assert all(kp.z == 0.5 for kp in result[0].keypoints)
         assert all(kp.visible for kp in result[0].keypoints)
         assert all(kp.confidence == 0.9 for kp in result[0].keypoints)
+
+    @pytest.mark.skipif(ONNX_DEPS_MISSING, reason="onnxruntime/onnx not installed")
+    @pytest.mark.parametrize(
+        ("maxlen_patch", "n_frames"),
+        [
+            # Real constant (243): a 400-frame sequence forces 2 windows
+            # (243 + 157) — the regression the bug report hit.
+            (None, 400),
+            # Patched to 32: a compact 70-frame sequence still forces 3
+            # windows (32 + 32 + 6) so chunking provably triggers in CI.
+            (32, 70),
+        ],
+    )
+    def test_lift_chunks_long_sequences(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        maxlen_patch: int | None,
+        n_frames: int,
+    ) -> None:
+        """Should window long sequences and concatenate the per-window z.
+
+        The identity fake model echoes its input, so the model's z channel is
+        the (crop-scaled) confidence column; the expected per-frame z is the
+        full-sequence ``_map_z_to_domain`` result. Chunking must reproduce it
+        exactly for every frame — including frames past the first window
+        boundary (frame 31 is the last of window 1, 32 the first of window 2,
+        and ``n_frames - 1`` the tail of the final window).
+        """
+        if maxlen_patch is not None:
+            monkeypatch.setattr(
+                "aimation_actor_core.infrastructure.ai_models.lifters._MAX_SEQ_LEN",
+                maxlen_patch,
+            )
+        model_path = tmp_path / "motionbert.onnx"
+        _build_trivial_lifting_onnx(model_path)
+        backend = OnnxLiftingBackend(model_path=model_path)
+
+        keypoints_2d: list[Keypoints2D] = []
+        for frame_index in range(n_frames):
+            nose_confidence = 0.95 - (frame_index % 5) * 0.05
+            keypoints_2d.append(
+                Keypoints2D(
+                    frame_index=frame_index,
+                    keypoints=[
+                        Keypoint(
+                            label=label,
+                            x=x,
+                            y=y,
+                            confidence=nose_confidence if label == "nose" else 0.95,
+                        )
+                        for (label, x, y) in STANDING_POSE
+                    ],
+                )
+            )
+
+        result = backend.lift(keypoints_2d)
+
+        # (a)+(b) inference succeeded with exactly one Keypoints3D per frame.
+        assert len(result) == n_frames
+        assert [seq.frame_index for seq in result] == list(range(n_frames))
+
+        # Expected per-frame z on the identity model: z_model is the
+        # confidence column of the full-sequence normalization and the root
+        # (mid-hip) confidence is 0.95 on every frame.
+        motion = np.asarray(
+            [_build_h36m_frame(kp2d.keypoints) for kp2d in keypoints_2d], dtype=np.float32
+        )
+        normalized, scale = _crop_scale_motion(motion)
+        assert scale > 0.0
+        h36m_index = {label: i for i, label in enumerate(MOTIONBERT_H36M_LABELS)}
+        z_model = normalized[..., 2]
+        z_root = z_model[:, h36m_index["root"] : h36m_index["root"] + 1]
+        expected = _map_z_to_domain(z_model, z_root, scale)
+
+        # (c) every frame matches the unchunked expectation, chunk 2 included.
+        for frame_index, seq in enumerate(result):
+            for kp in seq.keypoints:
+                row = _COCO_TO_H36M.get(kp.label)
+                if row is None:
+                    # Eyes/ears have no H36M row: stay on the camera plane.
+                    assert kp.z == 0.5
+                else:
+                    assert kp.z == pytest.approx(float(expected[frame_index, row]))

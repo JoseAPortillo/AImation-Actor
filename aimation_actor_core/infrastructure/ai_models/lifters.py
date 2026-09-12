@@ -109,6 +109,15 @@ MOTIONBERT_MODEL_NAME = "motionbert"
 #: Default model path for :class:`OnnxLiftingBackend` (repo-root relative).
 MOTIONBERT_MODEL_PATH = "models/motionbert.onnx"
 
+#: Maximum frames per inference window. The exported DSTformer is anchored to
+#: ``maxlen=243`` (``MODEL_KWARGS`` in ``tools/export_motionbert_onnx.py``):
+#: the ONNX frame axis is dynamic only at the boundary, so internal
+#: broadcasts break on longer inputs (a 795-frame video fails with
+#: "Attempting to broadcast an axis by a dimension other than 1 ... 243 by
+#: 795"). ``OnnxLiftingBackend.lift`` feeds the model contiguous windows of
+#: at most this many frames and concatenates the results.
+_MAX_SEQ_LEN = 243
+
 #: H36M-17 joint order consumed by the MotionBERT model. Note this is the
 #: model's internal order (H36M), NOT COCO-17: ``root`` is the mid-hip joint,
 #: ``belly``/``neck`` are midpoint joints and ``head`` is the head-top
@@ -437,11 +446,14 @@ def _map_z_to_domain(z_model: np.ndarray, z_root: np.ndarray, scale: float) -> n
 class OnnxLiftingBackend:
     """MotionBERT ONNX Runtime 3D lifting backend (REQ-2).
 
-    Lifts whole sequences at once: frames are converted to the model's H36M-17
-    joint order, normalized with ``crop_scale`` (the official in-the-wild
-    convention, ``scale_range=[1, 1]`` — deterministic), inferred in one
-    batched call, and each joint's model z is mapped back domain-side with the
-    root-relative convention (mid-hip root at 0.5 = camera plane).
+    Frames are converted to the model's H36M-17 joint order, normalized with
+    ``crop_scale`` (the official in-the-wild convention, ``scale_range=[1, 1]``
+    — deterministic), and each joint's model z is mapped back domain-side with
+    the root-relative convention (mid-hip root at 0.5 = camera plane).
+
+    The transformer is anchored to ``maxlen=243`` frames internally, so
+    sequences are fed in contiguous windows of at most ``_MAX_SEQ_LEN`` frames
+    and the per-window z results are concatenated.
 
     onnxruntime is imported at construction time so a missing package surfaces
     a clear ImportError (REQ-2); the model file itself loads lazily on the
@@ -527,11 +539,20 @@ class OnnxLiftingBackend:
         )
         normalized, scale = _crop_scale_motion(motion)
         if scale > 0.0:
-            (outputs,) = session.run(None, {self._input_name: normalized[np.newaxis, ...]})
-            z_model = np.asarray(outputs, dtype=np.float32)[0, :, :, 2]
-            root_index = _H36M_INDEX["root"]
-            z_root = z_model[:, root_index : root_index + 1]
-            z_domain = _map_z_to_domain(z_model, z_root, scale)
+            # Feed contiguous windows of at most _MAX_SEQ_LEN frames: the
+            # exported transformer is anchored to maxlen=243 internally, so a
+            # single call on a longer sequence breaks broadcasts (see the
+            # constant's comment). The bbox scale stays global — every window
+            # maps back with the same convention as the single-call path.
+            z_chunks: list[np.ndarray] = []
+            for start in range(0, len(normalized), _MAX_SEQ_LEN):
+                window = normalized[start : start + _MAX_SEQ_LEN]
+                (outputs,) = session.run(None, {self._input_name: window[np.newaxis, ...]})
+                z_model = np.asarray(outputs, dtype=np.float32)[0, :, :, 2]
+                root_index = _H36M_INDEX["root"]
+                z_root = z_model[:, root_index : root_index + 1]
+                z_chunks.append(_map_z_to_domain(z_model, z_root, scale))
+            z_domain = np.concatenate(z_chunks, axis=0)
         else:
             # Fewer than 4 valid joints: the sequence cannot be normalized, so
             # skip inference and keep every joint on the camera plane.
