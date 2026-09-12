@@ -11,13 +11,14 @@ later phase (SDD §6 deployment/ops).
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import ValidationError
 
 from aimation_actor_core.domain.dcc.session import DCCSession, SessionStore
 from aimation_actor_core.domain.job.job import Job, JobKind, JobStatus, JobStore
-from aimation_actor_core.domain.pipeline.executor import GraphExecutor
+from aimation_actor_core.domain.pipeline.executor import GraphExecutionResult, GraphExecutor
 from aimation_actor_core.domain.pipeline.graph import Graph
 from aimation_actor_core.domain.pipeline.registry import NodeRegistry
 from aimation_actor_core.infrastructure.virtual.executor import (
@@ -26,6 +27,25 @@ from aimation_actor_core.infrastructure.virtual.executor import (
 )
 
 _TERMINAL_STATUSES = frozenset({JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED})
+
+
+def _drive_executor_on_thread(
+    executor: GraphExecutor,
+    graph: Graph,
+    registry: NodeRegistry,
+) -> GraphExecutionResult:
+    """Drive an async graph executor to completion on a dedicated worker thread.
+
+    :meth:`GraphExecutor.run` is a coroutine whose body performs CPU-bound
+    inference (blocking onnxruntime session calls) that never yields to the
+    event loop. ``asyncio.to_thread`` alone is not enough here: calling the
+    ``async def`` in a worker thread would just produce an unawaited coroutine.
+    Running it with :func:`asyncio.run` on a private thread-local event loop
+    keeps the pipeline work off the FastAPI loop while preserving the async
+    protocol and per-node timeouts. The worker never touches ``self._jobs``;
+    job state is mutated only by the awaiting async task.
+    """
+    return asyncio.run(executor.run(graph, registry))
 
 
 def _json_safe(value: Any) -> Any:  # noqa: ANN401 - generic coercion of arbitrary node outputs
@@ -101,7 +121,11 @@ class InMemoryJobStore(JobStore):
         return self._submit_graph_queued(payload)
 
     async def execute_graph_async(self, job_id: str, payload: dict[str, Any]) -> None:
-        """Execute a graph job in the background (updates job status)."""
+        """Execute a graph job in the background (updates job status).
+
+        The CPU-bound pipeline runs off the event loop on a worker thread, so
+        ``/health`` and ``/jobs`` polling stay responsive while a job runs.
+        """
         if self._executor is None or self._registry is None:
             raise RuntimeError("graph executor/registry not wired to InMemoryJobStore")
 
@@ -110,7 +134,9 @@ class InMemoryJobStore(JobStore):
 
         try:
             graph = Graph.model_validate(payload)
-            result = await self._executor.run(graph, self._registry)
+            result = await asyncio.to_thread(
+                _drive_executor_on_thread, self._executor, graph, self._registry
+            )
         except (GraphValidationError, NodeExecutionError, ValidationError) as exc:
             if self._jobs[job_id].status is JobStatus.CANCELLED:
                 return
