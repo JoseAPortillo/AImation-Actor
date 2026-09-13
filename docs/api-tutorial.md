@@ -227,7 +227,9 @@ $job = Invoke-RestMethod "$base/jobs/graph/execute" -Method Post `
   -Headers @{ Authorization = $token } -ContentType "application/json" -Body $graph
 $job.job_id   # note this id
 
-# Poll
+# Poll — GET /jobs/{id} returns a slim status snapshot
+# (job_id, kind, status, error, logs). The heavy result payload is served
+# separately by GET /jobs/{id}/result once the job is terminal:
 Invoke-RestMethod "$base/jobs/$($job.job_id)"        -Headers @{ Authorization = $token }
 Invoke-RestMethod "$base/jobs/$($job.job_id)/result" -Headers @{ Authorization = $token }
 Invoke-RestMethod "$base/jobs/$($job.job_id)/logs"   -Headers @{ Authorization = $token }

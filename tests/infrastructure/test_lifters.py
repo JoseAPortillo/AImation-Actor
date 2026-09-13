@@ -3,16 +3,30 @@
 import builtins
 import importlib.util
 import math
+from pathlib import Path
 
+import numpy as np
 import pytest
 
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
 from aimation_actor_core.infrastructure.ai_models.lifters import (
+    _COCO_TO_H36M,
+    MOTIONBERT_H36M_LABELS,
     HeuristicLiftingBackend,
     LiftingBackend,
     OnnxLiftingBackend,
     SyntheticLiftingBackend,
+    _build_h36m_frame,
+    _crop_scale_motion,
+    _map_z_to_domain,
 )
+
+#: Whether onnxruntime (required to construct ``OnnxLiftingBackend``) is present.
+ONNXRUNTIME_MISSING = importlib.util.find_spec("onnxruntime") is None
+
+#: Whether both onnxruntime AND the onnx builder (required for the fake-model
+#: end-to-end tests) are present.
+ONNX_DEPS_MISSING = ONNXRUNTIME_MISSING or importlib.util.find_spec("onnx") is None
 
 # 17 COCO labels with normalized (x, y) for a standing person (pose-2d's
 # FIXED_KEYPOINTS shape), all at confidence 0.95.
@@ -261,13 +275,166 @@ class TestHeuristicLiftingBackend:
         assert result[0].model_dump_json()
 
 
-class TestOnnxLiftingBackend:
-    """Test the lazy ONNX seam (REQ-2).
+def _build_trivial_lifting_onnx(path: Path) -> None:
+    """Build a minimal MotionBERT-shaped ONNX model (Identity).
 
-    Protocol conformance is not asserted here because constructing the backend
-    requires onnxruntime to be importable; the import seam itself is covered
-    below — ImportError via a monkeypatched ``__import__`` and the
-    NotImplementedError placeholder via the single honest skip.
+    Input ``keypoints_2d`` and output ``keypoints_3d`` share the dynamic
+    shape (1, frames, 17, 3) float32 and the model returns its input verbatim,
+    so the backend's z channel receives the confidence column (untouched by
+    ``crop_scale``). Exercises the full preprocess -> session -> postprocess
+    path without real weights.
+    """
+    try:
+        import onnx
+        from onnx import TensorProto, helper
+    except ImportError:
+        pytest.skip("onnx python package not installed; cannot build fake model")
+
+    input_tensor = helper.make_tensor_value_info(
+        "keypoints_2d", TensorProto.FLOAT, [1, "frames", 17, 3]
+    )
+    output_tensor = helper.make_tensor_value_info(
+        "keypoints_3d", TensorProto.FLOAT, [1, "frames", 17, 3]
+    )
+    identity = helper.make_node("Identity", ["keypoints_2d"], ["keypoints_3d"])
+    graph = helper.make_graph(
+        [identity], "trivial_lifting", [input_tensor], [output_tensor]
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model.ir_version = 8
+    onnx.checker.check_model(model)
+    onnx.save(model, str(path))
+
+
+class TestMotionBertPreprocessing:
+    """Pure-function tests for the MotionBERT input/output mapping.
+
+    No onnxruntime needed: these cover the COCO->H36M conversion, the
+    ``crop_scale`` normalization, and the z -> domain mapping in isolation.
+    """
+
+    def _index(self) -> dict[str, int]:
+        """H36M label -> row index map."""
+        return {label: index for index, label in enumerate(MOTIONBERT_H36M_LABELS)}
+
+    def test_build_h36m_frame_shape_and_midpoint_synthesis(self) -> None:
+        """Should produce a (17, 3) float32 frame with synthesized midpoints."""
+        frame = _build_h36m_frame(_frame().keypoints)
+        assert frame.shape == (17, 3)
+        assert frame.dtype == np.float32
+        idx = self._index()
+        # root = mid-hip, neck = mid-shoulder, belly = mid(root, neck).
+        np.testing.assert_allclose(frame[idx["root"]], [0.5, 0.6, 0.95])
+        np.testing.assert_allclose(frame[idx["neck"]], [0.5, 0.35, 0.95])
+        np.testing.assert_allclose(frame[idx["belly"]], [0.5, 0.475, 0.95])
+        # head = mid(nose, ears): ears mid = (0.5, 0.20) -> head = (0.5, 0.20).
+        np.testing.assert_allclose(frame[idx["head"]], [0.5, 0.2, 0.95])
+        # Direct joints are copied 1:1 with their confidence.
+        np.testing.assert_allclose(frame[idx["nose"]], [0.5, 0.2, 0.95])
+        np.testing.assert_allclose(frame[idx["left_ankle"]], [0.45, 0.9, 0.95])
+
+    def test_build_h36m_frame_missing_sources_are_absent(self) -> None:
+        """Should zero synthesized joints whose sources are missing/uncertain."""
+        idx = self._index()
+        # Only one hip: root requires both -> absent (confidence 0).
+        one_sided = Keypoints2D(
+            frame_index=0,
+            keypoints=[
+                Keypoint(label="left_hip", x=0.45, y=0.60, confidence=0.95),
+                Keypoint(label="left_shoulder", x=0.40, y=0.35, confidence=0.95),
+                Keypoint(label="right_shoulder", x=0.60, y=0.35, confidence=0.95),
+            ],
+        )
+        frame = _build_h36m_frame(one_sided.keypoints)
+        assert frame[idx["root"]][2] == 0.0
+        assert frame[idx["belly"]][2] == 0.0
+        # Both shoulders present -> neck synthesizes normally.
+        assert frame[idx["neck"]][2] == pytest.approx(0.95)
+        # A zero-confidence direct joint is NOT copied (absent, not garbage).
+        sparse = Keypoints2D(
+            frame_index=0,
+            keypoints=[
+                Keypoint(label="nose", x=0.5, y=0.2, confidence=0.0),
+                Keypoint(label="left_shoulder", x=0.4, y=0.35, confidence=0.95),
+                Keypoint(label="right_shoulder", x=0.6, y=0.35, confidence=0.95),
+                Keypoint(label="left_ankle", x=0.45, y=0.9, confidence=0.95),
+                Keypoint(label="right_ankle", x=0.55, y=0.9, confidence=0.95),
+            ],
+        )
+        frame2 = _build_h36m_frame(sparse.keypoints)
+        assert frame2[idx["nose"]][2] == 0.0
+        assert frame2[idx["left_ankle"]][2] == pytest.approx(0.95)
+
+    def test_crop_scale_motion_normalizes_and_is_deterministic(self) -> None:
+        """Should center on the bbox, map to [-1, 1], and stay deterministic."""
+        motion = np.stack([_build_h36m_frame(_frame().keypoints) for _ in range(2)])
+        normalized, scale = _crop_scale_motion(motion)
+        assert normalized.shape == (2, 17, 3)
+        # y extent 0.20..0.90 dominates (eyes at 0.18 have no H36M row, so the
+        # model-side bbox starts at the nose/ears row).
+        assert scale == pytest.approx(0.70)
+        # Vertical extent maps to [-1, 1]; the narrower x span to +/-4/7.
+        ys = normalized[0, :, 1]
+        assert ys.min() == pytest.approx(-1.0, abs=1e-6)
+        assert ys.max() == pytest.approx(1.0, abs=1e-6)
+        xs = normalized[0, :, 0]
+        assert xs.min() == pytest.approx(-4.0 / 7.0, abs=1e-6)
+        assert xs.max() == pytest.approx(4.0 / 7.0, abs=1e-6)
+        # Confidence column is untouched by the coordinate normalization.
+        np.testing.assert_allclose(normalized[0, :, 2], 0.95)
+        # Deterministic across calls.
+        normalized2, scale2 = _crop_scale_motion(motion)
+        np.testing.assert_array_equal(normalized, normalized2)
+        assert scale == scale2
+
+    def test_crop_scale_motion_zeroes_confidence_zero_rows(self) -> None:
+        """Should zero entire rows whose input confidence is 0."""
+        keypoints = [
+            Keypoint(
+                label=label,
+                x=x,
+                y=y,
+                confidence=0.0 if label == "left_ankle" else 0.95,
+            )
+            for (label, x, y) in STANDING_POSE
+        ]
+        motion = _build_h36m_frame(keypoints)[np.newaxis, ...]
+        normalized, scale = _crop_scale_motion(motion)
+        assert scale == pytest.approx(0.70)
+        idx = self._index()
+        np.testing.assert_array_equal(normalized[0, idx["left_ankle"]], [0, 0, 0])
+        # The zero-confidence joint no longer participates in the bbox.
+        np.testing.assert_allclose(
+            normalized[0, idx["right_ankle"]], [1.0 / 7.0, 1.0, 0.95], rtol=1e-5
+        )
+
+    def test_crop_scale_motion_requires_four_valid_joints(self) -> None:
+        """Should return scale 0.0 (and zeros) with fewer than 4 valid joints."""
+        motion = np.zeros((1, 17, 3), dtype=np.float32)
+        motion[0, :3, :] = 1.0  # only 3 valid rows
+        normalized, scale = _crop_scale_motion(motion)
+        assert scale == 0.0
+        assert np.count_nonzero(normalized) == 0
+
+    def test_map_z_to_domain_root_relative_and_scaled(self) -> None:
+        """Should express z around 0.5 in image units and clamp to [0, 1]."""
+        z_model = np.asarray([[0.0, 0.2, -0.2]], dtype=np.float32)
+        z_root = np.asarray([[0.0]], dtype=np.float32)
+        z_domain = _map_z_to_domain(z_model, z_root, scale=0.5)
+        # z_scale = 2/0.5 = 4: 0.2 model units -> 0.05 image units.
+        np.testing.assert_allclose(z_domain[0], [0.5, 0.55, 0.45])
+        # Clamped into [0, 1].
+        huge = _map_z_to_domain(
+            np.asarray([[5.0]], dtype=np.float32), np.zeros((1, 1)), scale=0.5
+        )
+        assert huge[0, 0] == 1.0
+
+
+class TestOnnxLiftingBackend:
+    """Test the MotionBERT ONNX backend (REQ-2).
+
+    Constructing the backend requires onnxruntime to be importable; the import
+    seam itself is covered below via a monkeypatched ``__import__``.
     """
 
     def test_construction_without_onnxruntime_raises_clear_import_error(
@@ -299,13 +466,223 @@ class TestOnnxLiftingBackend:
 
         assert "onnxruntime" in str(exc_info.value).lower()
 
-    @pytest.mark.skipif(
-        importlib.util.find_spec("onnxruntime") is None,
-        reason="onnxruntime not installed",
-    )
-    def test_lift_with_onnxruntime_raises_not_implemented(self) -> None:
-        """Should raise NotImplementedError once onnxruntime is importable."""
+    @pytest.mark.skipif(ONNXRUNTIME_MISSING, reason="onnxruntime not installed")
+    def test_implements_protocol(self) -> None:
+        """Should implement the LiftingBackend protocol."""
         backend = OnnxLiftingBackend(model_path="dummy.onnx")
-        with pytest.raises(NotImplementedError) as exc_info:
+        assert isinstance(backend, LiftingBackend)
+
+    @pytest.mark.skipif(ONNXRUNTIME_MISSING, reason="onnxruntime not installed")
+    def test_empty_input_returns_empty_list_without_loading_model(self) -> None:
+        """Should short-circuit [] before touching the model file."""
+        backend = OnnxLiftingBackend(model_path="does-not-exist.onnx")
+        assert backend.lift([]) == []
+
+    @pytest.mark.skipif(ONNXRUNTIME_MISSING, reason="onnxruntime not installed")
+    def test_missing_model_raises_file_not_found_with_install_hint(self) -> None:
+        """Should raise FileNotFoundError with an exporter hint for missing models."""
+        backend = OnnxLiftingBackend(model_path="does-not-exist.onnx")
+        with pytest.raises(FileNotFoundError) as exc_info:
             backend.lift([_frame()])
-        assert "not yet implemented" in str(exc_info.value).lower()
+        message = str(exc_info.value)
+        assert "does-not-exist.onnx" in message
+        assert "export_motionbert_onnx" in message
+
+    @pytest.mark.skipif(ONNXRUNTIME_MISSING, reason="onnxruntime not installed")
+    def test_from_registry_resolves_motionbert_entry(self) -> None:
+        """Should point at the manifest's motionbert model without touching binaries."""
+        from aimation_actor_core.infrastructure.models.registry import ModelRegistry
+
+        backend = OnnxLiftingBackend.from_registry(ModelRegistry(root=Path("models")))
+        assert isinstance(backend, OnnxLiftingBackend)
+        assert backend.model_path.name == "motionbert.onnx"
+
+    @pytest.mark.skipif(ONNXRUNTIME_MISSING, reason="onnxruntime not installed")
+    def test_from_registry_missing_manifest_raises(self, tmp_path: Path) -> None:
+        """Should raise ModelManifestError when no manifest exists."""
+        from aimation_actor_core.infrastructure.models.registry import (
+            ModelManifestError,
+            ModelRegistry,
+        )
+
+        with pytest.raises(ModelManifestError):
+            OnnxLiftingBackend.from_registry(ModelRegistry(root=tmp_path))
+
+    @pytest.mark.skipif(ONNX_DEPS_MISSING, reason="onnxruntime/onnx not installed")
+    def test_lift_with_trivial_onnx_model(self, tmp_path: Path) -> None:
+        """Should run preprocess -> session -> postprocess and emit domain frames.
+
+        The fake model echoes its input, so the z channel reaching the output
+        mapping is the confidence column: a joint with a deviating confidence
+        lifts off the camera plane exactly as
+        ``0.5 + (conf - root_conf) / z_scale`` with ``z_scale = 2 / scale``.
+        """
+        model_path = tmp_path / "motionbert.onnx"
+        _build_trivial_lifting_onnx(model_path)
+        backend = OnnxLiftingBackend(model_path=model_path)
+
+        valid = Keypoints2D(
+            frame_index=0,
+            keypoints=[
+                Keypoint(
+                    label=label,
+                    x=x,
+                    y=y,
+                    confidence=0.80 if label == "nose" else 0.95,
+                )
+                for (label, x, y) in STANDING_POSE
+            ],
+        )
+        zero_ankle = Keypoints2D(
+            frame_index=2,
+            keypoints=[
+                Keypoint(
+                    label=label,
+                    x=x,
+                    y=y,
+                    confidence=0.0 if label == "left_ankle" else 0.95,
+                )
+                for (label, x, y) in STANDING_POSE
+            ],
+        )
+        empty = Keypoints2D(frame_index=5, keypoints=[])
+        result = backend.lift([valid, zero_ankle, empty])
+
+        assert [seq.frame_index for seq in result] == [0, 2, 5]
+        # An empty input frame degrades to an empty output frame, never crashes.
+        assert result[2].keypoints == []
+
+        first = result[0]
+        assert len(first.keypoints) == 17
+        assert [kp.label for kp in first.keypoints] == [label for label, _, _ in STANDING_POSE]
+        by_label = {kp.label: kp for kp in first.keypoints}
+        # Standing-pose bbox y extent over the H36M rows (eyes excluded):
+        # 0.20 (nose/ears) .. 0.90 (ankles).
+        scale = 0.70
+        # nose deviates from the 0.95 root confidence -> off the camera plane.
+        expected_nose_z = 0.5 + (0.80 - 0.95) / (2.0 / scale)
+        assert by_label["nose"].z == pytest.approx(expected_nose_z)
+        # Joints sharing the root confidence (incl. the mid-hip root row) sit
+        # on the camera plane; COCO joints without an H36M row (eyes) too.
+        assert by_label["left_hip"].z == pytest.approx(0.5)
+        assert by_label["left_eye"].z == 0.5
+        # Geometry, confidence and JSON-serializability survive the round trip.
+        for kp in first.keypoints:
+            assert 0.0 <= kp.z <= 1.0
+            assert kp.confidence in (0.80, 0.95)
+        assert '"z"' in first.model_dump_json()
+
+        # Zero-confidence joint: camera plane + not visible; x/y preserved.
+        zero = {kp.label: kp for kp in result[1].keypoints}["left_ankle"]
+        assert zero.z == 0.5
+        assert zero.visible is False
+        assert zero.x == 0.45
+        assert zero.y == 0.90
+
+    @pytest.mark.skipif(ONNX_DEPS_MISSING, reason="onnxruntime/onnx not installed")
+    def test_lift_stays_on_camera_plane_when_sequence_cannot_be_normalized(
+        self, tmp_path: Path
+    ) -> None:
+        """Should skip inference and keep z = 0.5 when fewer than 4 valid joints."""
+        model_path = tmp_path / "motionbert.onnx"
+        _build_trivial_lifting_onnx(model_path)
+        backend = OnnxLiftingBackend(model_path=model_path)
+        # Only both shoulders: after H36M synthesis (neck) just 3 rows are
+        # valid — below the crop-scale requirement of 4.
+        sparse = Keypoints2D(
+            frame_index=0,
+            keypoints=[
+                Keypoint(label="left_shoulder", x=0.4, y=0.35, confidence=0.9),
+                Keypoint(label="right_shoulder", x=0.6, y=0.35, confidence=0.9),
+            ],
+        )
+        result = backend.lift([sparse])
+        assert len(result) == 1
+        assert result[0].frame_index == 0
+        assert all(kp.z == 0.5 for kp in result[0].keypoints)
+        assert all(kp.visible for kp in result[0].keypoints)
+        assert all(kp.confidence == 0.9 for kp in result[0].keypoints)
+
+    @pytest.mark.skipif(ONNX_DEPS_MISSING, reason="onnxruntime/onnx not installed")
+    @pytest.mark.parametrize(
+        ("maxlen_patch", "n_frames"),
+        [
+            # Real constant (243): a 400-frame sequence forces 2 windows
+            # (243 + 157) — the regression the bug report hit.
+            (None, 400),
+            # Patched to 32: a compact 70-frame sequence still forces 3
+            # windows (32 + 32 + 6) so chunking provably triggers in CI.
+            (32, 70),
+        ],
+    )
+    def test_lift_chunks_long_sequences(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        maxlen_patch: int | None,
+        n_frames: int,
+    ) -> None:
+        """Should window long sequences and concatenate the per-window z.
+
+        The identity fake model echoes its input, so the model's z channel is
+        the (crop-scaled) confidence column; the expected per-frame z is the
+        full-sequence ``_map_z_to_domain`` result. Chunking must reproduce it
+        exactly for every frame — including frames past the first window
+        boundary (frame 31 is the last of window 1, 32 the first of window 2,
+        and ``n_frames - 1`` the tail of the final window).
+        """
+        if maxlen_patch is not None:
+            monkeypatch.setattr(
+                "aimation_actor_core.infrastructure.ai_models.lifters._MAX_SEQ_LEN",
+                maxlen_patch,
+            )
+        model_path = tmp_path / "motionbert.onnx"
+        _build_trivial_lifting_onnx(model_path)
+        backend = OnnxLiftingBackend(model_path=model_path)
+
+        keypoints_2d: list[Keypoints2D] = []
+        for frame_index in range(n_frames):
+            nose_confidence = 0.95 - (frame_index % 5) * 0.05
+            keypoints_2d.append(
+                Keypoints2D(
+                    frame_index=frame_index,
+                    keypoints=[
+                        Keypoint(
+                            label=label,
+                            x=x,
+                            y=y,
+                            confidence=nose_confidence if label == "nose" else 0.95,
+                        )
+                        for (label, x, y) in STANDING_POSE
+                    ],
+                )
+            )
+
+        result = backend.lift(keypoints_2d)
+
+        # (a)+(b) inference succeeded with exactly one Keypoints3D per frame.
+        assert len(result) == n_frames
+        assert [seq.frame_index for seq in result] == list(range(n_frames))
+
+        # Expected per-frame z on the identity model: z_model is the
+        # confidence column of the full-sequence normalization and the root
+        # (mid-hip) confidence is 0.95 on every frame.
+        motion = np.asarray(
+            [_build_h36m_frame(kp2d.keypoints) for kp2d in keypoints_2d], dtype=np.float32
+        )
+        normalized, scale = _crop_scale_motion(motion)
+        assert scale > 0.0
+        h36m_index = {label: i for i, label in enumerate(MOTIONBERT_H36M_LABELS)}
+        z_model = normalized[..., 2]
+        z_root = z_model[:, h36m_index["root"] : h36m_index["root"] + 1]
+        expected = _map_z_to_domain(z_model, z_root, scale)
+
+        # (c) every frame matches the unchunked expectation, chunk 2 included.
+        for frame_index, seq in enumerate(result):
+            for kp in seq.keypoints:
+                row = _COCO_TO_H36M.get(kp.label)
+                if row is None:
+                    # Eyes/ears have no H36M row: stay on the camera plane.
+                    assert kp.z == 0.5
+                else:
+                    assert kp.z == pytest.approx(float(expected[frame_index, row]))

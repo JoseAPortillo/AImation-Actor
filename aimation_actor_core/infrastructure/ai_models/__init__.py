@@ -1,9 +1,14 @@
 """AI models infrastructure (pose-2d and future AI stages)."""
 
+from aimation_actor_core.infrastructure.ai_models.detectors import (
+    PersonBox,
+    RTMDetPersonDetector,
+)
 from aimation_actor_core.infrastructure.ai_models.estimators import (
     OnnxBackend,
     PoseEstimator,
     SyntheticBackend,
+    TopDownOnnxBackend,
 )
 from aimation_actor_core.infrastructure.ai_models.lifters import (
     HeuristicLiftingBackend,
@@ -21,11 +26,14 @@ __all__ = [
     "LiftingBackend",
     "OnnxBackend",
     "OnnxLiftingBackend",
+    "PersonBox",
     "Pose2DNode",
     "Pose3DNode",
     "PoseEstimator",
+    "RTMDetPersonDetector",
     "SyntheticBackend",
     "SyntheticLiftingBackend",
     "TemporalCleanupNode",
+    "TopDownOnnxBackend",
     "VideoToMotionNode",
 ]

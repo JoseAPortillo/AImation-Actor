@@ -105,6 +105,10 @@ export const useJobStore = create<JobState>((set, get) => ({
     }
     if (id === null) return;
 
+    // Guard so a completed result fetch is never retried for this job, even if
+    // a failure left the store's `result` unset.
+    let resultFetchStarted = false;
+
     const tick = async () => {
       const snapshot = await get().api.getJob(id!);
       set({
@@ -121,7 +125,17 @@ export const useJobStore = create<JobState>((set, get) => ({
         } catch {
           /* logs are best-effort */
         }
-        set({ result: snapshot.result });
+      }
+      // The slim poll snapshot carries no result payload; fetch it once via
+      // GET /jobs/{id}/result when the job succeeded (GE-1..3).
+      if (snapshot.status === "succeeded" && get().result === null && !resultFetchStarted) {
+        resultFetchStarted = true;
+        try {
+          const payload = await get().api.getJobResult(id!);
+          set({ result: payload.result ?? null });
+        } catch {
+          /* result is best-effort: keep status succeeded, leave result unset */
+        }
       }
     };
 

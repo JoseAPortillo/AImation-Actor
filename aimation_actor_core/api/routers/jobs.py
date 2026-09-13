@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from aimation_actor_core.api.deps import get_job_store, require_token
-from aimation_actor_core.domain.job.job import Job, JobKind, JobStatus, JobStore
+from aimation_actor_core.domain.job.job import Job, JobKind, JobSnapshot, JobStatus, JobStore
 from aimation_actor_core.domain.pipeline.graph import Graph
 
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_token)])
@@ -52,32 +52,36 @@ def blocking_to_motion(
 @router.post(
     "/graph/execute",
     response_model=Job,
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Execute a complete node graph",
 )
-def graph_execute(
+async def graph_execute(
     graph: Graph,
+    background_tasks: BackgroundTasks,
     store: JobStore = Depends(get_job_store),
 ) -> Job:
-    """Validate and execute a node graph to a terminal state inline (ADR-002).
+    """Enqueue a node graph for background execution (async, non-blocking).
 
     The validated :class:`Graph` is serialized and delegated to the injected
-    :class:`JobStore`, which re-validates and drives it against the node
-    registry.
+    :class:`JobStore`, which creates a QUEUED job and schedules execution in
+    a background task. The client polls ``GET /jobs/{job_id}`` for status.
     """
-    return store.submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
+    payload = graph.model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    background_tasks.add_task(store.execute_graph_async, job.job_id, payload)
+    return job
 
 
-@router.get("/{job_id}", response_model=Job, summary="Job status")
+@router.get("/{job_id}", response_model=JobSnapshot, summary="Job status")
 def get_job(
     job_id: str,
     store: JobStore = Depends(get_job_store),
-) -> Job:
-    """Return the current job snapshot."""
+) -> JobSnapshot:
+    """Return the current job snapshot (slim — result lives on ``/result``)."""
     job = store.get(job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
-    return job
+    return JobSnapshot.from_job(job)
 
 
 @router.get("/{job_id}/result", summary="Job result")

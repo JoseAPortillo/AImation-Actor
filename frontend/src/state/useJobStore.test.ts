@@ -22,7 +22,6 @@ function snapshot(partial: Partial<JobSnapshot>): JobSnapshot {
     kind: "graph-execute",
     status: "running",
     error: null,
-    result: null,
     logs: [],
     ...partial,
   };
@@ -32,6 +31,7 @@ let mockApi: {
   graphExecute: ReturnType<typeof vi.fn>;
   getJob: ReturnType<typeof vi.fn>;
   getJobLogs: ReturnType<typeof vi.fn>;
+  getJobResult: ReturnType<typeof vi.fn>;
   cancel: ReturnType<typeof vi.fn>;
 };
 
@@ -39,12 +39,14 @@ function installMock(client: {
   graphExecute?: unknown;
   getJob?: unknown;
   getJobLogs?: unknown;
+  getJobResult?: unknown;
   cancel?: unknown;
 }) {
   mockApi = {
     graphExecute: (client.graphExecute as ReturnType<typeof vi.fn>) ?? vi.fn(),
     getJob: (client.getJob as ReturnType<typeof vi.fn>) ?? vi.fn(),
     getJobLogs: (client.getJobLogs as ReturnType<typeof vi.fn>) ?? vi.fn(),
+    getJobResult: (client.getJobResult as ReturnType<typeof vi.fn>) ?? vi.fn(),
     cancel: (client.cancel as ReturnType<typeof vi.fn>) ?? vi.fn(),
   };
   useJobStore.setState({ api: mockApi as unknown as ApiClient });
@@ -128,19 +130,18 @@ describe("validateRunReadiness (GE-3)", () => {
 });
 
 describe("useJobStore.poll to terminal (GE-1, GE-2)", () => {
-  it("fetches logs + result when the job reaches succeeded", async () => {
+  it("fetches logs + result via getJobResult when the job reaches succeeded", async () => {
     installMock({
       graphExecute: vi.fn().mockResolvedValue(snapshot({ status: "running" })),
       getJob: vi
         .fn()
         .mockResolvedValueOnce(snapshot({ status: "running" }))
-        .mockResolvedValueOnce(
-          snapshot({
-            status: "succeeded",
-            result: { outputs: { src: { frames: [] } } },
-          }),
-        ),
+        .mockResolvedValueOnce(snapshot({ status: "succeeded" })),
       getJobLogs: vi.fn().mockResolvedValue(["node ok"]),
+      getJobResult: vi.fn().mockResolvedValue({
+        status: "succeeded",
+        result: { outputs: { src: { frames: [] } } },
+      }),
     });
     const store = useJobStore.getState();
     await store.submit(GRAPH);
@@ -149,6 +150,27 @@ describe("useJobStore.poll to terminal (GE-1, GE-2)", () => {
     const s = useJobStore.getState();
     expect(s.status).toBe("succeeded");
     expect(s.logs).toEqual(["node ok"]);
+    expect(s.result).toEqual({ outputs: { src: { frames: [] } } });
+    expect(mockApi.getJobResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps status succeeded and leaves result unset when getJobResult fails", async () => {
+    installMock({
+      graphExecute: vi.fn().mockResolvedValue(snapshot({ status: "running" })),
+      getJob: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot({ status: "running" }))
+        .mockResolvedValueOnce(snapshot({ status: "succeeded" })),
+      getJobLogs: vi.fn().mockResolvedValue([]),
+      getJobResult: vi.fn().mockRejectedValue(new Error("boom")),
+    });
+    const store = useJobStore.getState();
+    await store.submit(GRAPH);
+    await vi.advanceTimersByTimeAsync(1600);
+    const s = useJobStore.getState();
+    expect(s.status).toBe("succeeded");
+    expect(s.result).toBeNull();
+    expect(mockApi.getJobResult).toHaveBeenCalledTimes(1);
   });
 
   it("records error logs when the job fails (GE-2)", async () => {

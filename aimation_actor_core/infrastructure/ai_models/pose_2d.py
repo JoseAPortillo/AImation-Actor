@@ -19,10 +19,11 @@ from aimation_actor_core.domain.pipeline.schema import (
     PortSpec,
 )
 from aimation_actor_core.infrastructure.ai_models.estimators import (
-    OnnxBackend,
     PoseEstimator,
     SyntheticBackend,
+    TopDownOnnxBackend,
 )
+from aimation_actor_core.infrastructure.models.registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +84,9 @@ class Pose2DNode(INode):
         if model == "synthetic":
             return SyntheticBackend()
         elif model == "onnx":
-            # For now, use a dummy path; in production this would be configured
-            model_path = self.model_dir / "rtmpose.onnx"
-            return OnnxBackend(model_path=model_path)
+            # Top-down pipeline: RTMDet-nano detector + TopDownAffine +
+            # RTMPose-S pose engine, resolved through the manifest registry.
+            return TopDownOnnxBackend.from_registry(ModelRegistry(root=self.model_dir))
         else:
             # Unknown model, fall back to synthetic with warning
             logger.warning(f"Unknown model '{model}', falling back to synthetic backend")

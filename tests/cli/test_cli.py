@@ -70,7 +70,7 @@ class _FakeClient(ApiClient):
         self._nodes_body = nodes_body or []
         self._job_id = job_id
         self._snapshots = snapshots or {
-            job_id: {"job_id": job_id, "status": "succeeded", "result": None, "logs": []}
+            job_id: {"job_id": job_id, "status": "succeeded", "logs": []}
         }
         self._result_body = result_body or {"status": "succeeded", "result": None}
         self._logs_body = logs_body or []
@@ -304,11 +304,16 @@ class TestRunCommand:
             FAKE_JOB_ID: {
                 "job_id": FAKE_JOB_ID,
                 "status": "succeeded",
-                "result": {"outputs": {"v2m": {"motion": motion}}},
                 "logs": [],
             }
         }
-        client = _FakeClient(snapshots=snapshots)
+        client = _FakeClient(
+            snapshots=snapshots,
+            result_body={
+                "status": "succeeded",
+                "result": {"outputs": {"v2m": {"motion": motion}}},
+            },
+        )
         out_file = tmp_path / "motion.json"
         args = _build_parser().parse_args(
             ["run", "clip.avi", "--end", "3", "--height-cm", "170.5", "--output", str(out_file)]
@@ -325,7 +330,6 @@ class TestRunCommand:
             FAKE_JOB_ID: {
                 "job_id": FAKE_JOB_ID,
                 "status": "succeeded",
-                "result": {"outputs": {"v2m": {"motion": 1}}},
                 "logs": [],
             }
         }
@@ -355,11 +359,13 @@ class TestRunCommand:
             FAKE_JOB_ID: {
                 "job_id": FAKE_JOB_ID,
                 "status": "succeeded",
-                "result": {"outputs": {}},
                 "logs": [],
             }
         }
-        client = _FakeClient(snapshots=snapshots)
+        client = _FakeClient(
+            snapshots=snapshots,
+            result_body={"status": "succeeded", "result": {"outputs": {}}},
+        )
         args = _build_parser().parse_args(["run", "clip.avi", "--output", str(tmp_path / "m.json")])
         with pytest.raises(CliError, match="v2m.motion"):
             _cmd_run(client, args)

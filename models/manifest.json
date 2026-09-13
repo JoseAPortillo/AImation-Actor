@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "name": "rtmdet-nano",
+      "kind": "person-detector",
+      "version": "coco-person_20230504",
+      "file": "rtmdet-nano.onnx",
+      "url": "https://download.openmmlab.com/mmpose/v1/projects/rtmpose/rtmpose-cpu.zip",
+      "sha256": "b8585adb6d1352796f6e86337e09c3459b830645a7e7192d9381670bea2facbd",
+      "archive_inner": "rtmpose-ort/rtmdet-nano/end2end.onnx",
+      "license": "Apache-2.0",
+      "description": "RTMDet-nano person detector (COCO person class 0), ONNX. From OpenMMLab rtmpose-cpu SDK. Input 320x320, outputs [1,100,5] (x1,y1,x2,y2,score) + [1,100] labels. Apache-2.0 — commercial friendly (docs/model-licenses.md)."
+    },
+    {
+      "name": "rtmpose-light",
+      "kind": "pose-2d",
+      "version": "s_body7_20230504",
+      "file": "rtmpose.onnx",
+      "url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.zip",
+      "sha256": "9aeb635b83f86aea45cf45d85798f7eba1a162de8e0d721c44e54fe5eebaf47d",
+      "license": "Apache-2.0",
+      "description": "RTMPose-S body keypoint model (COCO 17 keypoints), ONNX. Body7 training. Apache-2.0 — commercial friendly (docs/model-licenses.md)."
+    },
+    {
+      "name": "motionbert",
+      "kind": "pose-3d",
+      "version": "0.1",
+      "file": "motionbert.onnx",
+      "url": "",
+      "sha256": "651107665ec98794ff493f2fc252e0c89f9c96c5d87fa2c5faa25727c5010858",
+      "license": "Apache-2.0",
+      "description": "MotionBERT-Lite 3D lifting ONNX (Apache-2.0), exported locally by tools/export_motionbert_onnx.py from the official H36M finetuned checkpoint; generated artifact, not downloaded."
+    }
+  ]
+}

@@ -35,3 +35,18 @@ node_modules/
 frontend/dist/
 frontend/src-tauri/target/
 frontend/*.tsbuildinfo
+
+# Model binaries (manifest.json IS committed)
+models/*.onnx
+models/*.pth
+models/*.pb
+models/*.engine
+
+# Blender addon build artifacts
+*.zip
+
+# Build-time tool caches (MotionBERT sources/checkpoint)
+tools/.cache/
+
+# Ad-hoc test media (live e2e runs only — not repo fixtures)
+media/videos/vtest*
