@@ -1,9 +1,9 @@
 """``aimation-eval`` — local quality-metrics CLI (console script).
 
-A top-level composition root (SDD §2.2). Loads a NeutralMotion JSON document
-(0.2 is migrated to canonical 0.3 via :func:`migrate_neutral_motion`), computes
-the pure-domain quality metrics (plan §21 Phase 1), and prints a readable
-table; ``--out`` additionally writes a pretty JSON report.
+A top-level composition root (SDD §2.2). Loads a canonical version-0.3
+NeutralMotion JSON document, computes the pure-domain quality metrics
+(plan §21 Phase 1), and prints a readable table; ``--out`` additionally writes
+a pretty JSON report.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-from aimation_actor_core.domain.animation import NeutralMotion, migrate_neutral_motion
+from aimation_actor_core.domain.animation import NeutralMotion
 from aimation_actor_core.domain.animation.metrics import QualityReport, compute_metrics
 
 PROG = "aimation-eval"
@@ -24,12 +24,12 @@ class EvalCliError(Exception):
 
 
 def _load_motion(path: Path) -> NeutralMotion:
-    """Read and migrate a NeutralMotion document from ``path``.
+    """Read a canonical version-0.3 NeutralMotion document from ``path``.
 
     Raises:
         EvalCliError: If the file cannot be read or is not valid JSON.
-        ValueError: If the document version is unsupported or the shape is
-            invalid (propagated from the migration/validation layer).
+        ValueError: If the document shape is invalid (propagated from the
+            pydantic validation layer).
     """
     try:
         raw: object = json.loads(path.read_text(encoding="utf-8"))
@@ -37,7 +37,7 @@ def _load_motion(path: Path) -> NeutralMotion:
         raise EvalCliError(f"cannot read motion file {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise EvalCliError(f"invalid JSON in {path}: {exc}") from exc
-    return migrate_neutral_motion(raw)
+    return NeutralMotion.model_validate(raw)
 
 
 def _print_report(report: QualityReport) -> None:
