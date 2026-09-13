@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -23,6 +25,31 @@ def _client() -> TestClient:
 
 def _auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {TEST_TOKEN}"}
+
+
+def _poll_until_terminal(
+    client: TestClient,
+    job_id: str,
+    *,
+    attempts: int = 50,
+    delay: float = 0.01,
+) -> dict[str, Any]:
+    """Poll ``GET /jobs/{job_id}`` until the background job reaches a terminal state.
+
+    TestClient runs background tasks after the response, so the job may already
+    be terminal on the first poll — or still queued/running. Every snapshot is
+    slim: it must never carry the ``result`` payload; the result lives on
+    ``GET /jobs/{job_id}/result``.
+    """
+    for _ in range(attempts):
+        poll = client.get(f"/jobs/{job_id}", headers=_auth())
+        assert poll.status_code == 200
+        body: dict[str, Any] = poll.json()
+        assert "result" not in body  # slim snapshot contract
+        if body["status"] in {"succeeded", "failed", "cancelled"}:
+            return body
+        time.sleep(delay)
+    raise AssertionError(f"job {job_id} never reached a terminal status")
 
 
 class TestAuth:
@@ -202,12 +229,22 @@ class TestJobs:
                 ],
             },
         )
-        assert r.status_code == 200
+        assert r.status_code == 202
         job = r.json()
+        job_id = job["job_id"]
         assert job["kind"] == "graph-execute"
-        assert job["status"] == "succeeded"
-        assert len(job["logs"]) == 3
-        assert job["result"]["outputs"]["pt2"]["output"] == [0, 1, 2]
+        assert job["status"] == "queued"  # async contract: enqueued, not yet terminal
+        assert job["result"] is None
+
+        poll = _poll_until_terminal(c, job_id)
+        assert poll["status"] == "succeeded"
+        assert len(poll["logs"]) == 3
+
+        result = c.get(f"/jobs/{job_id}/result", headers=_auth())
+        assert result.status_code == 200
+        payload = result.json()
+        assert payload["status"] == "succeeded"
+        assert payload["result"]["outputs"]["pt2"]["output"] == [0, 1, 2]
 
     def test_graph_execute_unknown_type_fails(self) -> None:
         c = _client()
@@ -216,9 +253,15 @@ class TestJobs:
             headers=_auth(),
             json={"version": "0.1", "nodes": [{"id": "a", "type": "alien-node"}], "edges": []},
         )
-        assert r.status_code == 200
-        assert r.json()["status"] == "failed"
-        assert r.json()["error"]
+        assert r.status_code == 202
+        job = r.json()
+        job_id = job["job_id"]
+        assert job["status"] == "queued"
+        assert job["result"] is None
+
+        poll = _poll_until_terminal(c, job_id)
+        assert poll["status"] == "failed"
+        assert poll["error"]
 
     def test_graph_execute_cycle_fails(self) -> None:
         c = _client()
@@ -245,8 +288,15 @@ class TestJobs:
                 ],
             },
         )
-        assert r.status_code == 200
-        assert r.json()["status"] == "failed"
+        assert r.status_code == 202
+        job = r.json()
+        job_id = job["job_id"]
+        assert job["status"] == "queued"
+        assert job["result"] is None
+
+        poll = _poll_until_terminal(c, job_id)
+        assert poll["status"] == "failed"
+        assert poll["error"]
 
     def test_graph_execute_video_source_end_to_end(self, tmp_path: Path) -> None:
         # Build a synthetic video fixture under a tmp media_root, then run
@@ -286,10 +336,20 @@ class TestJobs:
                 ],
             },
         )
-        assert r.status_code == 200
+        assert r.status_code == 202
         job = r.json()
-        assert job["status"] == "succeeded"
-        outputs = job["result"]["outputs"]
+        job_id = job["job_id"]
+        assert job["status"] == "queued"
+        assert job["result"] is None
+
+        poll = _poll_until_terminal(c, job_id)
+        assert poll["status"] == "succeeded"
+
+        result = c.get(f"/jobs/{job_id}/result", headers=_auth())
+        assert result.status_code == 200
+        payload = result.json()
+        assert payload["status"] == "succeeded"
+        outputs = payload["result"]["outputs"]
         assert len(outputs["src"]["frames"]) == 5
         assert outputs["src"]["fps"] == pytest.approx(25)
 

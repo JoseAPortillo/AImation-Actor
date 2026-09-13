@@ -129,8 +129,12 @@ class InMemoryJobStore(JobStore):
         if self._executor is None or self._registry is None:
             raise RuntimeError("graph executor/registry not wired to InMemoryJobStore")
 
-        # Mark as RUNNING
-        self._jobs[job_id] = self._jobs[job_id].model_copy(update={"status": JobStatus.RUNNING})
+        # Mark as RUNNING — but a queued cancel must stick: never clobber a
+        # CANCELLED job, and skip execution entirely when already cancelled.
+        current = self._jobs[job_id]
+        if current.status is JobStatus.CANCELLED:
+            return
+        self._jobs[job_id] = current.model_copy(update={"status": JobStatus.RUNNING})
 
         try:
             graph = Graph.model_validate(payload)

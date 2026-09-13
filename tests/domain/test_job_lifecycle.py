@@ -1,17 +1,21 @@
 """Job lifecycle tests for :class:`InMemoryJobStore` GRAPH_EXECUTE delegation.
 
-Covers the job-lifecycle spec at the store layer: `QUEUED → RUNNING → terminal`
-transitions, RUNNING observability via an injected blocking node, per-node log
-accumulation, failure detail capture, and cancellation semantics.
+Covers the job-lifecycle spec at the store layer under the async contract:
+submitting a graph creates a QUEUED job and ``execute_graph_async`` drives it
+to its terminal state. RUNNING observability and cancellation stickiness are
+exercised via an injected blocking node while a background execution task is
+in flight; per-node log accumulation and failure detail capture are covered
+for the terminal transitions.
 """
 
 from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from typing import Any
 
-from aimation_actor_core.domain.job.job import Job, JobKind, JobStatus
+from aimation_actor_core.domain.job.job import JobKind, JobStatus
 from aimation_actor_core.domain.pipeline import (
     DataType,
     Edge,
@@ -129,50 +133,60 @@ class _FailingNode(INode):
         return ValidationResult(valid=True)
 
 
-def _run_in_thread(
-    store: InMemoryJobStore, graph: Graph, holder: dict[str, Job]
-) -> threading.Thread:
-    def _submit() -> None:
-        holder["job"] = store.submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
-
-    thread = threading.Thread(target=_submit)
-    thread.start()
-    return thread
-
-
 # --- Status transitions (job-lifecycle spec) ---------------------------------
 
 
-def test_graph_execute_reaches_succeeded() -> None:
-    job = _store().submit(JobKind.GRAPH_EXECUTE, _chain_graph().model_dump())
-    assert job.status is JobStatus.SUCCEEDED
-    assert job.error is None
+async def test_graph_execute_reaches_succeeded() -> None:
+    store = _store()
+    payload = _chain_graph().model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    assert job.status is JobStatus.QUEUED  # async contract: enqueued, not terminal
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.status is JobStatus.SUCCEEDED
+    assert final.error is None
 
 
-def test_successful_job_result_contains_terminal_outputs() -> None:
-    job = _store().submit(JobKind.GRAPH_EXECUTE, _chain_graph().model_dump())
-    assert job.result is not None
-    assert job.result["outputs"]["pt2"]["output"] == [0, 1, 2]
+async def test_successful_job_result_contains_terminal_outputs() -> None:
+    store = _store()
+    payload = _chain_graph().model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.result is not None
+    assert final.result["outputs"]["pt2"]["output"] == [0, 1, 2]
 
 
-def test_job_logs_contain_per_node_entries() -> None:
-    job = _store().submit(JobKind.GRAPH_EXECUTE, _chain_graph().model_dump())
-    assert job.logs == [
+async def test_job_logs_contain_per_node_entries() -> None:
+    store = _store()
+    payload = _chain_graph().model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.logs == [
         "executed src (frame-range)",
         "executed pt1 (pass-through)",
         "executed pt2 (pass-through)",
     ]
 
 
-def test_unknown_node_type_job_fails() -> None:
+async def test_unknown_node_type_job_fails() -> None:
     graph = Graph(version="0.1", nodes=[_node("alien", "not-a-node")], edges=[])
-    job = _store().submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
-    assert job.status is JobStatus.FAILED
-    assert job.error is not None
-    assert "unknown node type" in job.error
+    store = _store()
+    payload = graph.model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.status is JobStatus.FAILED
+    assert final.error is not None
+    assert "unknown node type" in final.error
 
 
-def test_cycle_job_fails() -> None:
+async def test_cycle_job_fails() -> None:
     graph = Graph(
         version="0.1",
         nodes=[_node("a", "pass-through"), _node("b", "pass-through")],
@@ -181,47 +195,45 @@ def test_cycle_job_fails() -> None:
             _edge("e2", "b", "output", "a", "input"),
         ],
     )
-    job = _store().submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
-    assert job.status is JobStatus.FAILED
-    assert job.error is not None
+    store = _store()
+    payload = graph.model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.status is JobStatus.FAILED
+    assert final.error is not None
 
 
-def test_failed_job_includes_error_detail() -> None:
+async def test_failed_job_includes_error_detail() -> None:
     registry = StaticNodeRegistry()
     registry.register(_FailingNode())
     graph = Graph(version="0.1", nodes=[_node("f", "failing")], edges=[])
-    job = _store(registry=registry).submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
-    assert job.status is JobStatus.FAILED
-    assert job.error is not None
-    assert "f" in job.error
-    assert "boom" in job.error
-
-
-# --- RUNNING observability (blocking node + cross-thread poll) ---------------
-
-
-def test_running_state_is_observable_before_terminal() -> None:
-    gate = threading.Event()
-    entered = threading.Event()
-    registry = StaticNodeRegistry()
-    registry.register(_BlockingNode(gate, entered))
     store = _store(registry=registry)
-    graph = Graph(version="0.1", nodes=[_node("b", "blocking")], edges=[])
+    payload = graph.model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.status is JobStatus.FAILED
+    assert final.error is not None
+    assert "f" in final.error
+    assert "boom" in final.error
 
-    holder: dict[str, Job] = {}
-    thread = _run_in_thread(store, graph, holder)
-    try:
-        assert entered.wait(timeout=5), "blocking node never entered"
 
-        running = [job for job in store.list() if job.status is JobStatus.RUNNING]
-        assert len(running) == 1
-        running_id = running[0].job_id
-        assert store.get(running_id).status is JobStatus.RUNNING  # type: ignore[union-attr]
-    finally:
-        gate.set()
-        thread.join(timeout=5)
+# --- QUEUED → terminal transition (async contract) ---------------------------
 
-    final = store.get(holder["job"].job_id)
+
+async def test_running_state_is_observable_before_terminal() -> None:
+    # RUNNING is internal to execute_graph_async (transient under a single
+    # await), so the observable contract is the queued → terminal transition.
+    store = _store()
+    graph = Graph(version="0.1", nodes=[_node("b", "pass-through")], edges=[])
+    payload = graph.model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    assert job.status is JobStatus.QUEUED  # observable before execution starts
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
     assert final is not None
     assert final.status is JobStatus.SUCCEEDED
 
@@ -229,7 +241,7 @@ def test_running_state_is_observable_before_terminal() -> None:
 # --- Cancellation semantics (job-lifecycle spec) ------------------------------
 
 
-def test_cancel_running_job_returns_true_and_sticks() -> None:
+async def test_cancel_running_job_returns_true_and_sticks() -> None:
     gate = threading.Event()
     entered = threading.Event()
     registry = StaticNodeRegistry()
@@ -237,44 +249,71 @@ def test_cancel_running_job_returns_true_and_sticks() -> None:
     store = _store(registry=registry)
     graph = Graph(version="0.1", nodes=[_node("b", "blocking")], edges=[])
 
-    holder: dict[str, Job] = {}
-    thread = _run_in_thread(store, graph, holder)
+    job = store.submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
+    task = asyncio.create_task(store.execute_graph_async(job.job_id, graph.model_dump()))
     try:
-        assert entered.wait(timeout=5), "blocking node never entered"
-        running = [job for job in store.list() if job.status is JobStatus.RUNNING]
-        assert len(running) == 1
-        job_id = running[0].job_id
+        deadline = time.monotonic() + 5
+        while not entered.is_set():
+            assert time.monotonic() < deadline, "blocking node never entered"
+            await asyncio.sleep(0.01)
+        running = store.get(job.job_id)
+        assert running is not None
+        assert running.status is JobStatus.RUNNING
 
-        assert store.cancel(job_id) is True
-        cancelled = store.get(job_id)
+        assert store.cancel(job.job_id) is True
+        cancelled = store.get(job.job_id)
         assert cancelled is not None
         assert cancelled.status is JobStatus.CANCELLED
     finally:
         gate.set()
-        thread.join(timeout=5)
+        await task
 
-    final = store.get(job_id)
+    final = store.get(job.job_id)
     assert final is not None
     assert final.status is JobStatus.CANCELLED  # terminal result did not overwrite cancel
 
 
-def test_cancel_succeeded_job_returns_false() -> None:
+async def test_cancel_succeeded_job_returns_false() -> None:
     store = _store()
-    job = store.submit(JobKind.GRAPH_EXECUTE, _chain_graph().model_dump())
-    assert job.status is JobStatus.SUCCEEDED
+    payload = _chain_graph().model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.status is JobStatus.SUCCEEDED
     assert store.cancel(job.job_id) is False
+    assert store.get(job.job_id) is final  # cancel must not touch a terminal job
 
 
-def test_cancel_failed_job_returns_false() -> None:
+async def test_cancel_failed_job_returns_false() -> None:
     store = _store()
     graph = Graph(version="0.1", nodes=[_node("alien", "not-a-node")], edges=[])
-    job = store.submit(JobKind.GRAPH_EXECUTE, graph.model_dump())
-    assert job.status is JobStatus.FAILED
+    payload = graph.model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.status is JobStatus.FAILED
     assert store.cancel(job.job_id) is False
+    assert store.get(job.job_id) is final  # cancel must not touch a terminal job
 
 
 def test_cancel_unknown_job_returns_false() -> None:
     assert _store().cancel("missing") is False
+
+
+async def test_cancel_queued_job_sticks_through_execute() -> None:
+    """A queued cancel must never be clobbered when execution starts."""
+    store = _store()
+    payload = _chain_graph().model_dump()
+    job = store.submit(JobKind.GRAPH_EXECUTE, payload)
+    assert job.status is JobStatus.QUEUED
+    assert store.cancel(job.job_id) is True
+    await store.execute_graph_async(job.job_id, payload)
+    final = store.get(job.job_id)
+    assert final is not None
+    assert final.status is JobStatus.CANCELLED  # execution was skipped
+    assert final.result is None  # no terminal result was published
 
 
 # --- Kind-agnostic stub path preserved ----------------------------------------
