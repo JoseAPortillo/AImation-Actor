@@ -47,3 +47,6 @@ models/*.engine
 
 # Build-time tool caches (MotionBERT sources/checkpoint)
 tools/.cache/
+
+# Ad-hoc test media (live e2e runs only — not repo fixtures)
+media/videos/vtest*
