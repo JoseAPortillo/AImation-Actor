@@ -63,7 +63,6 @@ export interface JobSnapshot {
   kind: string;
   status: JobStatus;
   error: string | null;
-  result: Record<string, unknown> | null;
   logs: string[];
 }
 

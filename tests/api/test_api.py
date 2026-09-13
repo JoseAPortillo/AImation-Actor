@@ -166,6 +166,7 @@ class TestJobs:
         poll = c.get(f"/jobs/{job_id}", headers=_auth())
         assert poll.status_code == 200
         assert poll.json()["job_id"] == job_id
+        assert "result" not in poll.json()
 
         result = c.get(f"/jobs/{job_id}/result", headers=_auth())
         assert result.status_code == 200

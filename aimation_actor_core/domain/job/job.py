@@ -64,6 +64,34 @@ class Job(BaseModel):
     logs: list[str] = Field(default_factory=list)
 
 
+class JobSnapshot(BaseModel):
+    """Lightweight polling snapshot for ``GET /jobs/{id}``.
+
+    The heavy ``result`` payload is intentionally excluded from polling so the
+    endpoint stays cheap; clients fetch the payload from
+    ``GET /jobs/{id}/result`` once the job is terminal.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    job_id: str
+    kind: JobKind
+    status: JobStatus
+    error: str | None = None
+    logs: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_job(cls, job: Job) -> JobSnapshot:
+        """Build a slim snapshot from a full job entity."""
+        return cls(
+            job_id=job.job_id,
+            kind=job.kind,
+            status=job.status,
+            error=job.error,
+            logs=job.logs,
+        )
+
+
 @runtime_checkable
 class JobStore(Protocol):
     """Read/write access to the job registry.

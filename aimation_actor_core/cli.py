@@ -285,7 +285,8 @@ def _cmd_run(client: ApiClient, args: argparse.Namespace) -> int:
     print(f"job {job_id}: {snapshot['status']}")
     if snapshot["status"] == "succeeded":
         if args.output:
-            motion = snapshot.get("result", {}).get("outputs", {}).get("v2m", {}).get("motion")
+            res = client.get_job_result(job_id)
+            motion = (res.get("result") or {}).get("outputs", {}).get("v2m", {}).get("motion")
             if motion is None:
                 raise CliError(f"job {job_id} succeeded but has no v2m.motion output")
             _save_pretty_json(motion, args.output)
