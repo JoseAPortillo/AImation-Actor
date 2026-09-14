@@ -27,6 +27,10 @@ from aimation_actor_core.domain.animation.neutral_motion import (
     NeutralMotion,
     TrackingInfo,
 )
+from aimation_actor_core.domain.animation.pose_detection import (
+    SingleFramePose,
+    SingleFramePoseDetector,
+)
 from aimation_actor_core.domain.animation.skeleton import Bone, Skeleton
 from aimation_actor_core.domain.animation.skeleton_presets import DEFAULT_NEUTRAL_SKELETON
 
@@ -53,6 +57,8 @@ __all__ = [
     "NeutralMeta",
     "NeutralMotion",
     "Pose",
+    "SingleFramePose",
+    "SingleFramePoseDetector",
     "Skeleton",
     "TrackingInfo",
     "Transform3D",
