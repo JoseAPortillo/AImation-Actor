@@ -166,5 +166,6 @@ class OnnxBackend:
                 implemented yet; it lands in Phase C.
         """
         raise NotImplementedError(
-            f"ONNX single-frame inference not yet implemented (Phase C). Model path: {self.model_path}"
+            "ONNX single-frame inference not yet implemented (Phase C). "
+            f"Model path: {self.model_path}"
         )
