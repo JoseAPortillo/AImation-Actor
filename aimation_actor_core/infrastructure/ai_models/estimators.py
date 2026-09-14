@@ -6,6 +6,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
+from aimation_actor_core.domain.animation.pose_detection import SingleFramePose
 
 
 @runtime_checkable
@@ -73,6 +74,18 @@ class SyntheticBackend:
         (0.55, 0.90),  # right_ankle
     ]
 
+    def _fixed_keypoints(self) -> list[Keypoint]:
+        """Build the fixed scripted keypoint set at 0.95 confidence."""
+        return [
+            Keypoint(
+                label=label,
+                x=x,
+                y=y,
+                confidence=0.95,  # High confidence for synthetic data
+            )
+            for (label, (x, y)) in zip(self.KEYPOINT_LABELS, self.FIXED_KEYPOINTS, strict=True)
+        ]
+
     def estimate(self, frames: list[np.ndarray]) -> list[Keypoints2D]:
         """Generate deterministic keypoints for each frame.
 
@@ -84,17 +97,19 @@ class SyntheticBackend:
         """
         result = []
         for frame_idx in range(len(frames)):
-            keypoints = [
-                Keypoint(
-                    label=label,
-                    x=x,
-                    y=y,
-                    confidence=0.95,  # High confidence for synthetic data
-                )
-                for (label, (x, y)) in zip(self.KEYPOINT_LABELS, self.FIXED_KEYPOINTS, strict=True)
-            ]
-            result.append(Keypoints2D(frame_index=frame_idx, keypoints=keypoints))
+            result.append(Keypoints2D(frame_index=frame_idx, keypoints=self._fixed_keypoints()))
         return result
+
+    def estimate_single(self, frame: np.ndarray) -> SingleFramePose:
+        """Return the fixed scripted pose for a single frame (deterministic).
+
+        Args:
+            frame: A single video frame as a numpy array (BGR format; ignored).
+
+        Returns:
+            SingleFramePose with the fixed keypoint set and 0.95 confidence.
+        """
+        return SingleFramePose(keypoints=self._fixed_keypoints(), confidence=0.95)
 
 
 class OnnxBackend:
@@ -138,4 +153,18 @@ class OnnxBackend:
         # For now, raise NotImplementedError as we don't have a real model yet
         raise NotImplementedError(
             f"ONNX inference not yet implemented. Model path: {self.model_path}"
+        )
+
+    def estimate_single(self, frame: np.ndarray) -> SingleFramePose:
+        """Single-frame estimation stays lazy until Phase C wires ONNX.
+
+        Args:
+            frame: A single video frame as a numpy array (BGR format).
+
+        Raises:
+            NotImplementedError: ONNX single-frame inference is not
+                implemented yet; it lands in Phase C.
+        """
+        raise NotImplementedError(
+            f"ONNX single-frame inference not yet implemented (Phase C). Model path: {self.model_path}"
         )
