@@ -1,8 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
+import { http, HttpResponse } from "msw";
 import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
+import { server } from "../../test/server";
+import { TEST_BASE } from "../../test/handlers/nodeCatalog";
 import nodeCatalogFixture from "../../test/fixtures/nodeCatalog.json";
 import type { NodeSchema } from "../../api/types";
 import { FlowCanvas } from "./FlowCanvas";
@@ -21,6 +24,14 @@ function makeNode(schema: NodeSchema): FlowNode {
     position: { x: 0, y: 0 },
     data: { schema, params: {} },
   };
+}
+
+function renderCanvas() {
+  return render(
+    <ReactFlowProvider>
+      <FlowCanvas />
+    </ReactFlowProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -82,5 +93,74 @@ describe("FlowCanvas connection gating (EC-2)", () => {
       });
     expect(useFlowStore.getState().edges).toHaveLength(1);
     expect(useFlowStore.getState().connectionHint).toBeNull();
+  });
+});
+
+describe("SchemaNode video-source timeslider gating (golden-poses-ux)", () => {
+  /** A 1×1 JPEG blob so fetchFrameJpeg has a real body to return. */
+  const JPEG_BYTES = new Uint8Array([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
+  ]);
+
+  function videoNode(videoPath: string | null): FlowNode {
+    const node = makeNode(videoSource);
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        params: videoPath !== null ? { video_path: videoPath } : {},
+      },
+    };
+  }
+
+  function stubFrameEndpoint() {
+    server.use(
+      http.get(`${TEST_BASE}/media/frame`, () =>
+        HttpResponse.arrayBuffer(JPEG_BYTES, {
+          headers: {
+            "Content-Type": "image/jpeg",
+            "X-Frame-Count": "3",
+          },
+        }),
+      ),
+    );
+  }
+
+  it("renders a placeholder for a video-source node without a selected video and issues no frame request", async () => {
+    stubFrameEndpoint();
+    const onFrame = vi.fn();
+    server.use(
+      http.get(`${TEST_BASE}/media/frame`, () => {
+        onFrame();
+        return HttpResponse.arrayBuffer(JPEG_BYTES, {
+          headers: { "Content-Type": "image/jpeg", "X-Frame-Count": "3" },
+        });
+      }),
+    );
+    useFlowStore.setState({ nodes: [videoNode(null)] });
+    renderCanvas();
+
+    expect(screen.getByTestId("timeslider-placeholder")).toBeInTheDocument();
+    // No video → the component must not fetch (spec: placeholder, no request).
+    expect(onFrame).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("timeslider-track")).not.toBeInTheDocument();
+  });
+
+  it("renders the live timeslider for a video-source node with a selected video", async () => {
+    stubFrameEndpoint();
+    useFlowStore.setState({ nodes: [videoNode("uploads/ab12_video.mp4")] });
+    renderCanvas();
+
+    const slider = await screen.findByTestId("timeslider-track");
+    expect(slider).toBeInTheDocument();
+    expect(screen.queryByTestId("timeslider-placeholder")).not.toBeInTheDocument();
+  });
+
+  it("renders NO timeslider for non-video-source nodes", () => {
+    useFlowStore.setState({ nodes: [makeNode(passThrough), makeNode(pose2d)] });
+    renderCanvas();
+
+    expect(screen.queryAllByTestId("timeslider")).toHaveLength(0);
+    expect(screen.queryAllByTestId("timeslider-placeholder")).toHaveLength(0);
   });
 });

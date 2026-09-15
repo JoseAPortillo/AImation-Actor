@@ -76,17 +76,17 @@ Each PR targets `main` directly; the diagram shows merge order and logical depen
 
 ## Phase 4: Integration
 
-- [ ] 4.1 `frontend/src/components/canvas/VideoTimeslider.tsx`: scrub/play, range from `X-Frame-Count`, hover thumbnail, pin CRUD, overlay toggle, per-pin detect
-- [ ] 4.2 `frontend/src/components/canvas/SchemaNode.tsx`: render `VideoTimeslider` for `video-source`; placeholder, no request without video
-- [ ] 4.3 `frontend/src/state/useJobStore.ts`: on `succeeded`, `applyKeyposes(result, usePinsStore.getState())` before `set({ result })`
-- [ ] 4.4 `frontend/src/state/useFlowStore.ts`: `removeNode` also calls `removeNodePins`
-- [ ] 4.5 RED `frontend/src/components/canvas/VideoTimeslider.test.tsx`: scrub updates blob; ⏳→✓/✗; no overlapping detect; toggle; placeholder
-- [ ] 4.6 Extend `frontend/src/state/useJobStore.test.ts`: merged `keyposes` with pins, unchanged without
-- [ ] 4.7 Extend `frontend/src/components/canvas/FlowCanvas.gating.test.tsx`: `video-source` renders timeslider
+- [x] 4.1 `frontend/src/components/canvas/VideoTimeslider.tsx`: scrub/play, range from `X-Frame-Count`, hover thumbnail, pin CRUD, overlay toggle, per-pin detect
+- [x] 4.2 `frontend/src/components/canvas/SchemaNode.tsx`: render `VideoTimeslider` for `video-source`; placeholder, no request without video
+- [x] 4.3 `frontend/src/state/useJobStore.ts`: on `succeeded`, `applyKeyposes(result, usePinsStore.getState())` before `set({ result })`
+- [x] 4.4 `frontend/src/state/useFlowStore.ts`: `removeNode` also calls `removeNodePins`
+- [x] 4.5 RED `frontend/src/components/canvas/VideoTimeslider.test.tsx`: scrub updates blob; ⏳→✓/✗; no overlapping detect; toggle; placeholder
+- [x] 4.6 Extend `frontend/src/state/useJobStore.test.ts`: merged `keyposes` with pins, unchanged without
+- [x] 4.7 Extend `frontend/src/components/canvas/FlowCanvas.gating.test.tsx`: `video-source` renders timeslider
 
 ## Phase 5: Verification + Cleanup
 
-- [ ] 5.1 `.\.venv\Scripts\python.exe` (read-only) -m pytest full suite green
-- [ ] 5.2 `npx vitest run` in `frontend/` — nodeCatalog fixture no drift (D2)
-- [ ] 5.3 `.\.venv\Scripts\python.exe` (read-only) -m importlinter --show-timings — api→infrastructure ban holds
-- [ ] 5.4 No `video-source` schema change; no temp artifacts left
+- [x] 5.1 `.\.venv\Scripts\python.exe` (read-only) -m pytest full suite green
+- [x] 5.2 `npx vitest run` in `frontend/` — nodeCatalog fixture no drift (D2)
+- [x] 5.3 `.\.venv\Scripts\python.exe` (read-only) -m importlinter --show-timings — api→infrastructure ban holds
+- [x] 5.4 No `video-source` schema change; no temp artifacts left
