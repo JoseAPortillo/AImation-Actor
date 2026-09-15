@@ -8,7 +8,12 @@
 
 import { fetchTransport, type Transport } from "./transport";
 import { sessionToken } from "./token";
-import type { JobResultResponse, JobSnapshot, NodeSchema } from "./types";
+import type {
+  JobResultResponse,
+  JobSnapshot,
+  NodeSchema,
+  SingleFramePose,
+} from "./types";
 
 export const DEFAULT_URL = "http://127.0.0.1:8765";
 
@@ -66,9 +71,11 @@ export class ApiClient {
     this.transport = transport;
   }
 
-  private headers(requiresAuth: boolean): Headers {
+  private headers(requiresAuth: boolean, multipart = false): Headers {
     const headers = new Headers();
-    headers.set("Content-Type", "application/json");
+    if (!multipart) {
+      headers.set("Content-Type", "application/json");
+    }
     if (requiresAuth && this.token) {
       headers.set("Authorization", `Bearer ${this.token}`);
     }
@@ -81,14 +88,17 @@ export class ApiClient {
     body?: unknown,
     requiresAuth = true,
     signal?: AbortSignal,
+    multipart = false,
   ): Promise<Response> {
     const init: RequestInit = {
       method,
-      headers: this.headers(requiresAuth),
+      headers: this.headers(requiresAuth, multipart),
       signal,
     };
     if (body !== undefined) {
-      init.body = JSON.stringify(body);
+      // Multipart bodies (FormData) must reach the wire un-serialized so fetch
+      // can set the boundary itself; everything else goes as JSON.
+      init.body = multipart ? (body as FormData) : JSON.stringify(body);
     }
     try {
       return await this.transport.request(joinBase(this.baseUrl, path), init);
@@ -98,18 +108,25 @@ export class ApiClient {
     }
   }
 
+  /** Build a normalized ApiError from a non-2xx response body (HTTP-3). */
+  private async errorFor(resp: Response): Promise<ApiError> {
+    const text = await resp.text().catch(() => "");
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+    return new ApiError(
+      normalizeStatus(resp.status),
+      `HTTP ${resp.status}: ${detailFrom(body, text)}`,
+      resp.status,
+    );
+  }
+
   private async expectObject(resp: Response): Promise<Record<string, unknown>> {
     if (resp.status >= 400) {
-      const text = await resp.text().catch(() => "");
-      let detail = text;
-      let body: unknown = null;
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = null;
-      }
-      detail = detailFrom(body, text);
-      throw new ApiError(normalizeStatus(resp.status), `HTTP ${resp.status}: ${detail}`, resp.status);
+      throw await this.errorFor(resp);
     }
     const text = await resp.text().catch(() => "");
     if (!text) throw new ApiError("empty", "empty response");
@@ -127,16 +144,7 @@ export class ApiClient {
 
   private async expectList(resp: Response): Promise<unknown[]> {
     if (resp.status >= 400) {
-      const text = await resp.text().catch(() => "");
-      let detail = text;
-      let body: unknown = null;
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = null;
-      }
-      detail = detailFrom(body, text);
-      throw new ApiError(normalizeStatus(resp.status), `HTTP ${resp.status}: ${detail}`, resp.status);
+      throw await this.errorFor(resp);
     }
     const text = await resp.text().catch(() => "");
     if (!text) throw new ApiError("empty", "empty response");
@@ -195,5 +203,62 @@ export class ApiClient {
     return (await this.expectObject(
       await this.request("POST", `/jobs/${jobId}/cancel`),
     )) as unknown as JobSnapshot;
+  }
+
+  /**
+   * GET /media/frame — fetch one video frame as a JPEG Blob.
+   *
+   * `frame_index` is 1-based (the backend boundary contract). The response's
+   * `X-Frame-Count` header carries the video's total frame count so the
+   * timeslider can size its range without an extra request.
+   */
+  async fetchFrameJpeg(
+    videoPath: string,
+    frameIndex: number,
+    width?: number,
+  ): Promise<{ blob: Blob; frameCount: number }> {
+    const query = new URLSearchParams();
+    query.set("video_path", videoPath);
+    query.set("frame_index", String(frameIndex));
+    if (width !== undefined) {
+      query.set("width", String(width));
+    }
+    const resp = await this.request("GET", `/media/frame?${query.toString()}`);
+    if (resp.status >= 400) {
+      throw await this.errorFor(resp);
+    }
+    const raw = resp.headers.get("X-Frame-Count");
+    const frameCount = raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : 0;
+    const blob = await resp.blob();
+    return { blob, frameCount };
+  }
+
+  /**
+   * POST /media/upload — upload a video file as multipart/form-data.
+   *
+   * Returns the stored media reference (e.g. `uploads/ab12…_video.mp4`)
+   * relative to the media-root allowlist.
+   */
+  async uploadVideo(file: File): Promise<string> {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    const resp = await this.request("POST", "/media/upload", form, true, undefined, true);
+    const obj = await this.expectObject(resp);
+    const reference = obj["reference"];
+    if (typeof reference !== "string" || reference.length === 0) {
+      throw new ApiError("invalid", "upload response missing reference");
+    }
+    return reference;
+  }
+
+  /**
+   * GET /detect/{video_path}/{frame_index} — detect the 2D pose of a single
+   * 1-based frame (decision D1). Returns named keypoints with normalized x/y
+   * plus a frame-level confidence.
+   */
+  async detectPose(videoPath: string, frameIndex: number): Promise<SingleFramePose> {
+    return (await this.expectObject(
+      await this.request("GET", `/detect/${videoPath}/${frameIndex}`),
+    )) as unknown as SingleFramePose;
   }
 }

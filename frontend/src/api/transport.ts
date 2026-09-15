@@ -25,7 +25,7 @@ export class MockTransport implements Transport {
     method: string;
     url: string;
     headers: Headers;
-    body: string | null;
+    body: string | FormData | null;
     signal: AbortSignal | null | undefined;
   }[] = [];
 
@@ -43,12 +43,27 @@ export class MockTransport implements Transport {
     this.queue.push({ response: null, error });
   }
 
+  /** Enqueue a binary response (e.g. a JPEG Blob) with raw headers. */
+  async enqueueBlob(blob: Blob, status: number, headers?: Record<string, string>): Promise<void> {
+    const h = new Headers(headers);
+    if (!h.has("Content-Type") && blob.type) {
+      h.set("Content-Type", blob.type);
+    }
+    // Build the body from bytes: undici's Response does not accept a jsdom
+    // Blob as a body (brand mismatch) and would stringify it instead.
+    const body = new Uint8Array(await blob.arrayBuffer());
+    this.queue.push({
+      response: new Response(body, { status, headers: h }),
+      error: null,
+    });
+  }
+
   async request(path: string, init?: RequestInit): Promise<Response> {
     this.requests.push({
       method: init?.method ?? "GET",
       url: path,
       headers: (init?.headers as Headers) ?? new Headers(),
-      body: (init?.body as string | null) ?? null,
+      body: (init?.body as string | FormData | null) ?? null,
       signal: init?.signal,
     });
     const next = this.queue.shift();

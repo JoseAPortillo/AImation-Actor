@@ -65,14 +65,14 @@ Each PR targets `main` directly; the diagram shows merge order and logical depen
 
 ## Phase 3: Frontend Core
 
-- [ ] 3.1 `frontend/src/api/types.ts`: `DetectedKeypoint` (label, normalized x/y, confidence) + `SingleFramePose`
-- [ ] 3.2 `frontend/src/api/ApiClient.ts`: `fetchFrameJpeg` (Blob + `X-Frame-Count`), `uploadVideo`, `detectPose`
-- [ ] 3.3 RED `frontend/src/core/keyposes.test.ts`: merges ALL in-range pins (frame ≤ `duration_frames`) sorted; empty → doc unchanged; weight = confidence ?? 1
-- [ ] 3.4 GREEN `frontend/src/core/keyposes.ts`: pure `applyKeyposes(result, pins)`
-- [ ] 3.5 RED `frontend/src/state/usePinsStore.test.ts`: addPin G{n+1} + ⏳; movePin; removePin keeps labels; removeNodePins
-- [ ] 3.6 GREEN `frontend/src/state/usePinsStore.ts`: keyed by `nodeId`, ⏳→✓/✗, single-in-flight guard (D1)
-- [ ] 3.7 RED `frontend/src/core/skeletonOverlay.test.ts`: normalized × display size; COCO bones present
-- [ ] 3.8 GREEN `frontend/src/core/skeletonOverlay.ts`: `drawSkeleton` + `COCO_BONES`
+- [x] 3.1 `frontend/src/api/types.ts`: `DetectedKeypoint` (label, normalized x/y, confidence) + `SingleFramePose`
+- [x] 3.2 `frontend/src/api/ApiClient.ts`: `fetchFrameJpeg` (Blob + `X-Frame-Count`), `uploadVideo`, `detectPose`
+- [x] 3.3 RED `frontend/src/core/keyposes.test.ts`: merges ALL in-range pins (frame ≤ `duration_frames`) sorted; empty → doc unchanged; weight = confidence ?? 1
+- [x] 3.4 GREEN `frontend/src/core/keyposes.ts`: pure `applyKeyposes(result, pins)`
+- [x] 3.5 RED `frontend/src/state/usePinsStore.test.ts`: addPin G{n+1} + ⏳; movePin; removePin keeps labels; removeNodePins
+- [x] 3.6 GREEN `frontend/src/state/usePinsStore.ts`: keyed by `nodeId`, ⏳→✓/✗, single-in-flight guard (D1)
+- [x] 3.7 RED `frontend/src/core/skeletonOverlay.test.ts`: normalized × display size; COCO bones present
+- [x] 3.8 GREEN `frontend/src/core/skeletonOverlay.ts`: `drawSkeleton` + `COCO_BONES`
 
 ## Phase 4: Integration
 
