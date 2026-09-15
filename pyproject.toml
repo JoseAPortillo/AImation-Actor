@@ -42,6 +42,9 @@ packages = ["aimation_actor_core"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# tests/domain and tests/infrastructure both contain test_frame_provider.py;
+# importlib mode avoids the same-basename sys.path collision (prepend mode).
+addopts = "--import-mode=importlib"
 
 [tool.mypy]
 strict = true

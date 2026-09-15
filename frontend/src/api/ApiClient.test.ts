@@ -104,6 +104,92 @@ describe("ApiClient endpoint surface (HTTP-1)", () => {
   });
 });
 
+describe("ApiClient media + pose surface (Phase A frame-pose-detection)", () => {
+  it("fetchFrameJpeg GETs /media/frame with query params and returns blob + X-Frame-Count", async () => {
+    const { transport, client } = makeClient("tok");
+    const jpeg = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" });
+    await transport.enqueueBlob(jpeg, 200, { "X-Frame-Count": "120" });
+    const result = await client.fetchFrameJpeg("uploads/ab12_video.mp4", 7, 640);
+    const req = transport.requests[0];
+    expect(req.method).toBe("GET");
+    expect(req.url).toBe(
+      "http://127.0.0.1:8765/media/frame?video_path=uploads%2Fab12_video.mp4&frame_index=7&width=640",
+    );
+    expect(req.headers.get("authorization")).toBe("Bearer tok");
+    expect(result.frameCount).toBe(120);
+    expect(result.blob.type).toBe("image/jpeg");
+    const bytes = new Uint8Array(await result.blob.arrayBuffer());
+    expect(bytes.length).toBe(4);
+  });
+
+  it("fetchFrameJpeg omits width and reports 0 frame count on a missing header", async () => {
+    const { transport, client } = makeClient("tok");
+    await transport.enqueueBlob(new Blob([new Uint8Array([1, 2, 3])]), 200);
+    const result = await client.fetchFrameJpeg("uploads/ab12_video.mp4", 1);
+    const req = transport.requests[0];
+    expect(req.url).toBe("http://127.0.0.1:8765/media/frame?video_path=uploads%2Fab12_video.mp4&frame_index=1");
+    expect(result.frameCount).toBe(0);
+  });
+
+  it("fetchFrameJpeg maps 401 to ApiError kind 'unauthorized'", async () => {
+    const { transport, client } = makeClient("bad");
+    transport.enqueue(401, { detail: "Not authenticated" });
+    const err = await client.fetchFrameJpeg("uploads/ab12_video.mp4", 1).catch((e) => e);
+    expect(err).toMatchObject({ kind: "unauthorized" });
+    expect(String(err.message)).toContain("Not authenticated");
+  });
+
+  it("detectPose GETs /detect/{video_path}/{frame_index} and returns SingleFramePose", async () => {
+    const { transport, client } = makeClient("tok");
+    const pose = {
+      keypoints: [{ label: "nose", x: 0.5, y: 0.2, confidence: 0.95 }],
+      confidence: 0.95,
+    };
+    transport.enqueue(200, pose);
+    const result = await client.detectPose("uploads/ab12_video.mp4", 5);
+    const req = transport.requests[0];
+    expect(req.method).toBe("GET");
+    expect(req.url).toBe("http://127.0.0.1:8765/detect/uploads/ab12_video.mp4/5");
+    expect(req.headers.get("authorization")).toBe("Bearer tok");
+    expect(result).toEqual(pose);
+    expect(result.confidence).toBe(0.95);
+    expect(result.keypoints[0].label).toBe("nose");
+  });
+
+  it("detectPose maps 501 (backend unavailable) to ApiError kind 'server'", async () => {
+    const { transport, client } = makeClient("tok");
+    transport.enqueue(501, { detail: "ONNX single-frame inference not yet implemented (Phase C)" });
+    const err = await client.detectPose("uploads/ab12_video.mp4", 5).catch((e) => e);
+    expect(err).toMatchObject({ kind: "server" });
+    expect(String(err.message)).toContain("ONNX");
+  });
+
+  it("uploadVideo POSTs multipart FormData and returns the stored reference", async () => {
+    const { transport, client } = makeClient("tok");
+    transport.enqueue(200, { reference: "uploads/ab12videos_video.mp4" });
+    const file = new File(["fake video bytes"], "video.mp4", { type: "video/mp4" });
+    const reference = await client.uploadVideo(file);
+    const req = transport.requests[0];
+    expect(req.method).toBe("POST");
+    expect(req.url).toBe("http://127.0.0.1:8765/media/upload");
+    expect(req.headers.get("authorization")).toBe("Bearer tok");
+    expect(req.headers.get("content-type")).toBeNull();
+    expect(req.body).toBeInstanceOf(FormData);
+    const entry = (req.body as FormData).get("file");
+    expect(entry).toBeInstanceOf(File);
+    expect((entry as File).name).toBe("video.mp4");
+    expect((entry as File).size).toBe(file.size);
+    expect(reference).toBe("uploads/ab12videos_video.mp4");
+  });
+
+  it("uploadVideo throws ApiError kind 'invalid' when the response lacks a reference", async () => {
+    const { transport, client } = makeClient("tok");
+    transport.enqueue(200, {});
+    const err = await client.uploadVideo(new File(["x"], "video.mp4")).catch((e) => e);
+    expect(err).toMatchObject({ kind: "invalid" });
+  });
+});
+
 describe("ApiClient error normalization (HTTP-3)", () => {
   it("maps 401 to ApiError kind 'unauthorized' with message, non-fatal", async () => {
     const { transport, client } = makeClient("bad");

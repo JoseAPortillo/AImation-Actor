@@ -11,6 +11,7 @@ import {
 } from "@xyflow/react";
 import type { NodeSchema } from "../api/types";
 import { portsCompatible } from "../core/ports";
+import { usePinsStore } from "./usePinsStore";
 
 export type FlowNodeData = {
   schema: NodeSchema;
@@ -81,6 +82,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       nodes: state.nodes.filter((n) => n.id !== id),
       edges: state.edges.filter((e) => e.source !== id && e.target !== id),
     }));
+    // Golden poses are frontend-only (D2) and scoped to the node's lifetime:
+    // deleting the node discards its pins (task 4.4).
+    usePinsStore.getState().removeNodePins(id);
   },
 
   duplicateNode: (id) => {

@@ -4,6 +4,7 @@ import type { FlowNode } from "../../state/useFlowStore";
 import { useFlowStore } from "../../state/useFlowStore";
 import { getCategoryColor } from "../../core/handles";
 import { NodeWrapper } from "./NodeWrapper";
+import { VideoTimeslider } from "./VideoTimeslider";
 import { CollapsibleSection } from "./CollapsibleSection";
 
 type Props = NodeProps<FlowNode>;
@@ -44,6 +45,20 @@ export const SchemaNode = memo(function SchemaNode({
         data_type: p.data_type,
       }))}
     >
+      {/* Golden-poses: video-source nodes get the timeslider (scrub/play/
+          pins/overlay). Placeholder shown when no video is selected (the
+          component never issues a frame request without a video path). */}
+      {schema.type === "video-source" && (
+        <VideoTimeslider
+          nodeId={id}
+          videoPath={
+            typeof params.video_path === "string" && params.video_path
+              ? params.video_path
+              : null
+          }
+        />
+      )}
+
       {/* Description */}
       {schema.description && (
         <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>

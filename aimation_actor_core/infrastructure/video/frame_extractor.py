@@ -30,11 +30,15 @@ from aimation_actor_core.domain.pipeline.schema import (
     NodeSchema,
     PortSpec,
 )
-from aimation_actor_core.shared.errors import AImationError
+from aimation_actor_core.shared.media_security import MediaPathError, resolve_media_path
 
 
-class VideoPathError(AImationError):
-    """Raised when ``video_path`` is disallowed by the media-root allowlist."""
+class VideoPathError(MediaPathError):
+    """Raised when ``video_path`` is disallowed by the media-root allowlist.
+
+    A :class:`MediaPathError` subclass so callers can handle the node and the
+    media endpoints through one shared security contract (decision D3).
+    """
 
     code = "video_path_disallowed"
 
@@ -73,32 +77,18 @@ class FrameExtractorNode(INode):
         )
 
     def _resolve_video_path(self, video_path: str) -> Path:
-        """Resolve and validate ``video_path`` against the media_root allowlist.
+        """Resolve ``video_path`` through the shared media-root allowlist (D3).
 
-        Raises :class:`VideoPathError` for absolute paths, traversal escapes,
-        missing files, and non-file targets — before any ``cv2.VideoCapture``
-        opens the path (SDD §4.3 arbitrary-file-read boundary).
+        Delegates to :func:`resolve_media_path` so the node enforces the same
+        security boundary as the media endpoints. Re-raises as
+        :class:`VideoPathError` (a :class:`MediaPathError` subclass) for
+        backward compatibility with existing callers — before any
+        ``cv2.VideoCapture`` opens the path (SDD §4.3).
         """
-        if not isinstance(video_path, str) or not video_path.strip():
-            raise VideoPathError("param video_path must be a non-empty path string")
-
-        candidate = Path(video_path)
-        if candidate.is_absolute():
-            raise VideoPathError("param video_path must be a relative path under media_root")
-
-        root = self._media_root.resolve()
-        resolved = (self._media_root / candidate).resolve()
         try:
-            inside = resolved.is_relative_to(root)
-        except ValueError:  # pragma: no cover - defensive for non-matching drives
-            inside = False
-        if not inside:
-            raise VideoPathError("param video_path escapes the allowlisted media_root")
-        if not resolved.exists():
-            raise VideoPathError("param video_path does not exist under media_root")
-        if not resolved.is_file():
-            raise VideoPathError("param video_path is not a file under media_root")
-        return resolved
+            return resolve_media_path(self._media_root, video_path)
+        except MediaPathError as exc:
+            raise VideoPathError(str(exc)) from exc
 
     @staticmethod
     def _decode_blocking(

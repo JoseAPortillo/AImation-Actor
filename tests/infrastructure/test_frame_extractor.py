@@ -22,6 +22,7 @@ from aimation_actor_core.infrastructure.video.frame_extractor import (
     FrameExtractorNode,
     VideoPathError,
 )
+from aimation_actor_core.shared.media_security import MediaPathError, resolve_media_path
 
 FRAME_SIZE = (32, 32)
 FPS = 25
@@ -124,6 +125,31 @@ class TestPathAllowlist:
         with pytest.raises(VideoPathError):
             node._resolve_video_path("../escape.avi")
         assert opened == []
+
+
+class TestSharedResolverDelegation:
+    """D3 — the node enforces the identical allowlist as the media endpoints."""
+
+    def test_video_path_error_is_media_path_error_subclass(self) -> None:
+        assert issubclass(VideoPathError, MediaPathError)
+
+    def test_node_rejection_is_media_path_error(self, tmp_path: Path) -> None:
+        node = _make_node(tmp_path)
+        with pytest.raises(MediaPathError):
+            node._resolve_video_path("../escape.avi")
+
+    def test_node_and_shared_resolver_agree_on_allowed_path(self, tmp_path: Path) -> None:
+        _make_video(tmp_path / "clip.avi")
+        node = _make_node(tmp_path)
+        assert node._resolve_video_path("clip.avi") == resolve_media_path(tmp_path, "clip.avi")
+
+    def test_node_and_shared_resolver_agree_on_disallowed_paths(self, tmp_path: Path) -> None:
+        node = _make_node(tmp_path)
+        for bad in ("../escape.avi", str(tmp_path / "abs.avi"), "sub/../../escape.avi"):
+            with pytest.raises(VideoPathError):
+                node._resolve_video_path(bad)
+            with pytest.raises(MediaPathError):
+                resolve_media_path(tmp_path, bad)
 
 
 class TestDecode:

@@ -7,9 +7,12 @@
 
 import { create } from "zustand";
 import { ApiClient, DEFAULT_URL } from "../api/ApiClient";
-import type { JobStatus } from "../api/types";
+import type { JobStatus, NeutralMotionDoc } from "../api/types";
 import type { AimGraph } from "../core/graph";
+import { applyKeyposes, type KeyposeSource } from "../core/keyposes";
+import { isNeutralMotionDoc } from "../core/motionView";
 import type { FlowNode } from "./useFlowStore";
+import { usePinsStore } from "./usePinsStore";
 
 /** Frontend-facing job lifecycle (adds `idle` before any submission). */
 export type JobRunStatus = "idle" | JobStatus;
@@ -55,6 +58,53 @@ interface JobState {
   submit: (graph: AimGraph) => Promise<void>;
   cancel: () => Promise<void>;
   reset: () => void;
+}
+
+/**
+ * Merge golden pins onto the NeutralMotion doc inside a raw job result.
+ *
+ * Mirrors `extractMotion`'s walk order: the FIRST motion-shaped value across
+ * all outputs (either the raw `outputs[id]` doc or the `outputs[id].motion`
+ * wrapper) receives the merged `keyposes` built from ALL pins (all nodes),
+ * sorted by frame. Returns a NEW result object when a doc was found and
+ * keyposes changed; otherwise returns the ORIGINAL reference (no mutation —
+ * matches "no pins → unchanged doc").
+ */
+export function mergeKeyposesIntoResult(
+  result: Record<string, unknown> | null,
+  allPins: KeyposeSource[],
+): Record<string, unknown> | null {
+  if (!result || typeof result !== "object") return result;
+
+  const outputs = result.outputs as Record<string, unknown> | undefined;
+  if (!outputs || typeof outputs !== "object") return result;
+
+  for (const [nodeId, v] of Object.entries(outputs)) {
+    if (!v || typeof v !== "object") continue;
+
+    // Wrapper form: { motion: NeutralMotionDoc }.
+    if (
+      "motion" in v &&
+      isNeutralMotionDoc((v as { motion?: unknown }).motion)
+    ) {
+      const doc = (v as { motion: NeutralMotionDoc }).motion;
+      const merged = applyKeyposes(doc, allPins);
+      if (merged === doc) return result; // nothing changed
+      return {
+        ...result,
+        outputs: { ...outputs, [nodeId]: { ...v, motion: merged } },
+      };
+    }
+
+    // Direct doc form: the value IS the NeutralMotionDoc.
+    if (isNeutralMotionDoc(v)) {
+      const merged = applyKeyposes(v, allPins);
+      if (merged === v) return result; // nothing changed
+      return { ...result, outputs: { ...outputs, [nodeId]: merged } };
+    }
+  }
+
+  return result;
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -121,7 +171,16 @@ export const useJobStore = create<JobState>((set, get) => ({
         } catch {
           /* logs are best-effort */
         }
-        set({ result: snapshot.result });
+        // Golden-poses: on success, merge ALL pins (across nodes) onto the
+        // result's NeutralMotionDoc.keyposes before publishing the result.
+        const result =
+          snapshot.status === "succeeded"
+            ? mergeKeyposesIntoResult(
+                snapshot.result,
+                Object.values(usePinsStore.getState().pinsByNode).flat(),
+              )
+            : snapshot.result;
+        set({ result });
       }
     };
 

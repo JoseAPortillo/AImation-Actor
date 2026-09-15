@@ -114,13 +114,39 @@ export interface NeutralMotionMeta {
   graph_hash: string;
 }
 
+/** A single authored key pose: source frame number (1-based) + lock weight. */
+export interface KeyPose {
+  frame: number;
+  weight: number;
+}
+
 export interface NeutralMotionDoc {
   meta: NeutralMotionMeta;
   skeleton: SkeletonDoc;
   frames: MotionFrame[];
   contacts?: Record<string, unknown>;
-  keyposes?: unknown[];
+  keyposes?: KeyPose[];
   tracking?: {
     confidence_per_frame: number[];
   };
+}
+
+/* ── Single-frame pose detection (frame-pose-detection capability) ───────── */
+
+/** A single detected 2D keypoint with normalized coordinates + confidence. */
+export interface DetectedKeypoint {
+  label: string;
+  /** Normalized x coordinate in [0, 1] (0 = left edge of the frame). */
+  x: number;
+  /** Normalized y coordinate in [0, 1] (0 = top edge of the frame). */
+  y: number;
+  /** Detection confidence in [0, 1]. */
+  confidence: number;
+}
+
+/** Detected 2D pose for one video frame: keypoints + frame-level confidence. */
+export interface SingleFramePose {
+  keypoints: DetectedKeypoint[];
+  /** Frame-level confidence in [0, 1]. */
+  confidence: number;
 }

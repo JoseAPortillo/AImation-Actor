@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { useJobStore, validateRunReadiness } from "./useJobStore";
+import { usePinsStore, type Pin } from "./usePinsStore";
 import type { ApiClient } from "../api/ApiClient";
 import type { JobSnapshot } from "../api/types";
 import type { AimGraph } from "../core/graph";
@@ -209,5 +210,135 @@ describe("useJobStore.cancel (GE-2)", () => {
     expect(useJobStore.getState().status).toBe("cancelled");
     expect(useJobStore.getState().error).toBe("canceled");
     expect(useJobStore.getState().jobId).toBeNull();
+  });
+});
+
+describe("useJobStore keypose merge on success (golden-poses-ux)", () => {
+  /** Minimal NeutralMotionDoc whose keyposes merge can be asserted. */
+  const MOTION_DOC = {
+    meta: {
+      version: "0.3",
+      fps: 24,
+      units: "cm",
+      up_axis: "Y",
+      source_type: "video",
+      duration_frames: 10,
+      style: "neutral",
+      model_version: "v1",
+      graph_hash: "abc",
+    },
+    skeleton: {
+      bones: { Root: { name: "Root", parent: null, rest_position: [0, 0, 0] } },
+    },
+    frames: [{ frame: 1, time: 0, pose: { transforms: { Root: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } } } }],
+  };
+
+  function pin(partial: Partial<Pin>): Pin {
+    return {
+      id: "p1",
+      label: "G1",
+      frame: 5,
+      status: "success",
+      confidence: 0.8,
+      detection: [],
+      ...partial,
+    };
+  }
+
+  it("merges ALL in-range pins onto the succeeded result's motion.keyposes", async () => {
+    usePinsStore.setState({
+      pinsByNode: {
+        n1: [pin({ id: "a", label: "G1", frame: 2, confidence: 0.5 })],
+        n2: [pin({ id: "b", label: "G1", frame: 7, confidence: null })],
+      },
+    });
+    installMock({
+      graphExecute: vi.fn().mockResolvedValue(snapshot({ status: "running" })),
+      getJob: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot({ status: "running" }))
+        .mockResolvedValueOnce(
+          snapshot({
+            status: "succeeded",
+            result: { outputs: { src: { motion: MOTION_DOC } } },
+          }),
+        ),
+      getJobLogs: vi.fn().mockResolvedValue(["done"]),
+    });
+    const store = useJobStore.getState();
+    await store.submit(GRAPH);
+    await vi.advanceTimersByTimeAsync(1600);
+
+    const s = useJobStore.getState();
+    expect(s.status).toBe("succeeded");
+    const motion = (s.result?.outputs as Record<string, unknown>)?.src as {
+      motion: { keyposes?: Array<{ frame: number; weight: number }> };
+    };
+    // Sorted by frame; weight = confidence ?? 1.
+    expect(motion.motion.keyposes).toEqual([
+      { frame: 2, weight: 0.5 },
+      { frame: 7, weight: 1 },
+    ]);
+  });
+
+  it("leaves the result unchanged when there are no pins", async () => {
+    usePinsStore.setState({ pinsByNode: {} });
+    installMock({
+      graphExecute: vi.fn().mockResolvedValue(snapshot({ status: "running" })),
+      getJob: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot({ status: "running" }))
+        .mockResolvedValueOnce(
+          snapshot({
+            status: "succeeded",
+            result: { outputs: { src: { motion: MOTION_DOC } } },
+          }),
+        ),
+      getJobLogs: vi.fn().mockResolvedValue(["done"]),
+    });
+    const store = useJobStore.getState();
+    await store.submit(GRAPH);
+    await vi.advanceTimersByTimeAsync(1600);
+
+    const s = useJobStore.getState();
+    expect(s.status).toBe("succeeded");
+    expect(s.error).toBeNull();
+    const motion = (s.result?.outputs as Record<string, unknown>)?.src as {
+      motion: { keyposes?: unknown };
+    };
+    // No pins → no keyposes key appears (spec: absent or empty, without error).
+    expect(motion.motion.keyposes).toBeUndefined();
+  });
+
+  it("drops out-of-range pins and keeps the doc intact (frame ≤ duration_frames)", async () => {
+    usePinsStore.setState({
+      pinsByNode: {
+        n1: [
+          pin({ id: "a", label: "G1", frame: 2, confidence: 0.9 }),
+          pin({ id: "b", label: "G2", frame: 11, confidence: 0.7 }), // > duration 10
+        ],
+      },
+    });
+    installMock({
+      graphExecute: vi.fn().mockResolvedValue(snapshot({ status: "running" })),
+      getJob: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot({ status: "running" }))
+        .mockResolvedValueOnce(
+          snapshot({
+            status: "succeeded",
+            result: { outputs: { src: { motion: MOTION_DOC } } },
+          }),
+        ),
+      getJobLogs: vi.fn().mockResolvedValue(["done"]),
+    });
+    const store = useJobStore.getState();
+    await store.submit(GRAPH);
+    await vi.advanceTimersByTimeAsync(1600);
+
+    const motion = ((useJobStore.getState().result?.outputs as Record<string, unknown>)?.src as {
+      motion: { keyposes?: Array<{ frame: number; weight: number }> };
+    }).motion;
+    expect(motion.keyposes).toEqual([{ frame: 2, weight: 0.9 }]);
   });
 });

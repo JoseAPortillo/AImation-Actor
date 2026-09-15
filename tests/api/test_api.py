@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import cv2
@@ -16,13 +17,35 @@ from aimation_actor_core.shared.config import Settings
 TEST_TOKEN = "test-instance-token-0123456789abcdef"
 
 
-def _client() -> TestClient:
-    app = create_app(settings=Settings(session_token=TEST_TOKEN))
+def _client(tmp_path: Path | None = None) -> TestClient:
+    media_root = tmp_path / "media" if tmp_path else Path("media")
+    if tmp_path:
+        media_root.mkdir(exist_ok=True)
+    app = create_app(
+        settings=Settings(session_token=TEST_TOKEN, media_root=media_root)
+    )
     return TestClient(app)
 
 
 def _auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {TEST_TOKEN}"}
+
+
+def _make_video(path: Path, n_frames: int = 5) -> Path:
+    """Create a tiny synthetic video for testing."""
+    clip = path
+    writer = cv2.VideoWriter(
+        str(clip),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        25,
+        (32, 32),
+    )
+    try:
+        for i in range(n_frames):
+            writer.write(np.full((32, 32, 3), i * 10, dtype=np.uint8))
+    finally:
+        writer.release()
+    return clip
 
 
 class TestAuth:
@@ -295,3 +318,276 @@ class TestJobs:
     def test_unknown_job_404(self) -> None:
         c = _client()
         assert c.get("/jobs/missing", headers=_auth()).status_code == 404
+
+
+class TestMediaFrame:
+    """Tests for GET /media/frame endpoint."""
+
+    def test_returns_jpeg_with_frame_count(self, tmp_path: Path) -> None:
+        """Authenticated request returns JPEG + X-Frame-Count header."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "clip.avi", "frame_index": 1},
+            headers=_auth(),
+        )
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/jpeg"
+        assert int(r.headers["x-frame-count"]) == 5
+        # Verify it's valid JPEG by loading it
+        img = cv2.imdecode(
+            np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR
+        )
+        assert img is not None
+        assert img.shape == (32, 32, 3)
+
+    def test_first_frame_1based(self, tmp_path: Path) -> None:
+        """frame_index=1 returns the first frame without error."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "clip.avi", "frame_index": 1},
+            headers=_auth(),
+        )
+        assert r.status_code == 200
+        assert int(r.headers["x-frame-count"]) == 5
+
+    def test_last_frame_1based(self, tmp_path: Path) -> None:
+        """frame_index equal to frame count returns the last frame."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "clip.avi", "frame_index": 5},
+            headers=_auth(),
+        )
+        assert r.status_code == 200
+
+    def test_out_of_range_frame_returns_400(self, tmp_path: Path) -> None:
+        """frame_index beyond video length returns 400."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "clip.avi", "frame_index": 100},
+            headers=_auth(),
+        )
+        assert r.status_code == 400
+
+    def test_zero_frame_returns_400(self, tmp_path: Path) -> None:
+        """frame_index=0 (invalid for 1-based) returns 400."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "clip.avi", "frame_index": 0},
+            headers=_auth(),
+        )
+        assert r.status_code == 400
+
+    def test_traversal_path_returns_400(self, tmp_path: Path) -> None:
+        """Traversal in video_path is rejected before file read."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "../clip.avi", "frame_index": 1},
+            headers=_auth(),
+        )
+        assert r.status_code == 400
+
+    def test_unauthenticated_returns_401(self, tmp_path: Path) -> None:
+        """Request without token returns 401."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "clip.avi", "frame_index": 1},
+        )
+        assert r.status_code == 401
+
+    def test_with_resize_width(self, tmp_path: Path) -> None:
+        """width parameter resizes the frame."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/media/frame",
+            params={"video_path": "clip.avi", "frame_index": 1, "width": 16},
+            headers=_auth(),
+        )
+        assert r.status_code == 200
+        img = cv2.imdecode(
+            np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR
+        )
+        assert img is not None
+        assert img.shape[1] == 16  # width resized
+
+
+class TestMediaUpload:
+    """Tests for POST /media/upload endpoint."""
+
+    def test_valid_upload_stored(self, tmp_path: Path) -> None:
+        """Authenticated upload stores file under media_root."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        video_bytes = _make_video_bytes()
+        r = c.post(
+            "/media/upload",
+            headers=_auth(),
+            files={"file": ("test_clip.avi", video_bytes, "video/avi")},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "reference" in body
+        # File should exist under media_root
+        stored = media_root / body["reference"]
+        assert stored.exists()
+        assert stored.is_file()
+
+    def test_upload_returns_correct_reference(self, tmp_path: Path) -> None:
+        """Upload returns a reference with uuid prefix and original basename."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        video_bytes = _make_video_bytes()
+        r = c.post(
+            "/media/upload",
+            headers=_auth(),
+            files={"file": ("myvideo.avi", video_bytes, "video/avi")},
+        )
+        assert r.status_code == 200
+        ref = r.json()["reference"]
+        assert ref.endswith("_myvideo.avi")
+        # UUID prefix is 12 chars
+        prefix = ref.split("_")[0]
+        assert len(prefix) == 12
+
+    def test_oversized_upload_returns_413(self, tmp_path: Path) -> None:
+        """Upload exceeding max_video_bytes returns 413."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        # Create a tiny media_root with low max_video_bytes
+        app = create_app(
+            settings=Settings(
+                session_token=TEST_TOKEN,
+                media_root=media_root,
+                max_video_bytes=100,  # 100 bytes max
+            )
+        )
+        c = TestClient(app)
+        # Create a file larger than 100 bytes
+        large_bytes = b"\x00" * 200
+        r = c.post(
+            "/media/upload",
+            headers=_auth(),
+            files={"file": ("large.avi", large_bytes, "video/avi")},
+        )
+        assert r.status_code == 413
+
+    def test_unauthenticated_upload_returns_401(self, tmp_path: Path) -> None:
+        """Upload without token returns 401."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        video_bytes = _make_video_bytes()
+        r = c.post(
+            "/media/upload",
+            files={"file": ("clip.avi", video_bytes, "video/avi")},
+        )
+        assert r.status_code == 401
+
+
+class TestDetect:
+    """Tests for GET /detect/{video_path}/{frame_index} endpoint."""
+
+    def test_valid_detect_returns_keypoints(self, tmp_path: Path) -> None:
+        """Authenticated detect returns keypoints with confidence."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/detect/clip.avi/1",
+            headers=_auth(),
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "keypoints" in body
+        assert "confidence" in body
+        assert isinstance(body["keypoints"], list)
+        assert len(body["keypoints"]) == 17
+        assert body["confidence"] == pytest.approx(0.95)
+
+    def test_synthetic_keypoints_match_expected(self, tmp_path: Path) -> None:
+        """Synthetic backend returns fixed scripted keypoints."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get(
+            "/detect/clip.avi/1",
+            headers=_auth(),
+        )
+        assert r.status_code == 200
+        body = r.json()
+        labels = [kp["label"] for kp in body["keypoints"]]
+        assert labels == [
+            "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+            "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+            "left_wrist", "right_wrist", "left_hip", "right_hip",
+            "left_knee", "right_knee", "left_ankle", "right_ankle",
+        ]
+
+    def test_traversal_path_returns_400(self, tmp_path: Path) -> None:
+        """Traversal in video_path is rejected before file read."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        # Use URL-encoded traversal (%2E%2E%2F = ../) so it's not
+        # normalized by the HTTP client before reaching the handler.
+        r = c.get(
+            "/detect/%2E%2E%2Fclip.avi/1",
+            headers=_auth(),
+        )
+        assert r.status_code == 400
+
+    def test_unauthenticated_returns_401(self, tmp_path: Path) -> None:
+        """Request without token returns 401."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        _make_video(media_root / "clip.avi")
+        c = _client(tmp_path)
+        r = c.get("/detect/clip.avi/1")
+        assert r.status_code == 401
+
+
+def _make_video_bytes(n_frames: int = 3) -> bytes:
+    """Create a tiny synthetic video and return its bytes."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".avi", delete=False) as f:
+        tmp = Path(f.name)
+    try:
+        _make_video(tmp, n_frames)
+        return tmp.read_bytes()
+    finally:
+        tmp.unlink(missing_ok=True)
