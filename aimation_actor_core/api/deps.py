@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException, Request, status
 
+from aimation_actor_core.domain.animation.pose_detection import SingleFramePoseDetector
 from aimation_actor_core.domain.dcc.session import SessionStore
 from aimation_actor_core.domain.job.job import JobStore
+from aimation_actor_core.domain.media.frame_provider import FrameProvider
 from aimation_actor_core.domain.pipeline.registry import NodeRegistry
+from aimation_actor_core.shared.config import Settings
 
 
 def _http_unauthorized(detail: str) -> HTTPException:
@@ -64,3 +67,22 @@ def get_node_registry(request: Request) -> NodeRegistry:
     registry = request.app.state.node_registry
     assert isinstance(registry, NodeRegistry)
     return registry
+
+
+def get_frame_provider(request: Request) -> FrameProvider:
+    """Return the injected frame provider from ``app.state``."""
+    provider = request.app.state.frame_provider
+    assert isinstance(provider, FrameProvider)
+    return provider
+
+
+def get_pose_detector(request: Request) -> SingleFramePoseDetector:
+    """Return the injected pose detector from ``app.state``."""
+    detector = request.app.state.pose_detector
+    assert isinstance(detector, SingleFramePoseDetector)
+    return detector
+
+
+def get_settings(request: Request) -> Settings:
+    """Return the injected application settings from ``app.state``."""
+    return request.app.state.settings

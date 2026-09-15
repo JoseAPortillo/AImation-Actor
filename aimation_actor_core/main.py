@@ -13,15 +13,21 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from aimation_actor_core.api.routers import jobs, nodes, sessions
+from aimation_actor_core.api.routers import jobs, media, nodes, pose, sessions
+from aimation_actor_core.infrastructure.ai_models.detection import (
+    SingleFramePoseDetectorImpl,
+)
+from aimation_actor_core.infrastructure.ai_models.estimators import SyntheticBackend
 from aimation_actor_core.infrastructure.virtual import (
     InMemoryJobStore,
     InMemorySessionStore,
     SynchronousGraphExecutor,
     seeded_node_registry,
 )
+from aimation_actor_core.infrastructure.video.frame_provider import OpenCvFrameProvider
 from aimation_actor_core.shared.config import Settings, get_settings
 from aimation_actor_core.shared.errors import AImationError, ModelIntegrityError
+from aimation_actor_core.shared.media_security import MediaPathError
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -54,6 +60,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         registry=node_registry,
     )
 
+    # Phase A: frame provider and pose detector (decision D1, D3).
+    app.state.frame_provider = OpenCvFrameProvider(settings.media_root)
+    app.state.pose_detector = SingleFramePoseDetectorImpl(
+        media_root=settings.media_root, backend=SyntheticBackend()
+    )
+
     # Restrictive CORS — only the Tauri origins (SDD §4.3).
     app.add_middleware(
         CORSMiddleware,
@@ -78,10 +90,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={"error": exc.code, "detail": "Model integrity verification failed."},
         )
 
+    @app.exception_handler(MediaPathError)
+    async def _handle_media_path(request: Request, exc: MediaPathError) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"error": exc.code, "detail": str(exc)},
+        )
+
     # Routers (all behind the instance-token auth dependency).
     app.include_router(nodes.router)
     app.include_router(sessions.router)
     app.include_router(jobs.router)
+    app.include_router(media.router)
+    app.include_router(pose.router)
 
     @app.get("/health", tags=["health"], summary="Health check")
     async def health() -> dict[str, str]:
