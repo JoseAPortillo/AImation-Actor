@@ -13,6 +13,26 @@ import type {
 /* ── extraction ──────────────────────────────────────────────────────────── */
 
 /**
+ * Type-guard: does `candidate` look like a NeutralMotionDoc?
+ *
+ * Checks for the three required top-level keys (`meta`, `skeleton`, `frames`)
+ * and that `frames` is an array.  Exported so extraction helpers and tests can
+ * share the same predicate.
+ */
+export function isNeutralMotionDoc(
+  candidate: unknown,
+): candidate is NeutralMotionDoc {
+  return (
+    !!candidate &&
+    typeof candidate === "object" &&
+    "meta" in candidate &&
+    "skeleton" in candidate &&
+    "frames" in candidate &&
+    Array.isArray((candidate as { frames?: unknown }).frames)
+  );
+}
+
+/**
  * Pull the NeutralMotion payload out of the raw job result.
  *
  * Expected path: `result.outputs["video-to-motion"]["motion"]`

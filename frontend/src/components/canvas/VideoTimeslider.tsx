@@ -139,13 +139,12 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
   useEffect(() => {
     if (!videoPath || hoverFrame === undefined || hoverFrame === frame) return;
     let cancelled = false;
-    let url: string | null = null;
     void (async () => {
       try {
         const { blob } = await api.fetchFrameJpeg(videoPath, hoverFrame, HOVER_THUMB_WIDTH);
         if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setHover((prev) => (prev && prev.frame === hoverFrame ? { ...prev, url } : prev));
+        const thumbnailUrl = URL.createObjectURL(blob);
+        setHover((prev) => (prev && prev.frame === hoverFrame ? { ...prev, url: thumbnailUrl } : prev));
       } catch {
         /* thumbnails are best-effort */
       }
