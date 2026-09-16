@@ -515,6 +515,39 @@ class TestMediaUpload:
         )
         assert r.status_code == 401
 
+    def test_traversal_filename_returns_400(self, tmp_path: Path) -> None:
+        """Upload with path-traversal filename is rejected before write."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        video_bytes = _make_video_bytes()
+        r = c.post(
+            "/media/upload",
+            headers=_auth(),
+            files={"file": ("..\\..\\escape.bin", video_bytes, "video/avi")},
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert "traversal" in body["detail"].lower()
+        # No file should have been written outside media_root
+        outside = tmp_path / "escape.bin"
+        assert not outside.exists()
+
+    def test_slash_filename_returns_400(self, tmp_path: Path) -> None:
+        """Upload with slash in filename is rejected."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        video_bytes = _make_video_bytes()
+        r = c.post(
+            "/media/upload",
+            headers=_auth(),
+            files={"file": ("sub/dir/file.avi", video_bytes, "video/avi")},
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert "traversal" in body["detail"].lower()
+
 
 class TestDetect:
     """Tests for GET /detect/{video_path}/{frame_index} endpoint."""
