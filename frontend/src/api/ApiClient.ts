@@ -261,4 +261,42 @@ export class ApiClient {
       await this.request("GET", `/detect/${videoPath}/${frameIndex}`),
     )) as unknown as SingleFramePose;
   }
+
+  // ── Phase B: Round-trip Blender endpoints ───────────────────────────────
+
+  /**
+   * POST /sessions/{sessionId}/push_result — send golden poses to Blender addon.
+   *
+   * @param sessionId - The active DCC session ID
+   * @param motion - The NeutralMotion document with golden pose data
+   */
+  async pushPosesToBlender(sessionId: string, motion: Record<string, unknown>): Promise<void> {
+    const payload = {
+      kind: "golden_poses",
+      motion,
+    };
+    const resp = await this.request("POST", `/sessions/${sessionId}/push_result`, payload);
+    if (resp.status >= 400) {
+      throw await this.errorFor(resp);
+    }
+  }
+
+  /**
+   * GET /sessions/{sessionId}/pending — poll for edited poses from Blender.
+   *
+   * Returns the edited NeutralMotion document, or null if no pending payloads.
+   *
+   * @param sessionId - The active DCC session ID
+   */
+  async requestEditedPoses(sessionId: string): Promise<Record<string, unknown> | null> {
+    const resp = await this.request("GET", `/sessions/${sessionId}/pending`);
+    if (resp.status === 204) {
+      return null;
+    }
+    if (resp.status >= 400) {
+      throw await this.errorFor(resp);
+    }
+    const obj = await this.expectObject(resp);
+    return obj["motion"] as Record<string, unknown> | null;
+  }
 }

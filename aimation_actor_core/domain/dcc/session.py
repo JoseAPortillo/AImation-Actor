@@ -9,11 +9,14 @@ storage lives in :mod:`infrastructure` and is injected at the composition root.
 from __future__ import annotations
 
 import uuid
+from collections import deque
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from aimation_actor_core.domain.dcc.push_payload import PushPayload
 
 
 def utcnow() -> datetime:
@@ -77,4 +80,25 @@ class SessionStore(Protocol):
 
     def deregister(self, session_id: str) -> bool:
         """Remove a session; return ``False`` if unknown."""
+        ...
+
+    def enqueue(self, session_id: str, payload: PushPayload) -> bool:
+        """Queue a payload for delivery to a session.
+
+        Returns ``False`` if the session is unknown.
+        """
+        ...
+
+    def dequeue(self, session_id: str) -> PushPayload | None:
+        """Return the next pending payload for a session, or ``None`` if empty.
+
+        Removes the payload from the queue (FIFO).
+        """
+        ...
+
+    def pending_count(self, session_id: str) -> int:
+        """Return the number of pending payloads for a session.
+
+        Returns 0 if the session is unknown.
+        """
         ...

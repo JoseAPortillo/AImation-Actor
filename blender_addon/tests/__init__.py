@@ -1,0 +1,1 @@
+"""Test package for blender_addon (bpy-free core only)."""

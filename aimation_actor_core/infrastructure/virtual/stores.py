@@ -12,10 +12,12 @@ later phase (SDD §6 deployment/ops).
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from typing import Any
 
 from pydantic import ValidationError
 
+from aimation_actor_core.domain.dcc.push_payload import PushPayload
 from aimation_actor_core.domain.dcc.session import DCCSession, SessionStore
 from aimation_actor_core.domain.job.job import Job, JobKind, JobStatus, JobStore
 from aimation_actor_core.domain.pipeline.executor import GraphExecutor
@@ -52,10 +54,11 @@ def _coerce(value: Any) -> Any:  # noqa: ANN401 - generic coercion of arbitrary 
 
 
 class InMemorySessionStore(SessionStore):
-    """Thread-safe in-memory session registry."""
+    """Thread-safe in-memory session registry with push queue."""
 
     def __init__(self) -> None:
         self._sessions: dict[str, DCCSession] = {}
+        self._queues: dict[str, deque[PushPayload]] = {}
 
     def register(self, session: DCCSession) -> DCCSession:
         self._sessions[session.session_id] = session
@@ -75,7 +78,39 @@ class InMemorySessionStore(SessionStore):
         return True
 
     def deregister(self, session_id: str) -> bool:
-        return self._sessions.pop(session_id, None) is not None
+        removed = self._sessions.pop(session_id, None) is not None
+        self._queues.pop(session_id, None)
+        return removed
+
+    def enqueue(self, session_id: str, payload: PushPayload) -> bool:
+        """Queue a payload for delivery to a session.
+
+        Returns ``False`` if the session is unknown.
+        """
+        if session_id not in self._sessions:
+            return False
+        if session_id not in self._queues:
+            self._queues[session_id] = deque()
+        self._queues[session_id].append(payload)
+        return True
+
+    def dequeue(self, session_id: str) -> PushPayload | None:
+        """Return the next pending payload for a session, or ``None`` if empty.
+
+        Removes the payload from the queue (FIFO).
+        """
+        queue = self._queues.get(session_id)
+        if queue is None or not queue:
+            return None
+        return queue.popleft()
+
+    def pending_count(self, session_id: str) -> int:
+        """Return the number of pending payloads for a session.
+
+        Returns 0 if the session is unknown.
+        """
+        queue = self._queues.get(session_id)
+        return len(queue) if queue is not None else 0
 
 
 class InMemoryJobStore(JobStore):

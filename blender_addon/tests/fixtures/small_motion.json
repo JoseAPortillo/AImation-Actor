@@ -1,0 +1,77 @@
+{
+  "meta": {
+    "version": "0.3",
+    "fps": 24.0,
+    "units": "cm",
+    "up_axis": "Y",
+    "duration_frames": 2,
+    "source_type": "video",
+    "style": "neutral",
+    "model_version": "test",
+    "graph_hash": "deadbeef"
+  },
+  "skeleton": {
+    "bones": {
+      "Root": {
+        "name": "Root",
+        "parent": null,
+        "rest_position": [0.0, 0.0, 0.0],
+        "rest_rotation": [1.0, 0.0, 0.0, 0.0]
+      },
+      "Hips": {
+        "name": "Hips",
+        "parent": "Root",
+        "rest_position": [0.0, 5.0, 0.0],
+        "rest_rotation": [1.0, 0.0, 0.0, 0.0]
+      },
+      "Spine": {
+        "name": "Spine",
+        "parent": "Hips",
+        "rest_position": [0.0, 10.0, 0.0],
+        "rest_rotation": [1.0, 0.0, 0.0, 0.0]
+      }
+    }
+  },
+  "frames": [
+    {
+      "frame": 1,
+      "pose": {
+        "transforms": {
+          "Root": {
+            "rotation": [1.0, 0.0, 0.0, 0.0]
+          },
+          "Hips": {
+            "rotation": [0.92388, 0.0, 0.0, -0.382683],
+            "translation": [0.0, 0.0, 0.5]
+          },
+          "Spine": {
+            "rotation": [1.0, 0.0, 0.0, 0.0],
+            "translation": [0.0, 0.0, 0.0],
+            "scale": [1.0, 1.0, 1.0]
+          }
+        }
+      }
+    },
+    {
+      "frame": 2,
+      "pose": {
+        "transforms": {
+          "Root": {
+            "rotation": [1.0, 0.0, 0.0, 0.0],
+            "translation": [0.3, 0.0, 0.0]
+          },
+          "Hips": {
+            "rotation": [0.92388, 0.0, 0.0, 0.382683],
+            "translation": [0.0, 0.0, -0.5]
+          },
+          "Spine": {
+            "rotation": [1.0, 0.0, 0.0, 0.0]
+          }
+        }
+      }
+    }
+  ],
+  "contacts": {},
+  "keyposes": [],
+  "tracking": {}
+}
