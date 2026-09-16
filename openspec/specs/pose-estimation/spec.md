@@ -40,7 +40,8 @@ The system MUST define a pure-domain value object `Keypoints2D` that types the `
 
 ### Requirement: Swappable estimator backend
 
-The node MUST select an estimator backend through the `model` param. A deterministic **synthetic** backend MUST be available for testing and graph e2e. An **ONNX RTMPose** backend MUST be available for production, wrapping an `onnxruntime.InferenceSession`. Backend inference MUST be offloaded from the asyncio event loop (decision D1).
+The node MUST select an estimator backend through the `model` param. A deterministic **synthetic** backend MUST be available for testing and graph e2e. An **ONNX RTMPose** backend MUST be available for production, wrapping an `onnxruntime.InferenceSession`. Backend inference MUST be offloaded from the asyncio event loop (decision D1). Each backend MUST support single-frame estimation and MUST produce a frame-level confidence score in [0,1] for a single frame (the ONNX backend MAY aggregate per-keypoint confidences).
+(Previously: backends served batched estimation over frame lists without a frame-level confidence contract.)
 
 #### Scenario: Synthetic backend emits deterministic keypoints
 
@@ -60,6 +61,11 @@ The node MUST select an estimator backend through the `model` param. A determini
 - WHEN the node selects a backend
 - THEN it falls back to the synthetic backend (or is rejected per design) without crashing
 
+#### Scenario: Single-frame estimate reports confidence
+
+- GIVEN a backend estimating one frame
+- WHEN the estimation completes
+- THEN the result includes a frame-level confidence score in [0,1]
 ### Requirement: Backend availability surfaced in health
 
 The system MUST expose the pose backend availability via `GET /health` (e.g. `"pose": "synthetic"` or `"pose": "onnx"`), so operators know whether a real model is loaded.

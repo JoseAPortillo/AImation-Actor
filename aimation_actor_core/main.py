@@ -73,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Frame-Count"],
     )
 
     # Centralized error mapping (SDD §4.3 sanitized responses).

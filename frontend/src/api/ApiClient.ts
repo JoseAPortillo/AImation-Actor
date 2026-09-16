@@ -227,7 +227,8 @@ export class ApiClient {
     if (resp.status >= 400) {
       throw await this.errorFor(resp);
     }
-    const raw = resp.headers.get("X-Frame-Count");
+    // Fetch API normalizes headers to lowercase
+    const raw = resp.headers.get("x-frame-count");
     const frameCount = raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : 0;
     const blob = await resp.blob();
     return { blob, frameCount };

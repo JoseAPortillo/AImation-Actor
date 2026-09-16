@@ -331,7 +331,11 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
   }
 
   return (
-    <div data-testid="timeslider" style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 4 }}>
+    <div
+      data-testid="timeslider"
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 4 }}
+    >
       {/* Frame + overlay + hover thumbnail */}
       <div style={{ position: "relative", background: "#121212", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
         {imgUrl && (
@@ -381,6 +385,7 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
           setHover(null);
           setDragPinId(null);
         }}
+        onMouseDown={(e) => e.stopPropagation()}
         style={{ position: "relative", height: 18 }}
       >
         <input
@@ -390,6 +395,7 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
           max={Math.max(frameCount, 1)}
           value={frame}
           onChange={(e) => setFrame(Number(e.target.value))}
+          onMouseDown={(e) => e.stopPropagation()}
           style={{ width: "100%", margin: 0 }}
         />
         {nodePins.map((pin) => {
@@ -448,7 +454,10 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
       </div>
 
       {/* Controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e0e0e0" }}>
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e0e0e0" }}
+      >
         <button
           type="button"
           data-testid="timeslider-play"
@@ -503,7 +512,10 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
       </div>
 
       {/* Phase B: Round-trip Blender controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e0e0e0", marginTop: 4 }}>
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e0e0e0", marginTop: 4 }}
+      >
         <button
           type="button"
           data-testid="timeslider-send-to-blender"

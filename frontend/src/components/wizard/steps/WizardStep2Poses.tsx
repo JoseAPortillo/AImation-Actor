@@ -52,18 +52,20 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
     if (!state.videoPath) return;
     const videoPath = state.videoPath;
     let cancelled = false;
+    console.log(`[WizardStep2] Fetching frame ${frame} for ${videoPath}`);
     void (async () => {
       try {
         const { blob, frameCount: fc } = await api.fetchFrameJpeg(videoPath, frame, FRAME_WIDTH);
         if (cancelled) return;
+        console.log(`[WizardStep2] Got frame ${frame}, size=${blob.size}, frameCount=${fc}`);
         const url = URL.createObjectURL(blob);
         setImgUrl((prev) => {
           if (prev) URL.revokeObjectURL(prev);
           return url;
         });
         setFrameCount(fc);
-      } catch {
-        // ignore
+      } catch (err) {
+        console.error(`[WizardStep2] Error fetching frame ${frame}:`, err);
       }
     })();
     return () => { cancelled = true; };
@@ -147,11 +149,13 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
   }, [frame, frameCount]);
 
   const handleAddPin = useCallback(() => {
+    console.log(`[WizardStep2] handleAddPin called, videoPath=${state.videoPath}, frame=${frame}`);
     if (!state.videoPath) return;
     usePinsStore.getState().addPin(nodeId, frame);
     const updated = usePinsStore.getState();
     const pins = updated.pinsByNode[nodeId] ?? [];
     const pin = pins[pins.length - 1];
+    console.log(`[WizardStep2] Pin created:`, pin);
     if (pin) void updated.detectPin(nodeId, pin.id, state.videoPath);
   }, [state.videoPath, frame, nodeId]);
 
@@ -181,11 +185,18 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
         <h2 style={styles.stepTitle}>Paso 2: Marca las poses clave</h2>
         <p style={styles.stepDesc}>
           Navega por el video y marca las poses importantes que quieres editar en Blender.
+          Haz doble clic sobre el video o usa el botón "Marcar pose".
         </p>
       </div>
 
       {/* Video preview */}
-      <div style={styles.videoContainer}>
+      <div
+        style={styles.videoContainer}
+        onDoubleClick={(e) => {
+          console.log(`[WizardStep2] Double-click detected at frame ${frame}`);
+          handleAddPin();
+        }}
+      >
         {imgUrl && (
           <img
             ref={imgRef}
@@ -210,7 +221,11 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
             min={1}
             max={Math.max(frameCount, 1)}
             value={frame}
-            onChange={(e) => setFrame(Number(e.target.value))}
+            onChange={(e) => {
+              const newFrame = Number(e.target.value);
+              console.log(`[WizardStep2] Slider changed to frame ${newFrame}`);
+              setFrame(newFrame);
+            }}
             style={styles.slider}
           />
           {nodePins.map((pin) => {
