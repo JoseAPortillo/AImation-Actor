@@ -145,9 +145,21 @@ class TestSessions:
         assert hb.status_code == 200
         assert hb.json()["session_id"] == session_id
 
-        pushed = c.post(f"/sessions/{session_id}/push_result", headers=_auth(), json={"motion": 1})
+        pushed = c.post(
+            f"/sessions/{session_id}/push_result",
+            headers=_auth(),
+            json={
+                "kind": "golden_poses",
+                "motion": {
+                    "meta": {"fps": 24.0, "units": "cm"},
+                    "frames": [],
+                    "keyposes": [{"frame": 1, "weight": 1.0}],
+                },
+            },
+        )
         assert pushed.status_code == 202
-        assert pushed.json()["accepted"] is True
+        assert pushed.json()["status"] == "queued"
+        assert pushed.json()["kind"] == "golden_poses"
 
         deleted = c.delete(f"/sessions/{session_id}", headers=_auth())
         assert deleted.status_code == 204

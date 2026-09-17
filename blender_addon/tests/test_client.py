@@ -222,3 +222,64 @@ def test_clear_token() -> None:
     # clear_token empties the token string; an empty token never hits the
     # Authorization header (the transport guards on truthiness).
     assert transport.calls[0][3] == ""
+
+
+# ── Phase B: poll_pending / submit_edited_poses ──────────────────────────
+
+
+def test_poll_pending_returns_payload() -> None:
+    motion = {"meta": {"fps": 24.0}, "frames": [], "keyposes": []}
+    client, transport = _client(
+        [(200, {"kind": "golden_poses", "motion": motion})]
+    )
+    result = client.poll_pending("s1")
+    assert result is not None
+    assert result["kind"] == "golden_poses"
+    assert result["motion"] == motion
+    assert transport.calls[0][:2] == ("GET", "/sessions/s1/pending")
+    assert transport.calls[0][3] == "tok"
+
+
+def test_poll_pending_returns_none_on_204() -> None:
+    client, _ = _client([(204, {})])
+    assert client.poll_pending("s1") is None
+
+
+def test_poll_pending_returns_none_on_error() -> None:
+    client, _ = _client([CoreHttpError(500, "boom")])
+    assert client.poll_pending("s1") is None
+
+
+def test_submit_edited_poses_success() -> None:
+    motion = {"meta": {"fps": 24.0}, "frames": [], "keyposes": []}
+    client, transport = _client([(202, {"status": "received"})])
+    result = client.submit_edited_poses("s1", motion)
+    assert result is True
+    method, path, payload, token = transport.calls[0]
+    assert (method, path) == ("POST", "/sessions/s1/submit_edited_poses")
+    assert token == "tok"
+    assert payload["kind"] == "edited_poses"
+    assert payload["motion"] == motion
+
+
+def test_submit_edited_poses_with_optional_fields() -> None:
+    motion = {"meta": {}, "frames": [], "keyposes": []}
+    client, transport = _client([(202, {})])
+    client.submit_edited_poses("s1", motion, source_frame_range=(10, 20), request_id="req-42")
+    payload = transport.calls[0][2]
+    assert payload["source_frame_range"] == [10, 20]
+    assert payload["request_id"] == "req-42"
+
+
+def test_submit_edited_poses_omits_none_optionals() -> None:
+    motion = {"meta": {}, "frames": [], "keyposes": []}
+    client, transport = _client([(202, {})])
+    client.submit_edited_poses("s1", motion)
+    payload = transport.calls[0][2]
+    assert "source_frame_range" not in payload
+    assert "request_id" not in payload
+
+
+def test_submit_edited_poses_returns_false_on_error() -> None:
+    client, _ = _client([CoreHttpError(404, "not found")])
+    assert client.submit_edited_poses("gone", {"meta": {}}) is False
