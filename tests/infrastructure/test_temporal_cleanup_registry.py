@@ -1,7 +1,8 @@
 """Registry + graph-chain tests for TemporalCleanupNode (§12.4 / Phase 4).
 
-Verifies the temporal cleanup node participates in the seeded node registry as
-the 8th seed and that the canonical AI pipeline chain
+Verifies the temporal cleanup node participates in the seeded node registry (the
+8th seed; the registry now totals nine with ``inbetween-generation``) and that
+the canonical AI pipeline chain
 ``video-source → pose-2d → pose-3d → video-to-motion → temporal-cleanup`` is a
 valid connected graph. Written RED-first: both tests fail until the registry
 wiring (Phase 3) registers ``temporal-cleanup``.
@@ -38,8 +39,8 @@ class TestSeededRegistry:
         assert [port.data_type for port in schema.inputs] == [DataType.NEUTRAL_ANIMATION]
         assert [port.data_type for port in schema.outputs] == [DataType.NEUTRAL_ANIMATION]
 
-    def test_registry_has_eight_seeds(self) -> None:
-        """Should register exactly eight seed node types."""
+    def test_registry_has_nine_seeds(self) -> None:
+        """Should register exactly nine seed node types."""
         registry = seeded_node_registry()
         types = {schema.type for schema in registry.list_schemas()}
         assert types == {
@@ -51,6 +52,7 @@ class TestSeededRegistry:
             "pose-3d",
             "video-to-motion",
             "temporal-cleanup",
+            "inbetween-generation",
         }
 
 

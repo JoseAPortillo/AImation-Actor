@@ -29,6 +29,7 @@ export type NodeCategory =
   | "source"
   | "ai"
   | "cleanup"
+  | "enrichment"
   | "rigging"
   | "output"
   | "logic";
