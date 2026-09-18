@@ -41,6 +41,14 @@ export function renderFrame(
   const keys = Object.keys(abs);
   if (keys.length === 0) return;
 
+  // Debug: log absolute positions on first render
+  if (!(motion as Record<string, unknown>).__rendered) {
+    (motion as Record<string, unknown>).__rendered = true;
+    const legBones = ["LUpLeg", "LLeg", "LFoot", "RUpLeg", "RLeg", "RFoot"];
+    console.log("[renderFrame] leg positions:", legBones.map(b => `${b}:(${abs[b]?.map(v=>Math.round(v)).join(",")})`));
+    console.log("[renderFrame] canvas:", width, "x", height);
+  }
+
   // Compute bounding box.
   let xmin = Infinity, xmax = -Infinity;
   let ymin = Infinity, ymax = -Infinity;
@@ -191,7 +199,7 @@ export function MotionViewer({ motion }: MotionViewerProps) {
       <canvas
         ref={canvasRef}
         width={400}
-        height={150}
+        height={300}
         style={{
           width: "100%",
           background: "#121212",

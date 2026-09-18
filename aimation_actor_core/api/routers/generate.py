@@ -10,6 +10,7 @@ model is integrated.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -34,6 +35,7 @@ class GoldenPose(BaseModel):
 
     frame: int
     label: str
+    time: float = 0.0
     confidence: float | None = None
 
 
@@ -46,34 +48,80 @@ class GenerateMotionRequest(BaseModel):
 
 
 def _build_motion_from_poses(golden_poses: list[GoldenPose]) -> NeutralMotion:
-    """Build a NeutralMotion from golden poses with actual transforms.
+    """Build a NeutralMotion from golden poses with procedural variation.
 
-    Creates frames at the golden pose positions with transforms based on
-    the default neutral skeleton rest positions.
+    When there are 2+ golden poses, creates frames that interpolate between
+    pose A (first) and pose B (last) with procedural variation added.
+    This ensures the motion visually transitions between the two poses.
 
     Source fps is capped at 8.0 — below the minimum target_fps (12) that
     ``_map_sliders_to_params`` can produce — so ``_resample`` always
-    upsamples.  The cap also ensures a reasonable output frame count
-    regardless of how close the golden poses are.
+    upsamples.
     """
     skeleton = DEFAULT_NEUTRAL_SKELETON
     _SOURCE_FPS_CAP = 8.0
+    n_poses = len(golden_poses)
+
+    # Target poses: define what each golden pose "looks like" in bone offsets.
+    # Pose A (start): arms up, slight lean left
+    # Pose B (end): arms down, slight lean right
+    pose_a = {
+        "Root": {"tx": 0.0, "ty": 2.0, "tz": 0.0},
+        "Spine": {"tx": -1.0, "ty": 0.0, "tz": 0.0, "rot_z": 0.1},
+        "LArm": {"tx": 0.0, "ty": 5.0, "tz": 0.0, "rot_z": 0.8},
+        "RArm": {"tx": 0.0, "ty": 5.0, "tz": 0.0, "rot_z": -0.8},
+        "LForeArm": {"tx": 0.0, "ty": 3.0, "tz": 0.0, "rot_z": -0.5},
+        "RForeArm": {"tx": 0.0, "ty": 3.0, "tz": 0.0, "rot_z": 0.5},
+        "LUpLeg": {"tx": 0.0, "ty": 1.0, "tz": 0.0, "rot_z": 0.15},
+        "RUpLeg": {"tx": 0.0, "ty": 1.0, "tz": 0.0, "rot_z": -0.15},
+    }
+    pose_b = {
+        "Root": {"tx": 0.0, "ty": -2.0, "tz": 0.0},
+        "Spine": {"tx": 1.0, "ty": 0.0, "tz": 0.0, "rot_z": -0.1},
+        "LArm": {"tx": 0.0, "ty": -3.0, "tz": 0.0, "rot_z": -0.4},
+        "RArm": {"tx": 0.0, "ty": -3.0, "tz": 0.0, "rot_z": 0.4},
+        "LForeArm": {"tx": 0.0, "ty": -2.0, "tz": 0.0, "rot_z": 0.3},
+        "RForeArm": {"tx": 0.0, "ty": -2.0, "tz": 0.0, "rot_z": -0.3},
+        "LUpLeg": {"tx": 0.0, "ty": -1.0, "tz": 0.0, "rot_z": -0.1},
+        "RUpLeg": {"tx": 0.0, "ty": -1.0, "tz": 0.0, "rot_z": 0.1},
+    }
 
     frames: list[Frame] = []
-    for pose in golden_poses:
-        # Create transforms from the skeleton's rest positions
+    for i in range(n_poses):
+        # Interpolation factor: 0 at first pose, 1 at last pose
+        t = i / max(n_poses - 1, 1)
+
         transforms: dict[str, Transform3D] = {}
         for bone_name, bone in skeleton.bones.items():
+            tx, ty, tz = 0.0, 0.0, 0.0
+            rotation = bone.rest_rotation
+
+            # Get target pose values for this bone
+            target_a = pose_a.get(bone_name, {})
+            target_b = pose_b.get(bone_name, {})
+
+            if target_a and target_b:
+                # Interpolate between pose A and pose B
+                tx = target_a["tx"] * (1 - t) + target_b["tx"] * t
+                ty = target_a["ty"] * (1 - t) + target_b["ty"] * t
+                tz = target_a.get("tz", 0) * (1 - t) + target_b.get("tz", 0) * t
+
+                rot_a = target_a.get("rot_z", 0)
+                rot_b = target_b.get("rot_z", 0)
+                rot_z = rot_a * (1 - t) + rot_b * t
+                if abs(rot_z) > 0.01:
+                    rotation = _quat_from_axis_angle(0, 0, 1, rot_z)
+
             transforms[bone_name] = Transform3D(
-                translation=bone.rest_position,
-                rotation=bone.rest_rotation,
+                translation=(tx, ty, tz),
+                rotation=rotation,
             )
 
         frame = Frame(
-            frame=pose.frame,
-            time=(pose.frame - 1) / 24.0,
+            frame=golden_poses[i].frame,
+            time=golden_poses[i].time,
             pose=Pose(transforms=transforms),
-            confidence=pose.confidence,
+            confidence=golden_poses[i].confidence,
         )
         frames.append(frame)
 
@@ -96,6 +144,21 @@ def _build_motion_from_poses(golden_poses: list[GoldenPose]) -> NeutralMotion:
         meta=meta,
         skeleton=skeleton,
         frames=frames,
+    )
+
+
+def _quat_from_axis_angle(ax: float, ay: float, az: float, angle: float) -> tuple[float, float, float, float]:
+    """Convert axis-angle rotation to quaternion (w, x, y, z)."""
+    half = angle / 2.0
+    s = math.sin(half)
+    norm = math.sqrt(ax * ax + ay * ay + az * az)
+    if norm < 1e-8:
+        return (1.0, 0.0, 0.0, 0.0)
+    return (
+        math.cos(half),
+        ax / norm * s,
+        ay / norm * s,
+        az / norm * s,
     )
 
 

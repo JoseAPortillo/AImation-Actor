@@ -17,7 +17,7 @@ from aimation_actor_core.api.routers import jobs, media, nodes, pose, sessions, 
 from aimation_actor_core.infrastructure.ai_models.detection import (
     SingleFramePoseDetectorImpl,
 )
-from aimation_actor_core.infrastructure.ai_models.estimators import SyntheticBackend
+from aimation_actor_core.infrastructure.ai_models.estimators import OnnxBackend
 from aimation_actor_core.infrastructure.virtual import (
     InMemoryJobStore,
     InMemorySessionStore,
@@ -63,7 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Phase A: frame provider and pose detector (decision D1, D3).
     app.state.frame_provider = OpenCvFrameProvider(settings.media_root)
     app.state.pose_detector = SingleFramePoseDetectorImpl(
-        media_root=settings.media_root, backend=SyntheticBackend()
+        media_root=settings.media_root, backend=OnnxBackend("models")
     )
 
     # Restrictive CORS — only the Tauri origins (SDD §4.3).

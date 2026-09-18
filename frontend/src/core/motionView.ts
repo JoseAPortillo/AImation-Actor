@@ -100,21 +100,35 @@ export function absolutePositions(
   const { transforms } = frame.pose;
   const { bones } = motion.skeleton;
 
+  // Debug: log skeleton bones and transforms on first call
+  if (!(motion as Record<string, unknown>).__debugged) {
+    (motion as Record<string, unknown>).__debugged = true;
+    const boneNames = Object.keys(bones);
+    const transformNames = Object.keys(transforms);
+    console.log("[absolutePositions] skeleton bones:", boneNames);
+    console.log("[absolutePositions] frame transforms:", transformNames);
+    console.log("[absolutePositions] bone parents:", boneNames.map(n => `${n}->${bones[n].parent}`));
+  }
+
   for (const name of Object.keys(bones)) {
     const bone = bones[name];
     // Local translation: frame data or rest_position fallback.
     const t = transforms[name]?.translation ?? bone.rest_position;
     const parentAbs = bone.parent != null ? result[bone.parent] : null;
     if (parentAbs != null) {
+      // Non-root: absolute = parent + rest_position + local offset
       result[name] = [
-        parentAbs[0] + t[0],
-        parentAbs[1] + t[1],
-        parentAbs[2] + t[2],
+        parentAbs[0] + bone.rest_position[0] + t[0],
+        parentAbs[1] + bone.rest_position[1] + t[1],
+        parentAbs[2] + bone.rest_position[2] + t[2],
       ];
     } else {
-      // Root (or orphan): absolute = rest + local (rest is effectively 0,0,0
-      // for Root, but we add it for generality).
-      result[name] = [bone.rest_position[0] + t[0], bone.rest_position[1] + t[1], bone.rest_position[2] + t[2]];
+      // Root (or orphan): absolute = rest + local
+      result[name] = [
+        bone.rest_position[0] + t[0],
+        bone.rest_position[1] + t[1],
+        bone.rest_position[2] + t[2],
+      ];
     }
   }
 
