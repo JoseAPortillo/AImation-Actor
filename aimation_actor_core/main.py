@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from aimation_actor_core.api.routers import jobs, media, nodes, pose, sessions
+from aimation_actor_core.api.routers import jobs, media, nodes, pose, sessions, generate
 from aimation_actor_core.infrastructure.ai_models.detection import (
     SingleFramePoseDetectorImpl,
 )
@@ -104,6 +104,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(media.router)
     app.include_router(pose.router)
+    app.include_router(generate.router)
 
     @app.get("/health", tags=["health"], summary="Health check")
     async def health() -> dict[str, str]:

@@ -18,11 +18,12 @@ interface Props {
   state: WizardState;
   onUpdate: (partial: Partial<WizardState>) => void;
   onPrev: () => void;
+  onNext: () => void;
 }
 
 type BlenderStatus = "idle" | "sending" | "waiting" | "received" | "error";
 
-export function WizardStep3Blender({ state, onPrev }: Props) {
+export function WizardStep3Blender({ state, onUpdate, onPrev, onNext }: Props) {
   const [status, setStatus] = useState<BlenderStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -60,13 +61,13 @@ export function WizardStep3Blender({ state, onPrev }: Props) {
     try {
       const editedMotion = await api.requestEditedPoses(state.sessionId);
       if (editedMotion) {
+        onUpdate({ editedMotion });
         setStatus("received");
-        // TODO: Store the edited motion for further processing
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al recibir poses");
     }
-  }, [state.sessionId]);
+  }, [state.sessionId, onUpdate]);
 
   return (
     <div style={styles.container}>
@@ -143,7 +144,7 @@ export function WizardStep3Blender({ state, onPrev }: Props) {
             </p>
             <button
               type="button"
-              onClick={() => {/* TODO: go to generate step */}}
+              onClick={onNext}
               style={styles.generateButton}
             >
               ✨ Generar movimiento

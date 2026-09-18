@@ -159,13 +159,20 @@ La detección de cada golden pose es silenciosa: pose-2d → pose-3d → represe
 
 ## 5. Roadmap replanteado
 
-| Fase | Objetivo | Criterio tangible (demo) |
-|---|---|---|
-| **A — Golden poses viva** | Timeslider + overlay de esqueleto + marcas, con detección existente | El animador marca G1…Gn y ve el esqueleto sobre el video |
-| **B — Round-trip Blender** | Push de golden poses al addon, edición, captura de vuelta | Poses marcadas → editadas en Blender → de vuelta en la app |
-| **C — Generativo MVP** | Modelo compacto (sMDM/MDM-style) + nodo Generar con sliders | Movimiento realista entre golden poses, preview 3D, variantes |
-| **D — Rig sombra + calidad** | Bake final + post-procesado invisible (temporal-cleanup) + métricas | Video → rig sombra animado en Blender en una sesión |
-| **E — Evolución** | Evaluar GGUF/llama.cpp si el modelo lo requiere; modo avanzado; polish/beta | Beta privada usable por un animador ajeno al proyecto |
+| Fase | Objetivo | Estado | Criterio tangible (demo) |
+|---|---|---|---|
+| **A — Golden poses viva** | Timeslider + overlay de esqueleto + marcas | ✅ COMPLETA | El animador marca G1…Gn y ve el esqueleto sobre el video |
+| **B — Round-trip Blender** | Push de golden poses al addon, edición, captura | ✅ COMPLETA | Poses marcadas → editadas en Blender → de vuelta en la app |
+| **C — Generativo MVP** | Modelo compacto + nodo Generar con sliders | 🔄 EN PROCESO | Movimiento realista entre golden poses, preview 3D, variantes |
+| **D — Rig sombra + calidad** | Bake final + post-procesado invisible | ⏳ PENDIENTE | Video → rig sombra animado en Blender en una sesión |
+| **E — Evolución** | Evaluar GGUF/llama.cpp; modo avanzado; polish/beta | ⏳ PENDIENTE | Beta privada usable por un animador ajeno al proyecto |
+
+### Estado actual (Sept 2026)
+
+- **Phase A**: Completa en `feat/golden-poses-timeslider` (18 commits, no mergeado a main)
+- **Phase B**: Completa en misma rama (push/pull Blender, 12 tests addon)
+- **Phase C**: Siguiente — Modelo generativo MVP con UI de sliders
+- **Prioridad**: Hacer que funcione antes de tests exhaustivos o PRs limpios
 
 Cada fase termina con **algo que un animador puede tocar** — el replanteo abandona la métrica de "nodos construidos".
 
@@ -181,7 +188,34 @@ Cada fase termina con **algo que un animador puede tocar** — el replanteo aban
 
 ---
 
-## 7. Riesgos
+## 7. Prioridad de producción — Funcionamiento primero
+
+**Regla de oro actual**: La aplicación debe **funcionar correctamente** antes de invertir en tests exhaustivos o PRs pulidos.
+
+| Fase | Prioridad | Tests | PRs |
+|---|---|---|---|
+| **Desarrollo activo** | Hacer que funcione | Mínimos (smoke tests) | WIP, no merge a main |
+| **Validación manual** | El usuario verifica el flujo completo | Solo los críticos | Pendientes |
+| **Maduración** | Estabilizar | Suite completa | Listos para review |
+
+### Criterios de esta fase
+
+- ✅ **Funcionamiento > Cobertura**: Preferimos una app que funcione con 10 tests a una rota con 400.
+- ✅ **Flujo completo tangible**: Cada fase termina con algo que el animador puede tocar.
+- ✅ **Tests mínimos viables**: Solo los necesarios para confirmar que el camino feliz funciona.
+- ✅ **PRs como registro, no como gate**: Se crean para documentar, no para bloquear el avance.
+- ✅ **Deuda técnica controlada**: Sabemos qué dejamos pendiente; lo cerramos cuando el producto esté validado.
+
+### Qué NO hacemos en esta fase
+
+- ❌ Suites de 300+ tests por cambio
+- ❌ Requiere review antes de continuar
+- ❌ Bloqueamos el avance por coverage
+- ❌ Refactors cosméticos antes de funcionalidad
+
+---
+
+## 8. Riesgos
 
 | Riesgo | Mitigación |
 |---|---|
@@ -208,6 +242,26 @@ Cada fase termina con **algo que un animador puede tocar** — el replanteo aban
 
 ## Next step
 
-Siguiente fase del roadmap: **A — Golden poses viva** (timeslider + overlay)
+**Estado actual**: Phases A y B completas en `feat/golden-poses-timeslider`.
 
-Antes de implementar: definir el contrato de datos de las golden poses (extensión del NeutralMotion con `keyposes` + origen de frame del video) y confirmar el alcance con una propuesta SDD o un plan directo, según la ambigüedad detectada.
+**Siguiente acción**: Continuar con **Phase C — Generativo MVP**.
+
+### Prioridades inmediatas
+
+1. **Levantar la app** (back + front) y verificar que el flujo A→B funciona end-to-end
+2. **Implementar Phase C**: Nodo generativo con 2 sliders (Naturalidad + Respetar poses)
+3. **Validación manual**: El usuario prueba el flujo completo con un video real
+4. **Tests mínimos**: Solo smoke tests que confirmen el camino feliz
+
+### Qué NO hacemos ahora
+
+- No crear PRs until la app funcione
+- No suite de tests exhaustiva
+- No refactors por refactor
+- No pulir UI before funcionalidad
+
+### Criterio de éxito de esta sesión
+
+> "Puedo cargar un video, marcar golden poses, editar en Blender, generar movimiento con sliders, y ver el resultado en 3D."
+
+Cuando eso funcione, hablamos de tests y PRs.

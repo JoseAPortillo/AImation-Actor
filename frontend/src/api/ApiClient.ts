@@ -300,4 +300,21 @@ export class ApiClient {
     const obj = await this.expectObject(resp);
     return obj["motion"] as Record<string, unknown> | null;
   }
+
+  // ── Phase C: Generate motion endpoint ───────────────────────────────────
+
+  /**
+   * POST /generate-motion — generate motion between golden poses.
+   *
+   * @param params - Golden poses + slider parameters (naturalidad, respetarPoses)
+   * @returns NeutralMotionDoc with generated frames
+   */
+  async generateMotion(params: {
+    goldenPoses: Array<{ frame: number; label: string; confidence: number | null }>;
+    naturalidad: number;
+    respetarPoses: number;
+  }): Promise<Record<string, unknown>> {
+    const resp = await this.request("POST", "/generate-motion", params);
+    return this.expectObject(resp);
+  }
 }

@@ -1,10 +1,9 @@
 /**
  * Wizard — Linear step-by-step interface for animators.
  *
- * Replaces the node-based FlowCanvas with a simple 3-step wizard:
  *   1. Cargar Video
  *   2. Golden Poses
- *   3. Blender
+ *   3. Generar Movimiento (with optional Blender/Maya export)
  *
  * The backend (React Flow nodes) remains unchanged — this is purely a
  * frontend presentation layer that calls the same API endpoints.
@@ -13,7 +12,7 @@
 import { useState, useCallback } from "react";
 import { WizardStep1Video } from "./steps/WizardStep1Video";
 import { WizardStep2Poses } from "./steps/WizardStep2Poses";
-import { WizardStep3Blender } from "./steps/WizardStep3Blender";
+import { WizardStep3Generate } from "./steps/WizardStep3Generate";
 
 export type WizardStep = 1 | 2 | 3;
 
@@ -23,12 +22,13 @@ export interface WizardState {
   frameCount: number;
   goldenPoses: Array<{ frame: number; label: string; confidence: number | null }>;
   sessionId: string | null;
+  editedMotion?: Record<string, unknown> | null; // edited poses from Blender
 }
 
 const STEPS = [
   { num: 1, label: "Cargar Video", icon: "🎬" },
   { num: 2, label: "Golden Poses", icon: "✏️" },
-  { num: 3, label: "Blender", icon: "🔮" },
+  { num: 3, label: "Generar", icon: "✨" },
 ] as const;
 
 export function Wizard() {
@@ -118,7 +118,7 @@ export function Wizard() {
           />
         )}
         {currentStep === 3 && (
-          <WizardStep3Blender
+          <WizardStep3Generate
             state={state}
             onUpdate={updateState}
             onPrev={goPrev}

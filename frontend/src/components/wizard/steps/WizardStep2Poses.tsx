@@ -192,7 +192,7 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
       {/* Video preview */}
       <div
         style={styles.videoContainer}
-        onDoubleClick={(e) => {
+        onDoubleClick={() => {
           console.log(`[WizardStep2] Double-click detected at frame ${frame}`);
           handleAddPin();
         }}
