@@ -20,7 +20,12 @@ export interface WizardState {
   videoPath: string | null;
   videoRef: string | null; // media reference after upload
   frameCount: number;
-  goldenPoses: Array<{ frame: number; label: string; confidence: number | null }>;
+  goldenPoses: Array<{
+    frame: number;
+    label: string;
+    confidence: number | null;
+    detection: import("../../api/types").DetectedKeypoint[] | null;
+  }>;
   sessionId: string | null;
   editedMotion?: Record<string, unknown> | null; // edited poses from Blender
 }

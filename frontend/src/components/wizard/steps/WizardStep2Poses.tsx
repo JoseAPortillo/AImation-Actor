@@ -167,13 +167,14 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
   );
 
   const handleContinue = useCallback(() => {
-    // Extract golden poses from pins
+    // Extract golden poses from pins WITH detected keypoints
     const poses = nodePins
       .filter((p) => p.status === "success")
       .map((p) => ({
         frame: p.frame,
         label: p.label,
         confidence: p.confidence,
+        detection: p.detection,  // Include detected keypoints for backend
       }));
     onUpdate({ goldenPoses: poses });
     onNext();

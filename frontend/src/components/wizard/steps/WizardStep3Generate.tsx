@@ -145,7 +145,7 @@ export function WizardStep3Generate({ state, onPrev }: Props) {
         <div style={styles.resultSection}>
           <h3 style={styles.resultTitle}>Preview del movimiento</h3>
           <div style={styles.viewerContainer}>
-            <MotionViewer motion={generatedMotion} />
+            <MotionViewer motion={generatedMotion} displayMode="captured" />
           </div>
           <div style={styles.resultActions}>
             <button type="button" onClick={handleRegenerate} style={styles.regenerateButton}>

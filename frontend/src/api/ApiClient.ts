@@ -310,7 +310,12 @@ export class ApiClient {
    * @returns NeutralMotionDoc with generated frames
    */
   async generateMotion(params: {
-    goldenPoses: Array<{ frame: number; label: string; confidence: number | null }>;
+    goldenPoses: Array<{
+      frame: number;
+      label: string;
+      confidence: number | null;
+      detection: import("./types").DetectedKeypoint[] | null;
+    }>;
     naturalidad: number;
     respetarPoses: number;
   }): Promise<Record<string, unknown>> {

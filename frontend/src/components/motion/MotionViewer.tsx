@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NeutralMotionDoc, Vec3 } from "../../api/types";
-import { absolutePositions, drawBones } from "../../core/motionView";
+import { absolutePositions, drawBones, stableBounds } from "../../core/motionView";
 
 /* ── canvas drawing (exported for testability) ───────────────────────────── */
 
@@ -35,30 +35,26 @@ export function renderFrame(
   ctx: CanvasRenderingContext2D,
   motion: NeutralMotionDoc,
   frameIndex: number,
+  displayMode: "full" | "captured" = "full",
 ): void {
   const { width, height } = ctx.canvas;
   const abs = absolutePositions(motion, frameIndex);
-  const keys = Object.keys(abs);
+  const preview = displayMode === "captured" ? motion.preview : undefined;
+  const keys = preview?.joint_names.filter((name) => abs[name]) ?? Object.keys(abs);
   if (keys.length === 0) return;
 
   // Debug: log absolute positions on first render
-  if (!(motion as Record<string, unknown>).__rendered) {
-    (motion as Record<string, unknown>).__rendered = true;
+  if (!(motion as unknown as Record<string, unknown>).__rendered) {
+    (motion as unknown as Record<string, unknown>).__rendered = true;
     const legBones = ["LUpLeg", "LLeg", "LFoot", "RUpLeg", "RLeg", "RFoot"];
     console.log("[renderFrame] leg positions:", legBones.map(b => `${b}:(${abs[b]?.map(v=>Math.round(v)).join(",")})`));
     console.log("[renderFrame] canvas:", width, "x", height);
   }
 
-  // Compute bounding box.
-  let xmin = Infinity, xmax = -Infinity;
-  let ymin = Infinity, ymax = -Infinity;
-  for (const k of keys) {
-    const p = abs[k] as Vec3;
-    if (p[0] < xmin) xmin = p[0];
-    if (p[0] > xmax) xmax = p[0];
-    if (p[1] < ymin) ymin = p[1];
-    if (p[1] > ymax) ymax = p[1];
-  }
+  // Compute one stable bounding box across the whole clip, not per frame.
+  const bounds = stableBounds(motion, keys);
+  if (!bounds) return;
+  const { xmin, xmax, ymin, ymax } = bounds;
 
   const spanX = xmax - xmin || 1;
   const spanY = ymax - ymin || 1;
@@ -78,7 +74,7 @@ export function renderFrame(
     return [sx, sy];
   };
 
-  const pairs = drawBones(motion);
+  const pairs = drawBones(motion, preview);
   ctx.clearRect(0, 0, width, height);
 
   ctx.strokeStyle = "#60a5fa";
@@ -111,9 +107,10 @@ export function renderFrame(
 
 interface MotionViewerProps {
   motion: NeutralMotionDoc;
+  displayMode?: "full" | "captured";
 }
 
-export function MotionViewer({ motion }: MotionViewerProps) {
+export function MotionViewer({ motion, displayMode = "full" }: MotionViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -128,8 +125,8 @@ export function MotionViewer({ motion }: MotionViewerProps) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return; // jsdom / SSR guard
-    renderFrame(ctx, motion, frame);
-  }, [motion, frame]);
+    renderFrame(ctx, motion, frame, displayMode);
+  }, [motion, frame, displayMode]);
 
   // Playback timer.
   useEffect(() => {
