@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,6 +54,9 @@ class Settings(BaseSettings):
         ),
         description="Comma-separated allowed CORS origins (loopback only).",
     )
+    motion_backend: Literal["procedural", "autokeyframe", "auto"] = "procedural"
+    autokeyframe_root: Path = Path("tools/.cache/autokeyframe")
+    autokeyframe_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
 
 
 @lru_cache

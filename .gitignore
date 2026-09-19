@@ -35,3 +35,7 @@ node_modules/
 frontend/dist/
 frontend/src-tauri/target/
 frontend/*.tsbuildinfo
+
+# Local model/runtime caches and uploaded development media
+tools/.cache/autokeyframe/
+media/*.mp4

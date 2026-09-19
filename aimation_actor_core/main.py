@@ -8,23 +8,25 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from aimation_actor_core.api.routers import jobs, media, nodes, pose, sessions, generate
+from aimation_actor_core.api.routers import generate, jobs, media, nodes, pose, sessions
+from aimation_actor_core.infrastructure.ai_models.autokeyframe import AutoKeyframeBackend
 from aimation_actor_core.infrastructure.ai_models.detection import (
     SingleFramePoseDetectorImpl,
 )
 from aimation_actor_core.infrastructure.ai_models.estimators import OnnxBackend
+from aimation_actor_core.infrastructure.video.frame_provider import OpenCvFrameProvider
 from aimation_actor_core.infrastructure.virtual import (
     InMemoryJobStore,
     InMemorySessionStore,
     SynchronousGraphExecutor,
     seeded_node_registry,
 )
-from aimation_actor_core.infrastructure.video.frame_provider import OpenCvFrameProvider
 from aimation_actor_core.shared.config import Settings, get_settings
 from aimation_actor_core.shared.errors import AImationError, ModelIntegrityError
 from aimation_actor_core.shared.media_security import MediaPathError
@@ -47,6 +49,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.settings = settings
     app.state.instance_id = str(uuid.uuid4())
+    app.state.motion_backend = None
+    if settings.motion_backend in ("autokeyframe", "auto"):
+        app.state.motion_backend = AutoKeyframeBackend(
+            settings.autokeyframe_root,
+            settings.autokeyframe_timeout_seconds,
+            Path(__file__).resolve().parents[1] / "tools" / "autokeyframe_helper.py",
+        )
 
     # Dependency injection (SDD §2.4): concrete adapters assembled here, never
     # referenced by the API layer. The node registry is seeded with the three

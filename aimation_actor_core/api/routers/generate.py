@@ -10,17 +10,23 @@ model is integrated.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from aimation_actor_core.api.deps import get_motion_backend
 from aimation_actor_core.domain.animation.entities import Frame, Pose, Transform3D
 from aimation_actor_core.domain.animation.inbetween import (
     InbetweenParams,
     enrich_motion,
 )
 from aimation_actor_core.domain.animation.mapping import COCO_TO_NEUTRAL
+from aimation_actor_core.domain.animation.motion_backend import (
+    MotionBackend,
+    MotionBackendUnavailable,
+)
 from aimation_actor_core.domain.animation.neutral_motion import (
     NeutralMeta,
     NeutralMotion,
@@ -287,7 +293,10 @@ def _map_sliders_to_params(naturalidad: float, respetarPoses: float) -> Inbetwee
     status_code=status.HTTP_200_OK,
     summary="Generate motion between golden poses",
 )
-async def generate_motion(request: GenerateMotionRequest) -> dict[str, Any]:
+async def generate_motion(
+    request: GenerateMotionRequest,
+    backend: MotionBackend | None = Depends(get_motion_backend),
+) -> dict[str, Any]:
     """Generate motion between golden poses using slider parameters.
 
     This is a placeholder implementation using the InbetweenGenerationNode.
@@ -299,6 +308,33 @@ async def generate_motion(request: GenerateMotionRequest) -> dict[str, Any]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one golden pose is required",
         )
+
+    # The model adapter is strictly opt-in. Any unavailable, malformed, timed-
+    # out, or fidelity-rejected external result falls back to the procedural
+    # path. AutoKeyframe is not a compatible MIB in-between model yet.
+    fallback_reason: str | None = None
+    if backend is not None:
+        conditioning = {
+            "duration_frames": 219,
+            "fps": 24.0,
+            "keyframes": [
+                {"frame": pose.frame, "joints": {
+                    kp.label: [kp.x, kp.y, 0.0] for kp in (pose.detection or [])
+                }} for pose in request.goldenPoses
+            ],
+        }
+        try:
+            model_motion = await asyncio.to_thread(backend.generate, conditioning)
+            params = _map_sliders_to_params(request.naturalidad, request.respetarPoses)
+            response = enrich_motion(model_motion, params).model_dump()
+            response["preview"] = _build_preview_metadata(request.goldenPoses)
+            response["backend"] = "autokeyframe"
+            return response
+        except MotionBackendUnavailable as exc:
+            fallback_reason = str(exc) if str(exc) == "authored keyframe fidelity check failed" \
+                else "optional motion backend unavailable"
+        except (ValueError, TypeError, KeyError, IndexError):
+            fallback_reason = "optional motion backend unavailable"
 
     # Build motion from golden poses (uses detected keypoints if available)
     motion = _build_motion_from_poses(request.goldenPoses)
@@ -312,4 +348,7 @@ async def generate_motion(request: GenerateMotionRequest) -> dict[str, Any]:
     # Convert to dict for JSON response
     response = enriched_motion.model_dump()
     response["preview"] = _build_preview_metadata(request.goldenPoses)
+    response["backend"] = "procedural"
+    if fallback_reason is not None:
+        response["fallback_reason"] = fallback_reason
     return response
