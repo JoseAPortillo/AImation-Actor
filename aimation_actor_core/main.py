@@ -20,6 +20,7 @@ from aimation_actor_core.infrastructure.ai_models.detection import (
     SingleFramePoseDetectorImpl,
 )
 from aimation_actor_core.infrastructure.ai_models.estimators import OnnxBackend
+from aimation_actor_core.infrastructure.ai_models.mib_backend import MibBackend
 from aimation_actor_core.infrastructure.video.frame_provider import OpenCvFrameProvider
 from aimation_actor_core.infrastructure.virtual import (
     InMemoryJobStore,
@@ -50,11 +51,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.instance_id = str(uuid.uuid4())
     app.state.motion_backend = None
-    if settings.motion_backend in ("autokeyframe", "auto"):
+    if settings.motion_backend == "autokeyframe" or settings.motion_backend == "auto":
         app.state.motion_backend = AutoKeyframeBackend(
             settings.autokeyframe_root,
             settings.autokeyframe_timeout_seconds,
             Path(__file__).resolve().parents[1] / "tools" / "autokeyframe_helper.py",
+        )
+    elif settings.motion_backend == "mib":
+        app.state.motion_backend = MibBackend(
+            settings.mib_root,
+            settings.autokeyframe_root,
+            settings.mib_timeout_seconds,
+            Path(__file__).resolve().parents[1] / "tools" / "mib_helper.py",
         )
 
     # Dependency injection (SDD §2.4): concrete adapters assembled here, never

@@ -311,7 +311,7 @@ async def generate_motion(
 
     # The model adapter is strictly opt-in. Any unavailable, malformed, timed-
     # out, or fidelity-rejected external result falls back to the procedural
-    # path. AutoKeyframe is not a compatible MIB in-between model yet.
+    # path. AutoKeyframe and MIB both use the same authored-fidelity gate.
     fallback_reason: str | None = None
     if backend is not None:
         conditioning = {
@@ -328,7 +328,7 @@ async def generate_motion(
             params = _map_sliders_to_params(request.naturalidad, request.respetarPoses)
             response = enrich_motion(model_motion, params).model_dump()
             response["preview"] = _build_preview_metadata(request.goldenPoses)
-            response["backend"] = "autokeyframe"
+            response["backend"] = getattr(backend, "name", "autokeyframe")
             return response
         except MotionBackendUnavailable as exc:
             fallback_reason = str(exc) if str(exc) == "authored keyframe fidelity check failed" \

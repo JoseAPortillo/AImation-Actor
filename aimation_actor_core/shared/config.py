@@ -52,11 +52,13 @@ class Settings(BaseSettings):
             "http://localhost:5173,"  # Vite dev server (browser + tauri dev)
             "http://127.0.0.1:5173"  # Vite dev via loopback
         ),
-        description="Comma-separated allowed CORS origins (loopback only).",
+description="Comma-separated allowed CORS origins (loopback only).",
     )
-    motion_backend: Literal["procedural", "autokeyframe", "auto"] = "procedural"
+    motion_backend: Literal["procedural", "autokeyframe", "mib", "auto"] = "procedural"
     autokeyframe_root: Path = Path("tools/.cache/autokeyframe")
     autokeyframe_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    mib_root: Path = Path("tools/.cache/mib")
+    mib_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
 
 
 @lru_cache
