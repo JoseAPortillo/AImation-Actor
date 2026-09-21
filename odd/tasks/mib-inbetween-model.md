@@ -81,6 +81,12 @@ User selected the MIB strategy (decision session 2026-09-21): "vamos con la estr
 - [x] Verify: authored fidelity still 0.00 cm through the gate; in-between frames now follow the linear global interpolation A→B with max deviation ≤ 7.2 cm (head stable, no rest-pose artifacts); E2E via API still 200 / `backend: "mib"` / 76 frames / no fallback. No server restart needed (helper runs as a fresh child process per request).
 - [x] Commit: fix in `tools/mib_helper.py` + this doc.
 
+### T6 — Smoothstep easing on in-between interpolation (DONE)
+- [x] Apply smoothstep easing (`t²(3-2t)`) to the in-between interpolation so the motion accelerates out of pose A and decelerates into pose B instead of moving at constant speed; context/target frames keep the exact authored pose (fidelity gate unchanged at 0.00 cm).
+- [x] Verdict on failed look-at experiment: rotations that no rigid skeleton with constant rest offsets can produce (the deformed-offset representation) read as out-of-distribution signal — the model predicts garbage in-betweens (observed ~688 cm deviation). The identity-rotations + deformed-deltas representation is the only one that keeps the gate exact without solving the underdetermined rigid retargeting; look-at conditioning is not viable without fine-tuning. Reverted before commit.
+- [x] Verify: gate still 0.00 cm; in-between deviation vs the eased interpolation ≤ 8.8 cm; joint 7 stable (no explosion); elbow angles stable; E2E still 200 / `backend: "mib"` / 76 frames / no fallback.
+- [x] Commit: easing in `tools/mib_helper.py` + this doc.
+
 ## Verification evidence
 - [x] T1 verdict recorded with asset paths and exact model input/output contract.
 - [x] Per-task outcomes and commit hashes recorded as each task closes.
@@ -91,7 +97,8 @@ User selected the MIB strategy (decision session 2026-09-21): "vamos con la estr
 - T3: done (`aimation_actor_core/infrastructure/ai_models/mib_backend.py`, config `mib` values, `main.py` branch, `generate.py` getattr routing)
 - T4: done (5 focused tests in `tests/infrastructure/test_mib_backend.py`; E2E real chain OK: backend=mib, no fallback, 0.00 cm fidelity; ruff clean on MIB files)
 - T5: done (root cause: rest-pose placeholders in in-between frames overwritten by `get_new_positions`; fixed by interpolating all 22 joints A→B; gate still 0.00 cm; in-betweens ≤7.2 cm from linear interpolation; E2E still OK; running server picks the fix without restart)
+- T6: done (smoothstep easing on in-between interpolation; gate still 0.00 cm; in-betweens ≤8.8 cm from eased interpolation; look-at rotations experiment reverted — out-of-distribution signal, model garbage)
 - Environmental (pre-existing, not caused): `PermissionError` tmp_path pytest-asyncio, `test_pinned_rest_offsets` (-8.0 != 0.0), mypy `main.py:131` import-untyped.
 
 ## Next step
-Have the user generate once more from the frontend to confirm the in-between frames now look like their motion (no skeleton deformation). Optional follow-up: feed the model more realistic local rotations (per-bone look-at) in context/target frames so the predicted in-between rotations carry more "action"; keep the deformed offsets for the exact fidelity gate.
+Have the user generate once more from the frontend to feel the eased motion (accelerates out of pose A, decelerates into pose B). Look-at conditioning for more primitive action is not viable without fine-tuning; the identity+deltas representation is the fidelity-gate-safe optimum.

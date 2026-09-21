@@ -169,20 +169,26 @@ def _offset_local_pose(pose: np.ndarray) -> np.ndarray:
     return local
 
 
+def _smoothstep(t: float) -> float:
+    """Smoothstep easing: accelerate from 0, decelerate into 1."""
+    return t * t * (3.0 - 2.0 * t)
+
+
 def _build_window(pose_a: np.ndarray, pose_b: np.ndarray, trans_len: int,
                   l_position: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Build a MIB input window (local positions + local rotations) for a pair.
 
     pose_a/pose_b are authored (22, 3) global positions in cm. Context frames
     carry pose A, the target frame and the extra post-process frame carry
-    pose B, and in-between frames carry the linearly interpolated pose A->B
-    for ALL joints. Non-root local positions are parent-frame deltas
-    ``pose[j] - pose[parent]`` so the LaFAN FK reproduces the authored globals
-    exactly in the context/target frames (which ``get_new_positions`` never
-    overwrites), and INTERPOLATED deltas keep the in-between skeleton shaped
-    like the author's motion instead of the LaFAN rest pose. Rotations are
-    identity: the model reads rotated poses from local rotations, not from
-    non-root positions.
+    pose B, and in-between frames carry the smoothstep-eased interpolation of
+    pose A->B for ALL joints (the motion accelerates out of A and decelerates
+    into B instead of moving at constant speed). Non-root local positions are
+    parent-frame deltas ``pose[j] - pose[parent]`` so the LaFAN FK reproduces
+    the authored globals exactly in the context/target frames (which
+    ``get_new_positions`` never overwrites), and the interpolated deltas keep
+    the in-between skeleton shaped like the author's motion instead of the
+    LaFAN rest pose. Rotations are identity: the model reads rotated poses
+    from local rotations, not from non-root positions.
     """
     target_idx = _CONTEXT_LEN + trans_len
     window_len = _CONTEXT_LEN + trans_len + 2
@@ -191,7 +197,7 @@ def _build_window(pose_a: np.ndarray, pose_b: np.ndarray, trans_len: int,
     positions = np.repeat(l_position[None, ...], window_len, axis=0)
     positions[:_CONTEXT_LEN, :, :] = local_a
     for frame in range(_CONTEXT_LEN, target_idx):
-        t = (frame - (_CONTEXT_LEN - 1)) / (target_idx - (_CONTEXT_LEN - 1))
+        t = _smoothstep((frame - (_CONTEXT_LEN - 1)) / (target_idx - (_CONTEXT_LEN - 1)))
         positions[frame, :, :] = local_a + (local_b - local_a) * t
     positions[target_idx:, :, :] = local_b  # target frame + extra frame
 
