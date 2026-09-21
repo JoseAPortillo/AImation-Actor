@@ -169,9 +169,14 @@ def _offset_local_pose(pose: np.ndarray) -> np.ndarray:
     return local
 
 
-def _smoothstep(t: float) -> float:
-    """Smoothstep easing: accelerate from 0, decelerate into 1."""
-    return t * t * (3.0 - 2.0 * t)
+def _ease(t: float, v: float = 0.8) -> float:
+    """Hermite easing with residual endpoint velocity.
+
+    ``p(0) = 0``, ``p(1) = 1``, ``p'(0) = p'(1) = v > 0``: the curve flows
+    through the keyframe instead of stopping (smoothstep would freeze at each
+    golden pose). Monotonic and overshoot-free for ``0 < v <= 1``.
+    """
+    return (2 * v - 2) * t ** 3 + (3 - 3 * v) * t ** 2 + v * t
 
 
 def _build_window(pose_a: np.ndarray, pose_b: np.ndarray, trans_len: int,
@@ -180,14 +185,14 @@ def _build_window(pose_a: np.ndarray, pose_b: np.ndarray, trans_len: int,
 
     pose_a/pose_b are authored (22, 3) global positions in cm. Context frames
     carry pose A, the target frame and the extra post-process frame carry
-    pose B, and in-between frames carry the smoothstep-eased interpolation of
-    pose A->B for ALL joints (the motion accelerates out of A and decelerates
-    into B instead of moving at constant speed). Non-root local positions are
-    parent-frame deltas ``pose[j] - pose[parent]`` so the LaFAN FK reproduces
-    the authored globals exactly in the context/target frames (which
-    ``get_new_positions`` never overwrites), and the interpolated deltas keep
-    the in-between skeleton shaped like the author's motion instead of the
-    LaFAN rest pose. Rotations are identity: the model reads rotated poses
+    pose B, and in-between frames carry the eased interpolation of
+    pose A->B for ALL joints (the motion flows through poses instead of
+    stopping at them: endpoint velocity is non-zero). Non-root local positions
+    are parent-frame deltas ``pose[j] - pose[parent]`` so the LaFAN FK
+    reproduces the authored globals exactly in the context/target frames
+    (which ``get_new_positions`` never overwrites), and the interpolated deltas
+    keep the in-between skeleton shaped like the author's motion instead of
+    the LaFAN rest pose. Rotations are identity: the model reads rotated poses
     from local rotations, not from non-root positions.
     """
     target_idx = _CONTEXT_LEN + trans_len
@@ -197,7 +202,7 @@ def _build_window(pose_a: np.ndarray, pose_b: np.ndarray, trans_len: int,
     positions = np.repeat(l_position[None, ...], window_len, axis=0)
     positions[:_CONTEXT_LEN, :, :] = local_a
     for frame in range(_CONTEXT_LEN, target_idx):
-        t = _smoothstep((frame - (_CONTEXT_LEN - 1)) / (target_idx - (_CONTEXT_LEN - 1)))
+        t = _ease((frame - (_CONTEXT_LEN - 1)) / (target_idx - (_CONTEXT_LEN - 1)))
         positions[frame, :, :] = local_a + (local_b - local_a) * t
     positions[target_idx:, :, :] = local_b  # target frame + extra frame
 
@@ -324,13 +329,12 @@ def main() -> None:
             trans_len = _MIN_TRANS
         gp = _process_pair(bundle, pose_a, pose_b, trans_len)
         target_idx = _CONTEXT_LEN + trans_len
-        # Context frames (pose A repeated; lower bound clamped to 9), then the
-        # generated in-between frames, then the target frame. First write wins:
-        # real generated/constrained values must not be overwritten by the
-        # repeating-context of the next pair.
-        context_start = max(9, frame_a - _CONTEXT_LEN + 1)
-        for window_frame, absolute in enumerate(range(context_start, frame_a + 1)):
-            entries.setdefault(absolute, gp[window_frame])
+        # Only the generated in-between frames and the target frame are
+        # emitted; the first keyframe of the sequence keeps its single pose
+        # A frame (setdefault: already written targets win). The 9 preceding
+        # frozen context frames stay internal to the model window: emitting
+        # them made the preview freeze on each golden pose.
+        entries.setdefault(frame_a, gp[_CONTEXT_LEN - 1])
         for window_frame, absolute in zip(
                 range(_CONTEXT_LEN, target_idx), range(frame_a + 1, frame_b),
                 strict=True):
