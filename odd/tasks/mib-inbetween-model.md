@@ -70,7 +70,7 @@ User selected the MIB strategy (decision session 2026-09-21): "vamos con la estr
 - [x] Add focused tests: axis round-trip, conditioning normalization bounds, fidelity gate on MIB-shaped output, endpoint routing with fake backend.
 - [x] Run pytest (focus: tests/api/test_generate.py + new module), Ruff, and import-linter to confirm no layer violation.
 - [x] Bring up the backend and hit the endpoint with MIB configured to confirm end-to-end: status 200, `backend: "mib"`, `source_type: "mib"`, 76 frames, no `fallback_reason`; authored fidelity 0.00 cm through the 40 cm gate (E2E script `mib_e2e.py`).
-- [x] Commit each work unit with Conventional Commits; record commit identities here.
+- [x] Commit each work unit with Conventional Commits; record commit identities here: `575d662` (helper + doc + AGENTS.md + .gitignore), `0a552fb` (adapter + config + wiring + tests). Both on `feat/golden-poses-timeslider`.
 
 ## Verification evidence
 - [x] T1 verdict recorded with asset paths and exact model input/output contract.
