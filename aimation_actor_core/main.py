@@ -20,6 +20,7 @@ from aimation_actor_core.infrastructure.ai_models.detection import (
     SingleFramePoseDetectorImpl,
 )
 from aimation_actor_core.infrastructure.ai_models.estimators import OnnxBackend
+from aimation_actor_core.infrastructure.ai_models.lifters import HeuristicLiftingBackend
 from aimation_actor_core.infrastructure.ai_models.mib_backend import MibBackend
 from aimation_actor_core.infrastructure.video.frame_provider import OpenCvFrameProvider
 from aimation_actor_core.infrastructure.virtual import (
@@ -77,11 +78,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         registry=node_registry,
     )
 
-    # Phase A: frame provider and pose detector (decision D1, D3).
+    # Phase A: frame provider, pose detector and 3D lifting backend (decision D1).
     app.state.frame_provider = OpenCvFrameProvider(settings.media_root)
     app.state.pose_detector = SingleFramePoseDetectorImpl(
         media_root=settings.media_root, backend=OnnxBackend("models")
     )
+    app.state.lifting_backend = HeuristicLiftingBackend()
 
     # Restrictive CORS — only the Tauri origins (SDD §4.3).
     app.add_middleware(

@@ -6,16 +6,21 @@ deterministic (CI truth); ``HeuristicLiftingBackend`` adds anthropometric
 depth; ``OnnxLiftingBackend`` is a lazy placeholder seam for a future trained
 model. ``depth_mode`` values multiply the depth deviation; unknown values
 degrade to the default (spec REQ-2/REQ-3).
+
+``LiftingBackend`` is owned by the domain layer
+(:mod:`aimation_actor_core.domain.animation.lifting`) and re-exported here for
+existing infrastructure consumers; the API layer injects the port without
+importing infrastructure (SDD §2.3).
 """
 
 from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
 from aimation_actor_core.domain.animation.keypoints3d import Keypoint3D, Keypoints3D
+from aimation_actor_core.domain.animation.lifting import LiftingBackend as LiftingBackend
 
 #: Depth-deviation multiplier per ``depth_mode``. ``proportional`` is the
 #: default; ``flat`` collapses every joint onto the camera plane.
@@ -107,23 +112,6 @@ def depth_multiplier(depth_mode: str) -> float:
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     """Clamp ``value`` into ``[low, high]``."""
     return min(high, max(low, value))
-
-
-@runtime_checkable
-class LiftingBackend(Protocol):
-    """Protocol for 3D lifting backends (spec REQ-2)."""
-
-    def lift(self, keypoints_2d: list[Keypoints2D]) -> list[Keypoints3D]:
-        """Lift 2D keypoints into normalized 3D keypoints.
-
-        Args:
-            keypoints_2d: Input frames, one :class:`Keypoints2D` per frame.
-
-        Returns:
-            One :class:`Keypoints3D` per input frame, minus confidence-filtered
-            joints applied by the caller; empty input yields [].
-        """
-        ...
 
 
 class SyntheticLiftingBackend:
