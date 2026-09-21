@@ -263,6 +263,51 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
     setDragPinId(null);
   };
 
+  // ── Phase B: Round-trip handlers ─────────────────────────────────────────
+
+  const handleSendToBlender = async (
+    nodeId: string,
+    pins: Array<{ frame: number; status: string; detection: unknown }>,
+    apiClient: ApiClient,
+  ) => {
+    // Build a minimal NeutralMotion from the golden poses
+    const successfulPins = pins.filter((p) => p.status === "success" && p.detection !== null);
+    if (successfulPins.length === 0) return;
+
+    // For now, send a placeholder motion — real implementation will
+    // assemble the full NeutralMotion from pin detections
+    const motion = {
+      meta: { version: "0.2", fps: 24.0, units: "cm", up_axis: "Y", source_type: "frontend_golden_poses" },
+      skeleton: { bones: [] },
+      frames: successfulPins.map((pin) => ({
+        frame: pin.frame,
+        time: (pin.frame - 1) / 24.0,
+        pose: { transforms: {} },
+        confidence: 1.0,
+      })),
+      keyposes: successfulPins.map((pin) => ({ frame: pin.frame, weight: 1.0 })),
+    };
+
+    try {
+      await apiClient.pushPosesToBlender(nodeId, motion);
+      // TODO: show success toast
+    } catch {
+      // TODO: show error toast
+    }
+  };
+
+  const handleBackToApp = async (nodeId: string, apiClient: ApiClient) => {
+    try {
+      const editedMotion = await apiClient.requestEditedPoses(nodeId);
+      if (editedMotion) {
+        // TODO: update the node's motion data with the edited poses
+        // For now, just log — real implementation will update the store
+      }
+    } catch {
+      // TODO: show error toast
+    }
+  };
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   if (!videoPath) {
@@ -286,7 +331,11 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
   }
 
   return (
-    <div data-testid="timeslider" style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 4 }}>
+    <div
+      data-testid="timeslider"
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 4 }}
+    >
       {/* Frame + overlay + hover thumbnail */}
       <div style={{ position: "relative", background: "#121212", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
         {imgUrl && (
@@ -336,6 +385,7 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
           setHover(null);
           setDragPinId(null);
         }}
+        onMouseDown={(e) => e.stopPropagation()}
         style={{ position: "relative", height: 18 }}
       >
         <input
@@ -345,6 +395,7 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
           max={Math.max(frameCount, 1)}
           value={frame}
           onChange={(e) => setFrame(Number(e.target.value))}
+          onMouseDown={(e) => e.stopPropagation()}
           style={{ width: "100%", margin: 0 }}
         />
         {nodePins.map((pin) => {
@@ -403,7 +454,10 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
       </div>
 
       {/* Controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e0e0e0" }}>
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e0e0e0" }}
+      >
         <button
           type="button"
           data-testid="timeslider-play"
@@ -454,6 +508,46 @@ export function VideoTimeslider({ nodeId, videoPath, api = defaultApi }: VideoTi
           }}
         >
           {overlayVisible ? "Hide overlay" : "Show overlay"}
+        </button>
+      </div>
+
+      {/* Phase B: Round-trip Blender controls */}
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e0e0e0", marginTop: 4 }}
+      >
+        <button
+          type="button"
+          data-testid="timeslider-send-to-blender"
+          onClick={() => handleSendToBlender(nodeId, nodePins, api)}
+          disabled={nodePins.length === 0}
+          style={{
+            background: nodePins.length === 0 ? "#0f172a" : "#1e3a5f",
+            border: "1px solid #3b82f6",
+            borderRadius: 4,
+            color: nodePins.length === 0 ? "#64748b" : "#93c5fd",
+            padding: "2px 8px",
+            cursor: nodePins.length === 0 ? "not-allowed" : "pointer",
+            fontSize: 10,
+          }}
+        >
+          Enviar a Blender →
+        </button>
+        <button
+          type="button"
+          data-testid="timeslider-back-to-app"
+          onClick={() => handleBackToApp(nodeId, api)}
+          style={{
+            background: "#1a1a1a",
+            border: "1px solid #333",
+            borderRadius: 4,
+            color: "#e0e0e0",
+            padding: "2px 8px",
+            cursor: "pointer",
+            fontSize: 10,
+          }}
+        >
+          ← Volver a la app
         </button>
       </div>
     </div>

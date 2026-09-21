@@ -100,7 +100,8 @@ class TestNodes:
         assert r.status_code == 200
         types = {schema["type"] for schema in r.json()}
         # Three virtual seed nodes plus the real AI video-source, pose-2d,
-        # pose-3d, video-to-motion and temporal-cleanup nodes.
+        # pose-3d, video-to-motion, temporal-cleanup and inbetween-generation
+        # nodes.
         assert types == {
             "pass-through",
             "merge",
@@ -110,6 +111,7 @@ class TestNodes:
             "pose-3d",
             "video-to-motion",
             "temporal-cleanup",
+            "inbetween-generation",
         }
 
     def test_list_node_types_empty_registry(self) -> None:
@@ -145,9 +147,21 @@ class TestSessions:
         assert hb.status_code == 200
         assert hb.json()["session_id"] == session_id
 
-        pushed = c.post(f"/sessions/{session_id}/push_result", headers=_auth(), json={"motion": 1})
+        pushed = c.post(
+            f"/sessions/{session_id}/push_result",
+            headers=_auth(),
+            json={
+                "kind": "golden_poses",
+                "motion": {
+                    "meta": {"fps": 24.0, "units": "cm"},
+                    "frames": [],
+                    "keyposes": [{"frame": 1, "weight": 1.0}],
+                },
+            },
+        )
         assert pushed.status_code == 202
-        assert pushed.json()["accepted"] is True
+        assert pushed.json()["status"] == "queued"
+        assert pushed.json()["kind"] == "golden_poses"
 
         deleted = c.delete(f"/sessions/{session_id}", headers=_auth())
         assert deleted.status_code == 204
@@ -514,6 +528,39 @@ class TestMediaUpload:
             files={"file": ("clip.avi", video_bytes, "video/avi")},
         )
         assert r.status_code == 401
+
+    def test_traversal_filename_returns_400(self, tmp_path: Path) -> None:
+        """Upload with path-traversal filename is rejected before write."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        video_bytes = _make_video_bytes()
+        r = c.post(
+            "/media/upload",
+            headers=_auth(),
+            files={"file": ("..\\..\\escape.bin", video_bytes, "video/avi")},
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert "traversal" in body["detail"].lower()
+        # No file should have been written outside media_root
+        outside = tmp_path / "escape.bin"
+        assert not outside.exists()
+
+    def test_slash_filename_returns_400(self, tmp_path: Path) -> None:
+        """Upload with slash in filename is rejected."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        c = _client(tmp_path)
+        video_bytes = _make_video_bytes()
+        r = c.post(
+            "/media/upload",
+            headers=_auth(),
+            files={"file": ("sub/dir/file.avi", video_bytes, "video/avi")},
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert "traversal" in body["detail"].lower()
 
 
 class TestDetect:

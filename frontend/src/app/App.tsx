@@ -2,18 +2,15 @@ import { useEffect } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { ApiClient } from "../api/ApiClient";
 import { ConnectionBanner } from "../components/shell/ConnectionBanner";
-import { Palette } from "../components/palette/Palette";
+import { Wizard } from "../components/wizard/Wizard";
 import { FlowCanvas } from "../components/canvas/FlowCanvas";
 import { GraphIO } from "../components/graphio/GraphIO";
-import { RunControls } from "../components/job/RunControls";
-import { SimpleMode } from "../components/simple/SimpleMode";
 import { useHealthCheck } from "../state/useHealthCheck";
 import { usePaletteStore } from "../state/usePaletteStore";
 import { useUiStore } from "../state/useUiStore";
 
 export function App() {
   const { retry } = useHealthCheck();
-  const setBanner = useUiStore((s) => s.setBanner);
   const mode = useUiStore((s) => s.mode);
   const setMode = useUiStore((s) => s.setMode);
 
@@ -27,44 +24,47 @@ export function App() {
 
   return (
     <ReactFlowProvider>
-      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#121212" }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0a0a0a" }}>
       <ConnectionBanner onRetry={retry} />
       <header
         style={{
           padding: "12px 16px",
-          borderBottom: "1px solid #333",
-          background: "#1a1a1a",
+          borderBottom: "1px solid #1f2937",
+          background: "#111827",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
         }}
       >
-        <h1 style={{ margin: 0, fontSize: "20px", color: "#e0e0e0" }}>AImation Flow</h1>
+        <h1 style={{ margin: 0, fontSize: "18px", color: "#f9fafb", fontWeight: 600 }}>
+          AImation Actor
+        </h1>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div
             data-testid="mode-toggle"
             style={{
               display: "flex",
-              background: "#121212",
-              border: "1px solid #444",
+              background: "#0a0a0a",
+              border: "1px solid #374151",
               borderRadius: 6,
               overflow: "hidden",
             }}
           >
             <button
               type="button"
-              data-testid="mode-simple"
+              data-testid="mode-wizard"
               onClick={() => setMode("simple")}
               style={{
                 cursor: "pointer",
-                padding: "4px 12px",
+                padding: "6px 14px",
                 fontSize: 12,
                 border: "none",
-                background: mode === "simple" ? "#2a6f4f" : "transparent",
+                background: mode === "simple" ? "#2563eb" : "transparent",
                 color: mode === "simple" ? "#fff" : "#9ca3af",
+                fontWeight: mode === "simple" ? 500 : 400,
               }}
             >
-              Simple
+              🧙 Asistente
             </button>
             <button
               type="button"
@@ -72,35 +72,39 @@ export function App() {
               onClick={() => setMode("advanced")}
               style={{
                 cursor: "pointer",
-                padding: "4px 12px",
+                padding: "6px 14px",
                 fontSize: 12,
                 border: "none",
-                background: mode === "advanced" ? "#2a6f4f" : "transparent",
+                background: mode === "advanced" ? "#7c3aed" : "transparent",
                 color: mode === "advanced" ? "#fff" : "#9ca3af",
+                fontWeight: mode === "advanced" ? 500 : 400,
               }}
             >
-              Advanced
+              🔧 Avanzado
             </button>
           </div>
-          <GraphIO catalog={() => usePaletteStore.getState().catalog} />
+          {mode === "advanced" && <GraphIO catalog={() => usePaletteStore.getState().catalog} />}
         </div>
       </header>
-      <main style={{ flex: 1, display: "flex", minHeight: 0 }}>
+      <main style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
         {mode === "simple" ? (
-          <section style={{ flex: 1, position: "relative" }}>
-            <SimpleMode />
+          <section style={{ flex: 1, overflow: "auto" }}>
+            <Wizard />
           </section>
         ) : (
           <>
             <aside
-              style={{ width: "220px", borderRight: "1px solid #333", background: "#1a1a1a", padding: "12px", overflow: "auto" }}
+              style={{ width: "220px", borderRight: "1px solid #1f2937", background: "#111827", padding: "12px", overflow: "auto" }}
             >
-              <Palette />
+              {/* Palette placeholder for advanced mode */}
+              <div style={{ color: "#6b7280", fontSize: 12, textAlign: "center", paddingTop: 20 }}>
+                Modo avanzado — nodos disponibles próximamente
+              </div>
             </aside>
             <section style={{ flex: 1, position: "relative" }}>
               <div
                 data-testid="canvas-host"
-                style={{ position: "absolute", inset: 0, background: "#121212" }}
+                style={{ position: "absolute", inset: 0, background: "#0a0a0a" }}
               >
                 <FlowCanvas />
               </div>
@@ -108,11 +112,6 @@ export function App() {
           </>
         )}
       </main>
-      <footer style={{ padding: "10px 16px", borderTop: "1px solid #333", background: "#1a1a1a" }}>
-        <RunControls
-          onError={(msg) => setBanner(msg)}
-        />
-      </footer>
       </div>
     </ReactFlowProvider>
   );

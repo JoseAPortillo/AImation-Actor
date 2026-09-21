@@ -8,23 +8,26 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from aimation_actor_core.api.routers import jobs, media, nodes, pose, sessions
+from aimation_actor_core.api.routers import generate, jobs, media, nodes, pose, sessions
+from aimation_actor_core.infrastructure.ai_models.autokeyframe import AutoKeyframeBackend
 from aimation_actor_core.infrastructure.ai_models.detection import (
     SingleFramePoseDetectorImpl,
 )
-from aimation_actor_core.infrastructure.ai_models.estimators import SyntheticBackend
+from aimation_actor_core.infrastructure.ai_models.estimators import OnnxBackend
+from aimation_actor_core.infrastructure.ai_models.mib_backend import MibBackend
+from aimation_actor_core.infrastructure.video.frame_provider import OpenCvFrameProvider
 from aimation_actor_core.infrastructure.virtual import (
     InMemoryJobStore,
     InMemorySessionStore,
     SynchronousGraphExecutor,
     seeded_node_registry,
 )
-from aimation_actor_core.infrastructure.video.frame_provider import OpenCvFrameProvider
 from aimation_actor_core.shared.config import Settings, get_settings
 from aimation_actor_core.shared.errors import AImationError, ModelIntegrityError
 from aimation_actor_core.shared.media_security import MediaPathError
@@ -47,6 +50,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.settings = settings
     app.state.instance_id = str(uuid.uuid4())
+    app.state.motion_backend = None
+    if settings.motion_backend == "autokeyframe" or settings.motion_backend == "auto":
+        app.state.motion_backend = AutoKeyframeBackend(
+            settings.autokeyframe_root,
+            settings.autokeyframe_timeout_seconds,
+            Path(__file__).resolve().parents[1] / "tools" / "autokeyframe_helper.py",
+        )
+    elif settings.motion_backend == "mib":
+        app.state.motion_backend = MibBackend(
+            settings.mib_root,
+            settings.autokeyframe_root,
+            settings.mib_timeout_seconds,
+            Path(__file__).resolve().parents[1] / "tools" / "mib_helper.py",
+        )
 
     # Dependency injection (SDD §2.4): concrete adapters assembled here, never
     # referenced by the API layer. The node registry is seeded with the three
@@ -63,7 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Phase A: frame provider and pose detector (decision D1, D3).
     app.state.frame_provider = OpenCvFrameProvider(settings.media_root)
     app.state.pose_detector = SingleFramePoseDetectorImpl(
-        media_root=settings.media_root, backend=SyntheticBackend()
+        media_root=settings.media_root, backend=OnnxBackend("models")
     )
 
     # Restrictive CORS — only the Tauri origins (SDD §4.3).
@@ -73,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Frame-Count"],
     )
 
     # Centralized error mapping (SDD §4.3 sanitized responses).
@@ -103,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(media.router)
     app.include_router(pose.router)
+    app.include_router(generate.router)
 
     @app.get("/health", tags=["health"], summary="Health check")
     async def health() -> dict[str, str]:

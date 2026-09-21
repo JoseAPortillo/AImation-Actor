@@ -29,6 +29,7 @@ export type NodeCategory =
   | "source"
   | "ai"
   | "cleanup"
+  | "enrichment"
   | "rigging"
   | "output"
   | "logic";
@@ -120,6 +121,12 @@ export interface KeyPose {
   weight: number;
 }
 
+export interface MotionPreview {
+  joint_names: string[];
+  bone_pairs: Array<{ parent: string; child: string }>;
+  authored_frames: number[];
+}
+
 export interface NeutralMotionDoc {
   meta: NeutralMotionMeta;
   skeleton: SkeletonDoc;
@@ -129,6 +136,7 @@ export interface NeutralMotionDoc {
   tracking?: {
     confidence_per_frame: number[];
   };
+  preview?: MotionPreview;
 }
 
 /* ── Single-frame pose detection (frame-pose-detection capability) ───────── */

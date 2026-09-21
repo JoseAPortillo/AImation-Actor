@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException, Request, status
 
+from aimation_actor_core.domain.animation.motion_backend import MotionBackend
 from aimation_actor_core.domain.animation.pose_detection import SingleFramePoseDetector
 from aimation_actor_core.domain.dcc.session import SessionStore
 from aimation_actor_core.domain.job.job import JobStore
@@ -86,3 +87,8 @@ def get_pose_detector(request: Request) -> SingleFramePoseDetector:
 def get_settings(request: Request) -> Settings:
     """Return the injected application settings from ``app.state``."""
     return request.app.state.settings
+
+
+def get_motion_backend(request: Request) -> MotionBackend | None:
+    """Return the optional model backend; ``None`` means procedural mode."""
+    return request.app.state.motion_backend

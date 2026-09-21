@@ -227,7 +227,8 @@ export class ApiClient {
     if (resp.status >= 400) {
       throw await this.errorFor(resp);
     }
-    const raw = resp.headers.get("X-Frame-Count");
+    // Fetch API normalizes headers to lowercase
+    const raw = resp.headers.get("x-frame-count");
     const frameCount = raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : 0;
     const blob = await resp.blob();
     return { blob, frameCount };
@@ -260,5 +261,65 @@ export class ApiClient {
     return (await this.expectObject(
       await this.request("GET", `/detect/${videoPath}/${frameIndex}`),
     )) as unknown as SingleFramePose;
+  }
+
+  // ── Phase B: Round-trip Blender endpoints ───────────────────────────────
+
+  /**
+   * POST /sessions/{sessionId}/push_result — send golden poses to Blender addon.
+   *
+   * @param sessionId - The active DCC session ID
+   * @param motion - The NeutralMotion document with golden pose data
+   */
+  async pushPosesToBlender(sessionId: string, motion: Record<string, unknown>): Promise<void> {
+    const payload = {
+      kind: "golden_poses",
+      motion,
+    };
+    const resp = await this.request("POST", `/sessions/${sessionId}/push_result`, payload);
+    if (resp.status >= 400) {
+      throw await this.errorFor(resp);
+    }
+  }
+
+  /**
+   * GET /sessions/{sessionId}/pending — poll for edited poses from Blender.
+   *
+   * Returns the edited NeutralMotion document, or null if no pending payloads.
+   *
+   * @param sessionId - The active DCC session ID
+   */
+  async requestEditedPoses(sessionId: string): Promise<Record<string, unknown> | null> {
+    const resp = await this.request("GET", `/sessions/${sessionId}/pending`);
+    if (resp.status === 204) {
+      return null;
+    }
+    if (resp.status >= 400) {
+      throw await this.errorFor(resp);
+    }
+    const obj = await this.expectObject(resp);
+    return obj["motion"] as Record<string, unknown> | null;
+  }
+
+  // ── Phase C: Generate motion endpoint ───────────────────────────────────
+
+  /**
+   * POST /generate-motion — generate motion between golden poses.
+   *
+   * @param params - Golden poses + slider parameters (naturalidad, respetarPoses)
+   * @returns NeutralMotionDoc with generated frames
+   */
+  async generateMotion(params: {
+    goldenPoses: Array<{
+      frame: number;
+      label: string;
+      confidence: number | null;
+      detection: import("./types").DetectedKeypoint[] | null;
+    }>;
+    naturalidad: number;
+    respetarPoses: number;
+  }): Promise<Record<string, unknown>> {
+    const resp = await this.request("POST", "/generate-motion", params);
+    return this.expectObject(resp);
   }
 }

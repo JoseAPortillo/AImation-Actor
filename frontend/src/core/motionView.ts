@@ -7,6 +7,7 @@
 
 import type {
   NeutralMotionDoc,
+  MotionPreview,
   Vec3,
 } from "../api/types";
 
@@ -100,21 +101,36 @@ export function absolutePositions(
   const { transforms } = frame.pose;
   const { bones } = motion.skeleton;
 
+  // Debug: log skeleton bones and transforms on first call
+  if (!(motion as unknown as Record<string, unknown>).__debugged) {
+    (motion as unknown as Record<string, unknown>).__debugged = true;
+    const boneNames = Object.keys(bones);
+    const transformNames = Object.keys(transforms);
+    console.log("[absolutePositions] skeleton bones:", boneNames);
+    console.log("[absolutePositions] frame transforms:", transformNames);
+    console.log("[absolutePositions] bone parents:", boneNames.map(n => `${n}->${bones[n].parent}`));
+  }
+
   for (const name of Object.keys(bones)) {
     const bone = bones[name];
     // Local translation: frame data or rest_position fallback.
-    const t = transforms[name]?.translation ?? bone.rest_position;
+    // rest_position is added below; do not add it twice for missing transforms.
+    const t = transforms[name]?.translation ?? ([0, 0, 0] as Vec3);
     const parentAbs = bone.parent != null ? result[bone.parent] : null;
     if (parentAbs != null) {
+      // Non-root: absolute = parent + rest_position + local offset
       result[name] = [
-        parentAbs[0] + t[0],
-        parentAbs[1] + t[1],
-        parentAbs[2] + t[2],
+        parentAbs[0] + bone.rest_position[0] + t[0],
+        parentAbs[1] + bone.rest_position[1] + t[1],
+        parentAbs[2] + bone.rest_position[2] + t[2],
       ];
     } else {
-      // Root (or orphan): absolute = rest + local (rest is effectively 0,0,0
-      // for Root, but we add it for generality).
-      result[name] = [bone.rest_position[0] + t[0], bone.rest_position[1] + t[1], bone.rest_position[2] + t[2]];
+      // Root (or orphan): absolute = rest + local
+      result[name] = [
+        bone.rest_position[0] + t[0],
+        bone.rest_position[1] + t[1],
+        bone.rest_position[2] + t[2],
+      ];
     }
   }
 
@@ -132,7 +148,9 @@ export function absolutePositions(
  */
 export function drawBones(
   motion: NeutralMotionDoc,
+  preview?: MotionPreview,
 ): Array<{ parent: string; child: string }> {
+  if (preview) return preview.bone_pairs;
   const pairs: Array<{ parent: string; child: string }> = [];
   for (const bone of Object.values(motion.skeleton.bones)) {
     if (bone.parent != null && bone.name !== "Root") {
@@ -140,4 +158,24 @@ export function drawBones(
     }
   }
   return pairs;
+}
+
+export function stableBounds(
+  motion: NeutralMotionDoc,
+  jointNames: string[],
+): { xmin: number; xmax: number; ymin: number; ymax: number } | null {
+  let xmin = Infinity, xmax = -Infinity;
+  let ymin = Infinity, ymax = -Infinity;
+  for (let i = 0; i < motion.frames.length; i += 1) {
+    const positions = absolutePositions(motion, i);
+    for (const name of jointNames) {
+      const p = positions[name];
+      if (!p) continue;
+      xmin = Math.min(xmin, p[0]);
+      xmax = Math.max(xmax, p[0]);
+      ymin = Math.min(ymin, p[1]);
+      ymax = Math.max(ymax, p[1]);
+    }
+  }
+  return Number.isFinite(xmin) ? { xmin, xmax, ymin, ymax } : null;
 }

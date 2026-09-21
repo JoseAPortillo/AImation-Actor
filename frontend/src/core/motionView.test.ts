@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractMotion, absolutePositions, drawBones } from "./motionView";
+import { extractMotion, absolutePositions, drawBones, stableBounds } from "./motionView";
 import type { NeutralMotionDoc } from "../api/types";
 
 /* ── fixtures ────────────────────────────────────────────────────────────── */
@@ -114,10 +114,10 @@ describe("absolutePositions", () => {
 
     // Root: rest [0,0,0] + local [0,0,0] = [0,0,0]
     expect(abs.Root).toEqual([0, 0, 0]);
-    // Hips: RootAbs [0,0,0] + local [0,0.5,0] = [0,0.5,0]
-    expect(abs.Hips).toEqual([0, 0.5, 0]);
-    // Spine: HipsAbs [0,0.5,0] + local [0,0.3,0] = [0,0.8,0]
-    expect(abs.Spine).toEqual([0, 0.8, 0]);
+    // Hips: RootAbs + rest [0,1,0] + local [0,0.5,0] = [0,1.5,0]
+    expect(abs.Hips).toEqual([0, 1.5, 0]);
+    // Spine: HipsAbs + rest [0,2,0] + local [0,0.3,0] = [0,3.8,0]
+    expect(abs.Spine).toEqual([0, 3.8, 0]);
   });
 
   it("accumulates correctly when translations change across frames", () => {
@@ -126,10 +126,10 @@ describe("absolutePositions", () => {
 
     // Root: [0,0,0]
     expect(abs.Root).toEqual([0, 0, 0]);
-    // Hips: RootAbs + [1,0.5,0] = [1, 0.5, 0]
-    expect(abs.Hips).toEqual([1, 0.5, 0]);
-    // Spine: HipsAbs + [0,0.3,0] = [1, 0.8, 0]
-    expect(abs.Spine).toEqual([1, 0.8, 0]);
+    // Hips: RootAbs + rest + local = [1, 1.5, 0]
+    expect(abs.Hips).toEqual([1, 1.5, 0]);
+    // Spine: HipsAbs + rest + local = [1, 3.8, 0]
+    expect(abs.Spine).toEqual([1, 3.8, 0]);
   });
 
   it("returns empty object when frames array is empty", () => {
@@ -142,18 +142,18 @@ describe("absolutePositions", () => {
     const motion = miniSkeleton();
     const abs = absolutePositions(motion, 999);
     // Should match frame 1 (index 1, the last frame).
-    expect(abs.Hips).toEqual([1, 0.5, 0]);
+    expect(abs.Hips).toEqual([1, 1.5, 0]);
   });
 
-  it("uses rest_position as fallback when bone is missing from transforms", () => {
+  it("uses one rest_position when bone is missing from transforms", () => {
     const motion = miniSkeleton();
     // Remove Spine from frame 0 transforms.
     delete motion.frames[0].pose.transforms.Spine;
     const abs = absolutePositions(motion, 0);
 
-    // Spine should use rest_position [0,2,0] as local offset.
-    // HipsAbs = [0, 0.5, 0], SpineAbs = [0, 0.5, 0] + [0, 2, 0] = [0, 2.5, 0]
-    expect(abs.Spine).toEqual([0, 2.5, 0]);
+    // Spine should use rest_position [0,2,0] exactly once.
+    // HipsAbs = [0, 1.5, 0], SpineAbs = HipsAbs + [0, 2, 0] = [0, 3.5, 0]
+    expect(abs.Spine).toEqual([0, 3.5, 0]);
   });
 
   it("returns empty object when frameIndex is negative", () => {
@@ -167,6 +167,15 @@ describe("absolutePositions", () => {
 /* ── drawBones ───────────────────────────────────────────────────────────── */
 
 describe("drawBones", () => {
+  it("uses explicit captured preview topology instead of synthetic links", () => {
+    const motion = miniSkeleton();
+    expect(drawBones(motion, {
+      joint_names: ["Hips"],
+      bone_pairs: [],
+      authored_frames: [1],
+    })).toEqual([]);
+  });
+
   it("returns parent-child pairs excluding Root as child", () => {
     const motion = miniSkeleton();
     const pairs = drawBones(motion);
@@ -198,5 +207,16 @@ describe("drawBones", () => {
     expect(pairs).toContainEqual({ parent: "Root", child: "Spine" });
     expect(pairs).toContainEqual({ parent: "Spine", child: "L_Hand" });
     expect(pairs).toHaveLength(2);
+  });
+});
+
+describe("stableBounds", () => {
+  it("keeps an off-origin body centered using all frames", () => {
+    const motion = miniSkeleton();
+    motion.frames[0].pose.transforms.Hips.translation = [100, 0.5, 0];
+    motion.frames[1].pose.transforms.Hips.translation = [101, 0.5, 0];
+    const bounds = stableBounds(motion, ["Hips"]);
+    expect(bounds).toEqual({ xmin: 100, xmax: 101, ymin: 1.5, ymax: 1.5 });
+    expect((bounds!.xmin + bounds!.xmax) / 2).toBe(100.5);
   });
 });

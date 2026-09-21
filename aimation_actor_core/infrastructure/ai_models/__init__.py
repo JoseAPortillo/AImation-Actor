@@ -5,6 +5,9 @@ from aimation_actor_core.infrastructure.ai_models.estimators import (
     PoseEstimator,
     SyntheticBackend,
 )
+from aimation_actor_core.infrastructure.ai_models.inbetween_generation import (
+    InbetweenGenerationNode,
+)
 from aimation_actor_core.infrastructure.ai_models.lifters import (
     HeuristicLiftingBackend,
     LiftingBackend,
@@ -18,6 +21,7 @@ from aimation_actor_core.infrastructure.ai_models.video_to_motion import VideoTo
 
 __all__ = [
     "HeuristicLiftingBackend",
+    "InbetweenGenerationNode",
     "LiftingBackend",
     "OnnxBackend",
     "OnnxLiftingBackend",

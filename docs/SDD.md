@@ -130,6 +130,7 @@ SpecSecDev integrates security into the functional specification. For each featu
 | DCC Sessions | Session hijacking | Medium | Ephemeral token + nonce per request. Inactivity timeout. | Replay attack test fails. |
 | AI Models | Model poisoning / trojan weights | Medium | SHA256 checksum verified on load. Optional signing. Load only from trusted directory. | Altered weight file → rejection at startup. |
 | Animation Data | Proprietary content leakage | Medium | 100% local processing. No content telemetry. Sanitized logs. | Log audit: zero pose/video data. |
+| Enrichment Node (inbetween-generation) | Malformed parameters / numeric abuse | Low | Param validation before execution (enum allowlist, tangent_smoothing ∈ [0,1], target_fps > 0, bool-only euler_filter). Stateless pure in-memory math; no IO boundary; static registration only. | Node `validate()` rejects invalid enum/range/fps/bool (unit-tested); node types registry-gated. |
 
 ### 4.3 Mandatory Cross-Cutting Controls
 
