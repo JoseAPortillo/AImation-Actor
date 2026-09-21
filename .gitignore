@@ -38,4 +38,5 @@ frontend/*.tsbuildinfo
 
 # Local model/runtime caches and uploaded development media
 tools/.cache/autokeyframe/
+tools/.cache/mib/
 media/*.mp4
