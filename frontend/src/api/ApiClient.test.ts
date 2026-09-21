@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ApiClient } from "./ApiClient";
 import { MockTransport } from "./transport";
-import type { NodeSchema } from "./types";
+import type { DetectedKeypoint, DetectedKeypoint3D, NodeSchema } from "./types";
 
 function makeClient(token = "secret-token") {
   const transport = new MockTransport();
@@ -187,6 +187,41 @@ describe("ApiClient media + pose surface (Phase A frame-pose-detection)", () => 
     transport.enqueue(200, {});
     const err = await client.uploadVideo(new File(["x"], "video.mp4")).catch((e) => e);
     expect(err).toMatchObject({ kind: "invalid" });
+  });
+});
+
+describe("ApiClient pose-lift surface (POST /pose/lift)", () => {
+  it("liftPose3D POSTs {frames} to /pose/lift and returns the lifted frames", async () => {
+    const { transport, client } = makeClient("tok");
+    const frames: DetectedKeypoint[][] = [
+      [{ label: "nose", x: 0.5, y: 0.25, confidence: 0.98 }],
+    ];
+    const lifted: DetectedKeypoint3D[][] = [
+      [{ label: "nose", x: 0.5, y: 0.25, z: 0.6, confidence: 0.98 }],
+    ];
+    transport.enqueue(200, { frames: lifted });
+    const result = await client.liftPose3D(frames);
+    const req = transport.requests[0];
+    expect(req.method).toBe("POST");
+    expect(req.url).toBe("http://127.0.0.1:8765/pose/lift");
+    expect(JSON.parse(req.body as string)).toEqual({ frames });
+    expect(req.headers.get("authorization")).toBe("Bearer tok");
+    expect(result).toEqual(lifted);
+  });
+
+  it("liftPose3D maps 401 to ApiError kind 'unauthorized'", async () => {
+    const { transport, client } = makeClient("bad");
+    transport.enqueue(401, { detail: "Not authenticated" });
+    const err = await client.liftPose3D([]).catch((e) => e);
+    expect(err).toMatchObject({ kind: "unauthorized" });
+    expect(String(err.message)).toContain("Not authenticated");
+  });
+
+  it("liftPose3D maps a 5xx to ApiError kind 'server'", async () => {
+    const { transport, client } = makeClient("tok");
+    transport.enqueue(500, { error: "boom" });
+    const err = await client.liftPose3D([]).catch((e) => e);
+    expect(err).toMatchObject({ kind: "server" });
   });
 });
 
