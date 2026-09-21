@@ -72,6 +72,15 @@ User selected the MIB strategy (decision session 2026-09-21): "vamos con la estr
 - [x] Bring up the backend and hit the endpoint with MIB configured to confirm end-to-end: status 200, `backend: "mib"`, `source_type: "mib"`, 76 frames, no `fallback_reason`; authored fidelity 0.00 cm through the 40 cm gate (E2E script `mib_e2e.py`).
 - [x] Commit each work unit with Conventional Commits; record commit identities here: `575d662` (helper + doc + AGENTS.md + .gitignore), `0a552fb` (adapter + config + wiring + tests). Both on `feat/golden-poses-timeslider`.
 
+### T5 — Fix deformed in-between preview (root cause: rest-pose placeholders) (DONE)
+- [x] Diagnose: the frontend preview kept the first authored pose but deformed/stretched the in-between skeleton. Root cause confirmed in `motion_inbetween/train/utils.py`:
+  - `get_new_positions(positions, y, indices, seq_slice)` clones the input `positions` and overwrites **only joint 0 (root)** inside `seq_slice`; non-root joints of in-between frames come verbatim from the input window.
+  - `_build_window` used to fill those non-root joints with the LaFAN **rest pose** (`np.repeat(l_position)`) — so the in-between FK (`gp_j = gp_parent + gr_parent @ lpos_j`) rendered the raw LaFAN T-pose geometry (head displaced down, skeleton stretched/scaled) instead of the authored pose, while context/target frames rendered exactly because `get_new_positions`/`get_new_rotations` leave them untouched.
+  - MIB only predicts rotations + root position (state = 132 rot + 3 root); all non-root geometry comes from the input local positions.
+- [x] Fix in `_build_window`: fill the in-between frames with **linearly interpolated local deltas A→B for ALL 22 joints** (root included, same formula), keeping the deformed-offset representation for context/target (fidelity gate unchanged).
+- [x] Verify: authored fidelity still 0.00 cm through the gate; in-between frames now follow the linear global interpolation A→B with max deviation ≤ 7.2 cm (head stable, no rest-pose artifacts); E2E via API still 200 / `backend: "mib"` / 76 frames / no fallback. No server restart needed (helper runs as a fresh child process per request).
+- [x] Commit: fix in `tools/mib_helper.py` + this doc.
+
 ## Verification evidence
 - [x] T1 verdict recorded with asset paths and exact model input/output contract.
 - [x] Per-task outcomes and commit hashes recorded as each task closes.
@@ -81,7 +90,8 @@ User selected the MIB strategy (decision session 2026-09-21): "vamos con la estr
 - T2: done (`tools/mib_helper.py`; validated with real checkpoints — 70 frames emitted, authored preserved at 0.00/1.14/2.28 cm vs 40 cm tolerance; orchestrator re-ran the validator independently; simplified to deformed-offset conditioning after the E2E finding)
 - T3: done (`aimation_actor_core/infrastructure/ai_models/mib_backend.py`, config `mib` values, `main.py` branch, `generate.py` getattr routing)
 - T4: done (5 focused tests in `tests/infrastructure/test_mib_backend.py`; E2E real chain OK: backend=mib, no fallback, 0.00 cm fidelity; ruff clean on MIB files)
+- T5: done (root cause: rest-pose placeholders in in-between frames overwritten by `get_new_positions`; fixed by interpolating all 22 joints A→B; gate still 0.00 cm; in-betweens ≤7.2 cm from linear interpolation; E2E still OK; running server picks the fix without restart)
 - Environmental (pre-existing, not caused): `PermissionError` tmp_path pytest-asyncio, `test_pinned_rest_offsets` (-8.0 != 0.0), mypy `main.py:131` import-untyped.
 
 ## Next step
-None — feature complete for the first MIB integration. Remaining candidates: rerun full ruff/mypy/import-linter over the repo, full focused pytest suite, and verify work-unit commits are recorded with hashes.
+Have the user generate once more from the frontend to confirm the in-between frames now look like their motion (no skeleton deformation). Optional follow-up: feed the model more realistic local rotations (per-bone look-at) in context/target frames so the predicted in-between rotations carry more "action"; keep the deformed offsets for the exact fidelity gate.

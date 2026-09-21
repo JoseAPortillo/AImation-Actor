@@ -174,24 +174,25 @@ def _build_window(pose_a: np.ndarray, pose_b: np.ndarray, trans_len: int,
     """Build a MIB input window (local positions + local rotations) for a pair.
 
     pose_a/pose_b are authored (22, 3) global positions in cm. Context frames
-    carry pose A, in-between frames are placeholders (identity rotations, root
-    linearly interpolated from A to B), the target frame and the extra
-    post-process frame carry pose B. Non-root local positions are parent-frame
-    deltas so the FK reproduces the authored globals exactly; rotations are
-    identity because the model reads rotated poses from local rotations, not
-    from non-root positions.
+    carry pose A, the target frame and the extra post-process frame carry
+    pose B, and in-between frames carry the linearly interpolated pose A->B
+    for ALL joints. Non-root local positions are parent-frame deltas
+    ``pose[j] - pose[parent]`` so the LaFAN FK reproduces the authored globals
+    exactly in the context/target frames (which ``get_new_positions`` never
+    overwrites), and INTERPOLATED deltas keep the in-between skeleton shaped
+    like the author's motion instead of the LaFAN rest pose. Rotations are
+    identity: the model reads rotated poses from local rotations, not from
+    non-root positions.
     """
     target_idx = _CONTEXT_LEN + trans_len
     window_len = _CONTEXT_LEN + trans_len + 2
     local_a = _offset_local_pose(pose_a)
     local_b = _offset_local_pose(pose_b)
     positions = np.repeat(l_position[None, ...], window_len, axis=0)
-    root_a = pose_a[0]
-    root_b = pose_b[0]
     positions[:_CONTEXT_LEN, :, :] = local_a
     for frame in range(_CONTEXT_LEN, target_idx):
         t = (frame - (_CONTEXT_LEN - 1)) / (target_idx - (_CONTEXT_LEN - 1))
-        positions[frame, 0, :] = root_a + (root_b - root_a) * t
+        positions[frame, :, :] = local_a + (local_b - local_a) * t
     positions[target_idx:, :, :] = local_b  # target frame + extra frame
 
     rotations = np.tile(np.eye(3, dtype=np.float64), (window_len, _NUM_JOINTS, 1, 1))
