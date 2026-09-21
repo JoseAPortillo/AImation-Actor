@@ -15,13 +15,20 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from aimation_actor_core.api.deps import get_lifting_backend, get_pose_detector
+from aimation_actor_core.api.deps import (
+    get_lifting_backend,
+    get_pose_detector,
+    require_token,
+)
 from aimation_actor_core.domain.animation.keypoints import Keypoint, Keypoints2D
 from aimation_actor_core.domain.animation.lifting import LiftingBackend
 from aimation_actor_core.domain.animation.pose_detection import SingleFramePoseDetector
+from aimation_actor_core.infrastructure.ai_models.detection import (
+    PoseDetectionUnavailableError,
+)
 from aimation_actor_core.shared.media_security import MediaPathError
 
-router = APIRouter(tags=["pose"])  # DEV: auth disabled for validation
+router = APIRouter(tags=["pose"], dependencies=[Depends(require_token)])
 
 
 class LiftKeypoint(BaseModel):
@@ -80,6 +87,10 @@ async def detect_pose(
     """
     try:
         result = await detector.detect(video_path, frame_index)
+    except PoseDetectionUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)
+        ) from exc
     except NotImplementedError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)

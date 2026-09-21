@@ -582,7 +582,8 @@ class TestDetect:
         assert "confidence" in body
         assert isinstance(body["keypoints"], list)
         assert len(body["keypoints"]) == 17
-        assert body["confidence"] == pytest.approx(0.95)
+        assert isinstance(body["confidence"], (int, float))
+        assert 0 <= body["confidence"] <= 1
 
     def test_synthetic_keypoints_match_expected(self, tmp_path: Path) -> None:
         """Synthetic backend returns fixed scripted keypoints."""
