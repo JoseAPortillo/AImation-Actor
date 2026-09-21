@@ -110,7 +110,7 @@ class TestOnnxBackend:
 
     def test_implements_protocol(self) -> None:
         """Should implement PoseEstimator protocol."""
-        backend = OnnxBackend(model_path="dummy.onnx")
+        backend = OnnxBackend(model_dir="dummy.onnx")
         assert isinstance(backend, PoseEstimator)
 
     def test_estimate_without_onnxruntime_raises_error(
@@ -122,7 +122,7 @@ class TestOnnxBackend:
         patching ``__import__``, so this test never passes vacuously and does
         not depend on whether onnxruntime happens to be installed.
         """
-        backend = OnnxBackend(model_path="dummy.onnx")
+        backend = OnnxBackend(model_dir="dummy.onnx")
         frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
 
         real_import = builtins.__import__
@@ -149,15 +149,19 @@ class TestOnnxBackend:
         importlib.util.find_spec("onnxruntime") is None,
         reason="onnxruntime not installed",
     )
-    def test_estimate_with_onnxruntime_raises_not_implemented(self) -> None:
-        """Should raise NotImplementedError when onnxruntime is importable."""
-        backend = OnnxBackend(model_path="dummy.onnx")
+    def test_estimate_with_onnxruntime_fails_on_missing_model_dir(self) -> None:
+        """Should fail loudly when the model directory is missing.
+
+        The real ONNX pipeline (RTMDet + RTMPose) must attempt to load the
+        detector model and raise when it cannot, never a placeholder result.
+        """
+        backend = OnnxBackend(model_dir="missing-models")
         frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
 
-        with pytest.raises(NotImplementedError) as exc_info:
+        with pytest.raises(Exception) as exc_info:
             backend.estimate(frames)
 
-        assert "not yet implemented" in str(exc_info.value).lower()
+        assert "not yet implemented" not in str(exc_info.value).lower()
 
 
 class TestEstimateSingle:
@@ -200,7 +204,10 @@ class TestEstimateSingle:
             kp.model_dump() for kp in batch.keypoints
         ]
 
-    def test_onnx_estimate_single_stays_lazy(self) -> None:
-        backend = OnnxBackend(model_path="dummy.onnx")
-        with pytest.raises(NotImplementedError):
+    def test_onnx_estimate_single_fails_on_missing_model_dir(self) -> None:
+        """Should fail loudly on a missing model dir instead of a placeholder."""
+        backend = OnnxBackend(model_dir="missing-models")
+        with pytest.raises(Exception) as exc_info:
             backend.estimate_single(np.zeros((10, 10, 3), dtype=np.uint8))
+
+        assert "not yet implemented" not in str(exc_info.value).lower()
