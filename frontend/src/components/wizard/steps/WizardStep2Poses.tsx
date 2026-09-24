@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiClient, DEFAULT_URL } from "../../../api/ApiClient";
 import { usePinsStore } from "../../../state/usePinsStore";
 import { drawSkeleton } from "../../../core/skeletonOverlay";
+import { PoseSequence3D } from "../../pose3d/PoseSequence3D";
+import type { DetectedKeypoint, DetectedKeypoint3D } from "../../../api/types";
 import type { WizardState } from "../Wizard";
 
 const api = new ApiClient(DEFAULT_URL);
@@ -30,6 +32,10 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(true);
+  const [show3D, setShow3D] = useState(false);
+  const [liftedFrames, setLiftedFrames] = useState<DetectedKeypoint3D[][] | null>(null);
+  const [lifting, setLifting] = useState(false);
+  const [liftError, setLiftError] = useState<string | null>(null);
 
   const trackRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -41,6 +47,7 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
   // Use a fixed nodeId for the wizard
   const nodeId = "wizard-video";
   const nodePins = usePinsStore((s) => s.pinsByNode[nodeId]) ?? [];
+  const storeApi = usePinsStore((s) => s.api);
 
   // Sync api into pin store
   useEffect(() => {
@@ -140,6 +147,52 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
     }
   }, [currentDetection]);
 
+  // 3D preview: collect ONLY pins whose detection succeeded and has keypoints,
+  // ordered by frame, as the bulk lift input (2D keypoints per marked pose).
+  const validPins = useMemo<DetectedKeypoint[][]>(() => {
+    const withFrame: Array<{ frame: number; detection: DetectedKeypoint[] }> = [];
+    for (const pin of nodePins) {
+      if (pin.status === "success" && pin.detection !== null && pin.detection.length > 0) {
+        withFrame.push({ frame: pin.frame, detection: pin.detection });
+      }
+    }
+    withFrame.sort((a, b) => a.frame - b.frame);
+    return withFrame.map((entry) => entry.detection);
+  }, [nodePins]);
+
+  // Content key for the collected frames: re-lift when the set of valid pins
+  // changes (new detection lands, pin deleted, detection replaced).
+  const framesKey = JSON.stringify(validPins);
+
+  // Lift once when the panel opens or the valid-pin input changes.
+  useEffect(() => {
+    if (!show3D || validPins.length === 0) {
+      setLiftedFrames(null);
+      setLiftError(null);
+      setLifting(false);
+      return;
+    }
+    let cancelled = false;
+    setLifting(true);
+    setLiftError(null);
+    void (async () => {
+      try {
+        const result = await storeApi.liftPose3D(validPins);
+        if (cancelled) return;
+        setLiftedFrames(result);
+        setLifting(false);
+      } catch {
+        if (cancelled) return;
+        setLiftError("La vista 3D no pudo cargarse");
+        setLiftedFrames(null);
+        setLifting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [show3D, framesKey, validPins, storeApi]);
+
   // Handlers
   const togglePlay = useCallback(() => {
     setPlaying((prev) => {
@@ -211,6 +264,38 @@ export function WizardStep2Poses({ state, onUpdate, onNext, onPrev }: Props) {
             ref={overlayRef}
             style={styles.overlay}
           />
+        )}
+      </div>
+
+      {/* 3D preview panel */}
+      <div style={styles.preview3dPanel}>
+        <button
+          type="button"
+          data-testid="pose3d-toggle"
+          onClick={() => setShow3D((v) => !v)}
+          style={styles.preview3dToggle}
+          aria-expanded={show3D}
+        >
+          Vista 3D de las poses {show3D ? "▴" : "▾"}
+        </button>
+        {show3D && (
+          <div style={styles.preview3dBody} data-testid="pose3d-panel">
+            {validPins.length === 0 ? (
+              <p style={styles.preview3dHint} data-testid="pose3d-empty-hint">
+                Marca al menos una pose para ver la vista 3D
+              </p>
+            ) : lifting ? (
+              <p style={styles.preview3dHint} data-testid="pose3d-loading">
+                Cargando vista 3D…
+              </p>
+            ) : liftError !== null ? (
+              <p style={styles.preview3dHint} data-testid="pose3d-error" role="alert">
+                {liftError}
+              </p>
+            ) : liftedFrames !== null ? (
+              <PoseSequence3D frames={liftedFrames} />
+            ) : null}
+          </div>
         )}
       </div>
 
@@ -350,6 +435,35 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     height: "100%",
     pointerEvents: "none",
+  },
+  preview3dPanel: {
+    width: "100%",
+  },
+  preview3dToggle: {
+    width: "100%",
+    padding: "8px 12px",
+    background: "#1f2937",
+    border: "1px solid #374151",
+    borderRadius: 8,
+    color: "#e5e7eb",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+    textAlign: "center",
+  },
+  preview3dBody: {
+    marginTop: 8,
+    padding: 12,
+    background: "#111827",
+    border: "1px solid #374151",
+    borderRadius: 8,
+  },
+  preview3dHint: {
+    margin: 0,
+    padding: "12px 0",
+    textAlign: "center",
+    fontSize: 13,
+    color: "#6b7280",
   },
   timeslider: {
     width: "100%",

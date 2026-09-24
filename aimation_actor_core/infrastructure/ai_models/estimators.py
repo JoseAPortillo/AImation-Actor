@@ -169,6 +169,10 @@ class OnnxBackend:
                     "Install it with: pip install onnxruntime"
                 ) from e
             model_path = self.model_dir / "rtmdet-nano.onnx"
+            if not model_path.is_file():
+                raise FileNotFoundError(
+                    f"ONNX detector model not found: {model_path}"
+                )
             self._det_session = ort.InferenceSession(str(model_path))
         return self._det_session
 
@@ -183,6 +187,10 @@ class OnnxBackend:
                     "Install it with: pip install onnxruntime"
                 ) from e
             model_path = self.model_dir / "rtmpose.onnx"
+            if not model_path.is_file():
+                raise FileNotFoundError(
+                    f"ONNX pose model not found: {model_path}"
+                )
             self._pose_session = ort.InferenceSession(str(model_path))
         return self._pose_session
 

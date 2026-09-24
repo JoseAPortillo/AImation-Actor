@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException, Request, status
 
+from aimation_actor_core.domain.animation.lifting import LiftingBackend
 from aimation_actor_core.domain.animation.motion_backend import MotionBackend
 from aimation_actor_core.domain.animation.pose_detection import SingleFramePoseDetector
 from aimation_actor_core.domain.dcc.session import SessionStore
@@ -82,6 +83,13 @@ def get_pose_detector(request: Request) -> SingleFramePoseDetector:
     detector = request.app.state.pose_detector
     assert isinstance(detector, SingleFramePoseDetector)
     return detector
+
+
+def get_lifting_backend(request: Request) -> LiftingBackend:
+    """Return the injected 3D lifting backend from ``app.state``."""
+    backend = request.app.state.lifting_backend
+    assert isinstance(backend, LiftingBackend)
+    return backend
 
 
 def get_settings(request: Request) -> Settings:

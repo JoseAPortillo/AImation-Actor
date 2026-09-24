@@ -9,8 +9,12 @@
 import { fetchTransport, type Transport } from "./transport";
 import { sessionToken } from "./token";
 import type {
+  DetectedKeypoint,
+  DetectedKeypoint3D,
   JobResultResponse,
   JobSnapshot,
+  LiftPose3DRequest,
+  LiftPose3DResponse,
   NodeSchema,
   SingleFramePose,
 } from "./types";
@@ -261,6 +265,20 @@ export class ApiClient {
     return (await this.expectObject(
       await this.request("GET", `/detect/${videoPath}/${frameIndex}`),
     )) as unknown as SingleFramePose;
+  }
+
+  /**
+   * POST /pose/lift — bulk deterministic 2D→3D lift of every keypoint.
+   *
+   * @param frames One 2D COCO keypoint array per video frame, in sequence order.
+   * @returns The same shape/order with a heuristic `z` added per keypoint.
+   */
+  async liftPose3D(frames: DetectedKeypoint[][]): Promise<DetectedKeypoint3D[][]> {
+    const body: LiftPose3DRequest = { frames };
+    const obj = (await this.expectObject(
+      await this.request("POST", "/pose/lift", body),
+    )) as unknown as LiftPose3DResponse;
+    return obj.frames;
   }
 
   // ── Phase B: Round-trip Blender endpoints ───────────────────────────────

@@ -4,9 +4,10 @@ Wraps a ``PoseEstimator`` backend to serve the ``SingleFramePoseDetector``
 domain protocol. The blocking cv2 decode + ``estimate_single`` call runs
 entirely off the event loop via ``asyncio.to_thread`` (decision D1).
 
-When the selected backend raises ``NotImplementedError`` (e.g. the ONNX
-backend in Phase C), the detector re-raises it as
-``PoseDetectionUnavailableError`` so the API layer can map it to HTTP 501.
+When the selected backend is unavailable because it is not implemented, its
+runtime dependency is missing, or its model files are unavailable, the
+detector raises ``PoseDetectionUnavailableError`` so the API layer can map it
+to HTTP 501. Other inference failures are allowed to propagate unchanged.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ class SingleFramePoseDetectorImpl:
             return await asyncio.to_thread(
                 _detect_blocking, resolved, frame_index, self._backend
             )
-        except NotImplementedError as exc:
+        except (FileNotFoundError, OSError, ImportError, NotImplementedError) as exc:
             raise PoseDetectionUnavailableError(str(exc)) from exc
 
     def _resolve(self, video_path: str) -> Path:

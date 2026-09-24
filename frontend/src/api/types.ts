@@ -158,3 +158,24 @@ export interface SingleFramePose {
   /** Frame-level confidence in [0, 1]. */
   confidence: number;
 }
+
+/* ── Bulk 2D→3D pose lifting (POST /pose/lift) ───────────────────────────── */
+
+/** A detected 2D keypoint extended with a heuristic normalized depth. */
+export interface DetectedKeypoint3D extends DetectedKeypoint {
+  /**
+   * Heuristic depth in [0, 1] (0.5 = camera plane). Deterministic preview
+   * only — NOT a real 3D reconstruction.
+   */
+  z: number;
+}
+
+/** Bulk lift request: one 2D COCO keypoint array per video frame (in order). */
+export interface LiftPose3DRequest {
+  frames: DetectedKeypoint[][];
+}
+
+/** Bulk lift response: same shape/order as the request, keypoints carry `z`. */
+export interface LiftPose3DResponse {
+  frames: DetectedKeypoint3D[][];
+}
