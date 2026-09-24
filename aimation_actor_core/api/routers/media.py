@@ -65,7 +65,7 @@ async def upload_video(
     content = await file.read()
     if len(content) > settings.max_video_bytes:
         raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"file exceeds max size of {settings.max_video_bytes} bytes",
         )
 

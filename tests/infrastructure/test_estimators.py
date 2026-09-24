@@ -110,7 +110,7 @@ class TestOnnxBackend:
 
     def test_implements_protocol(self) -> None:
         """Should implement PoseEstimator protocol."""
-        backend = OnnxBackend(model_path="dummy.onnx")
+        backend = OnnxBackend(model_dir="dummy.onnx")
         assert isinstance(backend, PoseEstimator)
 
     def test_estimate_without_onnxruntime_raises_error(
@@ -122,7 +122,7 @@ class TestOnnxBackend:
         patching ``__import__``, so this test never passes vacuously and does
         not depend on whether onnxruntime happens to be installed.
         """
-        backend = OnnxBackend(model_path="dummy.onnx")
+        backend = OnnxBackend(model_dir="dummy.onnx")
         frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
 
         real_import = builtins.__import__
@@ -149,15 +149,13 @@ class TestOnnxBackend:
         importlib.util.find_spec("onnxruntime") is None,
         reason="onnxruntime not installed",
     )
-    def test_estimate_with_onnxruntime_raises_not_implemented(self) -> None:
-        """Should raise NotImplementedError when onnxruntime is importable."""
-        backend = OnnxBackend(model_path="dummy.onnx")
+    def test_estimate_with_missing_models_raises_file_not_found(self) -> None:
+        """Should fail cleanly when the ONNX model directory has no models."""
+        backend = OnnxBackend(model_dir="dummy.onnx")
         frames = [np.zeros((100, 100, 3), dtype=np.uint8)]
 
-        with pytest.raises(NotImplementedError) as exc_info:
+        with pytest.raises(FileNotFoundError):
             backend.estimate(frames)
-
-        assert "not yet implemented" in str(exc_info.value).lower()
 
 
 class TestEstimateSingle:
@@ -201,6 +199,6 @@ class TestEstimateSingle:
         ]
 
     def test_onnx_estimate_single_stays_lazy(self) -> None:
-        backend = OnnxBackend(model_path="dummy.onnx")
-        with pytest.raises(NotImplementedError):
+        backend = OnnxBackend(model_dir="dummy.onnx")
+        with pytest.raises(FileNotFoundError):
             backend.estimate_single(np.zeros((10, 10, 3), dtype=np.uint8))
