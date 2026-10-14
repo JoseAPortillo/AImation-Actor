@@ -1,0 +1,11 @@
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+
+*.fbx binary
+*.mp4 binary
+*.mov binary
+*.pth binary
+*.ckpt binary
