@@ -1,8 +1,9 @@
 """Abstract contract for exchanging 3D animation files (.fbx).
 
-Implemented by ``adapters/io/fbx_adapter.py`` (Blender subprocess). This module
-is part of the interface layer: it may import the domain (``core``) but must not
-import any adapter or third-party library.
+Implemented by ``adapters/io/fbx_adapter.py``: writes with the in-repo binary
+FBX writer and reads through a Blender subprocess. This module is part of the
+interface layer: it may import the domain (``core``) but must not import any
+adapter or third-party library.
 """
 
 from abc import ABC, abstractmethod
