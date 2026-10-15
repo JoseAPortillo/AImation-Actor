@@ -21,6 +21,7 @@ from aimation_actor.core.services import (
     find_key,
     key_frames,
     mark_pose,
+    neutral_pose,
     next_key_frame,
     previous_key_frame,
     remove_pose,
@@ -177,3 +178,30 @@ def test_build_production_pose_ignores_a_raw_rotation_for_the_ground_root() -> N
     built = build_production_pose(pose, _production_skeleton())
 
     assert built["Main"].rotation == Quaternion.identity()
+
+
+# --------------------------------------------------------------------------- #
+# Neutral pose (plan §3.B): what the viewer shows on a frame without a key.
+# --------------------------------------------------------------------------- #
+
+
+def test_neutral_pose_puts_every_joint_at_its_bind() -> None:
+    skeleton = _production_skeleton()
+
+    pose = neutral_pose(skeleton)
+
+    assert set(pose) == set(skeleton.names())
+    for joint_name in skeleton.names():
+        assert pose[joint_name].rotation == Quaternion.identity()
+        assert pose[joint_name].translation == Vector3()
+
+
+def test_neutral_pose_covers_a_joint_that_is_missing_from_a_raw_pose() -> None:
+    skeleton = _production_skeleton()
+
+    pose = neutral_pose(skeleton)
+
+    # Unlike ``build_production_pose``, nothing is derived from a capture: the
+    # neutral pose is the same for every joint, keyed or not.
+    assert pose["Pelvis"].translation == Vector3()
+    assert pose["Head"] == pose["Main"]

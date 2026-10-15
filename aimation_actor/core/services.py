@@ -32,6 +32,7 @@ __all__ = [
     "find_key",
     "key_frames",
     "mark_pose",
+    "neutral_pose",
     "next_key_frame",
     "previous_key_frame",
     "remove_pose",
@@ -92,6 +93,17 @@ def clamp_frame(state: TimelineState, frame: int) -> int:
     if high < low:  # empty/unset range: the start is the only valid frame.
         return low
     return max(low, min(high, frame))
+
+
+def neutral_pose(skeleton: Skeleton) -> dict[str, JointPose]:
+    """Every joint of ``skeleton`` at its bind: identity rotation, zero offset.
+
+    This is the pose the 3D viewport shows on a frame without a Golden Pose
+    (plan §3.B), and the placeholder that marking writes until GVHMR extracts a
+    real pose (M5) — which then overwrites it on the same frame, because a
+    timeline holds at most one key per frame (spec ``FR-CAP-07``).
+    """
+    return {joint.name: JointPose(rotation=Quaternion.identity()) for joint in skeleton.joints}
 
 
 def build_production_pose(pose: WorldPose, skeleton: Skeleton) -> dict[str, JointPose]:
