@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from aimation_actor.adapters.io.fbx import binary, document
@@ -123,3 +125,27 @@ def test_channel_values_match_the_domain_poses(sample_state: TimelineState) -> N
     assert channels["Spine_1"]["Lcl Rotation"]["d|Y"] == pytest.approx((30.0, 90.0))
     # Head: only keyed at frame 42 (identity at frame 15).
     assert channels["Head"]["Lcl Rotation"]["d|X"] == pytest.approx((0.0, 60.0))
+
+
+def test_definitions_list_only_real_object_types(sample_state: TimelineState) -> None:
+    definitions = _parse(sample_state)["Definitions"]
+    object_types = {
+        node.props[0].value: node.find("Count").props[0].value
+        for node in definitions.find_all("ObjectType")
+    }
+
+    # ``GlobalSettings`` is a top-level section, never an FBX object.
+    assert "GlobalSettings" not in object_types
+    assert object_types["Model"] == 5  # Main, Pelvis, Spine_1, Spine_2, Head.
+    assert object_types["NodeAttribute"] == 5
+    # The declared total must match the sum of the per-type counts.
+    assert definitions.find("Count").props[0].value == sum(object_types.values())
+
+
+def test_build_document_rejects_duplicate_frames(sample_state: TimelineState) -> None:
+    duplicated = dataclasses.replace(
+        sample_state, keyframes=(*sample_state.keyframes, sample_state.keyframes[0])
+    )
+
+    with pytest.raises(ValueError, match="duplicated frames: \\[15\\]"):
+        document.build_document(duplicated)
