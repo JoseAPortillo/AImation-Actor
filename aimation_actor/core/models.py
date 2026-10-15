@@ -3,7 +3,7 @@
 Pure Python: this module must import nothing outside the standard library, and
 nothing from `ports/` or `adapters/`.
 
-Conventions (see `docs/AGENTS.md` and `docs/Plan_AImation_Actor_EN.md`):
+Conventions (see `AGENTS.md` and `docs/Plan_AImation_Actor_EN.md`):
 
 - Global motion lives on the ``Main`` root joint, as a translation.
 - The ``Pelvis`` carries only its height (translation ``z``); its local ``x``/``y``

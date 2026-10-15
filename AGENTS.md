@@ -8,7 +8,8 @@ gaps with a 3D motion diffusion model (**CondMDI**).
 - **Python 3.14+**, PySide6 desktop application.
 - Target: Windows production workstations with **≤ 10 GB VRAM**.
 - **Source of truth:** `docs/Plan_AImation_Actor_EN.md` is the full functional
-  spec. This file is the quick summary for agents. Where they disagree, the plan
+  spec. `spec.md` holds the implementable, ID-tagged requirements (SDD layer).
+  This file is the quick summary for agents. Where they disagree, the plan
   wins — **except** for the FBX backend decision below.
 
 ## Architecture: Hexagonal Monolith (Ports & Adapters)
@@ -142,9 +143,54 @@ need to activate:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+## Engineering principles (required)
+
+Every change must respect these principles. They are not optional polish — they
+are the bar for a change to be acceptable.
+
+### SOLID (applied to ports & adapters)
+
+- **S — Single Responsibility.** One module/class, one reason to change:
+  `core/models.py` holds data, `core/services.py` holds logic, each adapter wraps
+  exactly one integration.
+- **O — Open/Closed.** Extend behavior with new adapters/ports, not by editing
+  existing ones. A new AI backend is a new adapter + model-factory entry, with no
+  edits to `core/`.
+- **L — Liskov Substitution.** Any port implementation must be drop-in
+  replaceable; keep port contracts honest and never tighten preconditions or
+  weaken postconditions in an adapter.
+- **I — Interface Segregation.** Ports stay small and focused (I/O vs AI). Never
+  force an adapter to implement methods it does not need.
+- **D — Dependency Inversion.** High-level policy (`core/`) depends on
+  abstractions (`ports/`), never on concretions (`adapters/`, Qt, torch, Blender).
+  This is the same one-way rule as the architecture section.
+
+### SDD — Spec-Driven Development
+
+- The spec is the source of truth: `docs/Plan_AImation_Actor_EN.md` (functional
+  spec) and this file (agent-facing summary). Resolve behavior/interface
+  questions from the spec, not from improvisation.
+- Spec first, code second: when a change alters behavior or interfaces, update the
+  spec (and this summary) in the same change set that touches the code.
+- Every implementation must be traceable to a spec requirement. If it is not in
+  the spec, propose the spec change before writing the code.
+- Where spec and code disagree, the spec wins for behavior — the FBX backend
+  decision in this file is the standing exception.
+
+### General good practices
+
+- Small, focused changes in reviewable units; keep tests and docs next to the code
+  they describe.
+- Explicit over implicit; pure functions in `core/`; no hidden global state.
+- Fail fast with clear errors; validate at the boundaries (adapters) and keep the
+  domain free of defensive checks it should not need.
+- Boy-scout rule: leave code you touch at least as clean as you found it.
+- Keep the automated gates green: `ruff check` and `pytest`.
+
 ## Working conventions for agents
 
-- The plan (`docs/Plan_AImation_Actor_EN.md`) wins on behavior/interface
+- Apply the engineering principles above (SOLID, SDD, good practices) to every
+  change; the plan (`docs/Plan_AImation_Actor_EN.md`) wins on behavior/interface
   questions; keep this summary in sync if decisions change.
 - Keep `core/` and `ports/` free of third-party imports at all times.
 - Add new infrastructure only as an adapter behind a port.

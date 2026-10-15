@@ -7,7 +7,8 @@ motion diffusion model (**CondMDI**).
 
 > Status: early scaffolding. The architecture and pipeline are specified in
 > [`docs/Plan_AImation_Actor_EN.md`](docs/Plan_AImation_Actor_EN.md); the
-> agent-facing summary is in [`docs/AGENTS.md`](docs/AGENTS.md).
+> implementable, testable requirements are in [`spec.md`](spec.md); the
+> agent-facing summary is in [`AGENTS.md`](AGENTS.md).
 
 ## Requirements
 
