@@ -86,6 +86,7 @@ class CaptureController(QObject):
         self._state = state if state is not None else TimelineState()
         self._frame = clamp_frame(self._state, self._state.frame_start)
         self._video_path: Path | None = None
+        self._pending_path: Path | None = None
         self._playing = False
 
         source.media_loaded.connect(self._on_media_loaded)
@@ -155,13 +156,19 @@ class CaptureController(QObject):
     # -- media (FR-CAP-01, FR-CAP-03) -------------------------------------- #
 
     def open_video(self, path: str) -> None:
-        """Ask the player to load ``path``; the timeline follows its answer."""
-        self._video_path = Path(path)
-        self._emit_status(f"Loading {self._video_path.name}…")
+        """Ask the player to load ``path``; the timeline follows its answer.
+
+        The path only becomes the loaded clip once the player confirms it, so a
+        failed open leaves whatever was loaded before intact (FR-CAP-01).
+        """
+        self._pending_path = Path(path)
+        self.status_changed.emit(f"Loading {self._pending_path.name}…")
         self._source.open(path)
 
     def _on_media_loaded(self, reported_fps: float, duration_ms: int) -> None:
         """Adopt the clip's frame rate and range, and start a fresh timeline."""
+        self._video_path = self._pending_path
+        self._pending_path = None
         fps = reported_fps if reported_fps > 0.0 else self._state.fps
         total = max(1, int(math.floor(duration_ms / 1000.0 * fps)))
         # Keys belong to the clip that was loaded when they were marked, so a new
@@ -182,6 +189,7 @@ class CaptureController(QObject):
 
     def _on_source_failed(self, message: str) -> None:
         """Report a player failure; the loaded clip and its keys stay usable."""
+        self._pending_path = None
         self.failed.emit(message)
         self._emit_status(actionable=message)
 

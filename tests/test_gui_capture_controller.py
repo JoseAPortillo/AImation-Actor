@@ -126,6 +126,20 @@ def test_loading_a_second_clip_starts_a_fresh_timeline(
     assert key_frames(controller.state) == ()  # keys belong to the clip
 
 
+def test_a_failed_first_open_leaves_no_clip_loaded(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    failures: list[str] = []
+    controller.failed.connect(failures.append)
+
+    controller.open_video("broken.mp4")
+    source.failed.emit("broken.mp4: unsupported or corrupt media")
+
+    assert failures == ["broken.mp4: unsupported or corrupt media"]
+    assert controller.has_media is False
+    assert controller.video_path is None
+
+
 def test_a_failed_open_reports_and_leaves_the_loaded_clip_usable(
     controller: CaptureController, source: _FakeSource
 ) -> None:
