@@ -65,7 +65,12 @@ class VideoSource(Protocol):
 
 
 class CaptureController(QObject):
-    """Owns the timeline, the playhead and the capture shortcuts' behavior."""
+    """Owns the timeline, the playhead and the capture shortcuts' behavior.
+
+    The timeline — and with it the rig the poses are expressed on — belongs to the
+    caller: the controller never invents one, so a session cannot end up marking
+    poses on a rig nobody loaded.
+    """
 
     media_changed = Signal()
     frame_changed = Signal(int)
@@ -78,12 +83,12 @@ class CaptureController(QObject):
     def __init__(
         self,
         source: VideoSource,
-        state: TimelineState | None = None,
+        state: TimelineState,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._source = source
-        self._state = state if state is not None else TimelineState()
+        self._state = state
         self._frame = clamp_frame(self._state, self._state.frame_start)
         self._video_path: Path | None = None
         self._pending_path: Path | None = None
