@@ -40,9 +40,9 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | FR-CAP-02 | Must | ✅ | Video streams; never fully decoded into RAM. | No path reads all frames; peak RAM does not scale with clip length. *(Measured through the FFmpeg backend: a 48-frame clip and a 1440-frame clip both peak ≈ 8 MiB above the window-only baseline.)* |
 | FR-CAP-03 | Must | ✅ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). *(Frame 0 is the first frame — the range is 0-based, matching FBX time; a 2 s / 24 fps clip reports 48 frames.)* |
 | FR-CAP-04 | Must | ✅ | Shortcuts: `Space` play/pause, `←`/`→` ±1 frame, `K` mark, `Delete` remove, `Shift+←/→` jump between keys. | Each shortcut behaves as described, clamped to the frame range. *(`Ctrl+O` opens a clip; `Delete` removes the key at the playhead, the MVP having no separate selection.)* |
-| FR-CAP-05 | Must | ⬜ | `K` runs GVHMR on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. |
-| FR-CAP-06 | Must | 🟡 | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. *(`build_production_pose` performs the mapping and is tested; nothing extracts a pose to feed it yet — that is FR-CAP-05.)* |
-| FR-CAP-07 | Should | 🟡 | At most one key per frame; extraction failure is non-fatal. | Re-marking a frame does not duplicate; a failed `K` keeps prior keys and reports. |
+| FR-CAP-05 | Must | 🟡 | `K` runs GVHMR on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. *(The pipeline landed: batch 1 is enforced by the runner itself, the engine runs off the UI thread, and one `K` sends exactly one frame. The engine behind the port is still a deterministic stand-in — GVHMR needs an external repo, multi-GB weights and `torchvision`, none of which are present — so FP16 and the CUDA-cache release are not exercised yet.)* |
+| FR-CAP-06 | Must | ✅ | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. *(`build_production_pose` performs the mapping and every extraction now goes through it, verified end to end on a real clip: a stand-in hip height of 140 with a Pelvis bind of 100 wrote an offset of exactly 40.0, and `Main` came back at `(0, 0, 0)` with identity rotation. The mapping is engine-independent.)* |
+| FR-CAP-07 | Should | ✅ | At most one key per frame; extraction failure is non-fatal. | Re-marking a frame does not duplicate; a failed `K` keeps prior keys and reports. *(Re-marking overwrites by frame; a failure keeps every prior key and writes none; a second `K` while an engine runs is refused instead of queued; a late answer from a clip that is no longer open is discarded. M4's neutral placeholder is retired — it would have passed a failure off as a capture.)* |
 
 ### Blocking export
 
@@ -74,7 +74,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | ID | Pri | Status | Requirement | Acceptance criteria |
 | -- | --- | ------ | ----------- | ------------------- |
 | NFR-01 | Must | ✅ | `core/` and `ports/` stay free of third-party imports. | Enforced by a test/lint check on import surfaces. *(`tests/test_layering.py` reads the imports of every domain module and also rejects an adapter import.)* |
-| NFR-02 | Must | ⬜ | No blocking of the UI on AI/IO work. | No frozen window during extraction/generation. |
+| NFR-02 | Must | 🟡 | No blocking of the UI on AI/IO work. | No frozen window during extraction/generation. *(Extraction runs on a worker thread, and a test asserts the UI is not waiting on the engine. Inbetweening (FR-GEN-03) has no implementation yet, so its half of the requirement is unverified.)* |
 | NFR-03 | Must | ✅ | Errors are explicit and actionable; state stays recoverable. | Failures report a message; no silent failures. *(A damaged clip, a mark with nothing loaded, a missing rig and an unusable GL driver each name what happened; the loaded clip and its keys survive a failure.)* |
 | NFR-04 | Should | ✅ | Blender read path is manual-test-only (needs a Blender install). | Documented as manual; not required in CI. |
 
@@ -122,6 +122,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.3.3   | 2026-10-15 | "Offset calculation" landed: plan §5.B split, §4.9 resolved. |
 | 0.3.4   | 2026-10-15 | `Main` reserved for the animator; blocking export ships in place. |
 | 0.4.0   | 2026-10-15 | M4 capture GUI landed (FR-CAP-01..04 ✅, NFR-01/03 ✅); frame range is 0-based. |
+| 0.4.1   | 2026-10-15 | M5 pose-extraction pipeline landed (`AIPort`, frame capture, `QThread` batch 1, remap): FR-CAP-06/07 ✅, FR-CAP-05/NFR-02 🟡 (the engine is a stand-in). |
 
 ## 6. Session state (resume here)
 
@@ -149,16 +150,42 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   back to the key, playback and pause). FR-CAP-02 measured: 48-frame and
   1440-frame clips both peak ≈ 8 MiB above baseline. `tests/test_layering.py`
   enforces NFR-01. 118 tests green, `ruff check` clean.
+- M5 pose-extraction pipeline (`feat/develop`): `AIPort` is the single-operation
+  engine seam; `FrameImage` is the pure-domain RGB frame it consumes; the player
+  moved to `QVideoSink` and renders the frames itself, so the frame at the
+  playhead is available on demand (FR-CAP-02/05); `PoseExtractionRunner` runs one
+  frame per request on a `QThread`; `K` writes the remapped pose at the frame it
+  was extracted from, refuses a second request while one runs, discards a late
+  answer for a clip that is no longer open, and writes no key when extraction
+  fails (FR-CAP-06/07). Verified by hand against real clips through the real
+  window: the primary workflow (open → scrub → `K`, never pressing play) works;
+  a frame captured twice with others in between gives the identical fingerprint
+  while distinct frames differ; 15 captures at 0/10/30/60/120 ms after a scrub
+  never produced a wrong frame; FR-CAP-02 re-measured with the sink in the path
+  (272.0 MiB for a 2 s clip vs 275.1 MiB for a 60 s one, 30× the frames scanned).
+  150 tests green, `ruff check` clean.
 
 **Next**
 
-1. **M5 (`AIPort` + GVHMR)**: per-frame extraction behind the port, which also
-   closes FR-CAP-05/06/07 and lets `K` capture a real pose.
+1. **The real GVHMR adapter** — the remaining half of M5: the `AIPort`
+   implementation plus FP16 and the CUDA-cache release, which needs an external
+   repo, multi-GB weights and `torchvision`.
 2. Then M6 (CondMDI + Model Factory) → M7 (IK) → M8 (generative export).
 
 **Known follow-ups**
 
-- `AIPort` is still an empty stub (§4.7).
+- `AIPort` has one implementation to write: the real GVHMR adapter (§4.7). The
+  contract and the whole pipeline around it are in place, so the adapter lands as
+  one file with no caller changes.
+- **ProRes (FR-CAP-01) was never exercised** — only H.264 has been played. The
+  requirement says `.mp4`/`.mov` with H.264/ProRes, and ProRes is common on real
+  workstations, so this needs a real ProRes clip before FR-CAP-01 can be called
+  fully verified.
+- A mark pressed immediately after a scrub can be refused with "Could not read
+  the frame at the playhead." — refusing is deliberate (the alternative is
+  extracting a neighbouring frame silently), but the capture could instead wait
+  for the pending frame and then proceed. Add that only if real use shows the
+  refusal is common.
 - M4 has no production rig to preview: the joint hierarchy and proportions come
   from GVHMR (M5), so the 3D pane reports "no rig loaded yet" instead of
   inventing one (§4.10).

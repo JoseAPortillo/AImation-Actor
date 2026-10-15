@@ -242,3 +242,13 @@ Planned units (one work-unit commit each, tests with the behavior)
   habrá PR"), which takes the PR-size heuristic and the chained-PR question off
   the table for this repo, now recorded as a project constraint. Verified after
   the merge: `main` and `feat/develop` both point at `53b251c` with a clean tree.
+- **L24.** S6 and L21's "M4 marks the neutral pose, since GVHMR is M5 (A1)" are
+  **resolved by M5**, not by this milestone: `CaptureController.mark_current` no
+  longer writes a placeholder. It asks the engine, and a frame nobody extracted
+  gets no key — FR-CAP-07 asks a failed extraction to keep prior keys and report,
+  and writing a neutral pose would have passed that failure off as a capture.
+  So the neutral-pose placeholder was never part of FR-CAP-07's contract; it was
+  documented here as temporary at the time ("until GVHMR extracts a real pose
+  (M5)") and it served its purpose. A1 is therefore closed by the M5 work, while
+  S6 remains accurate for M4's own committed behavior. Nothing else in this
+  document changed: FR-CAP-01..04 stand as verified.
