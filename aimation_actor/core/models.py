@@ -111,6 +111,30 @@ class WorldPose:
 
 
 @dataclass(frozen=True, slots=True)
+class FrameImage:
+    """One decoded RGB frame, as an AI engine consumes it.
+
+    ``rgb`` is a flat, row-major ``bytes`` buffer of ``width * height * 3``
+    RGB888 samples, starting at the top-left pixel. A plain buffer — rather than
+    a decoder handle — is what keeps ``ports/`` free of any third-party type: the
+    video adapter converts its toolkit's frame into this, and the engine never
+    has to know which toolkit produced it.
+    """
+
+    width: int
+    height: int
+    rgb: bytes
+
+    def __post_init__(self) -> None:
+        expected = self.width * self.height * 3
+        if len(self.rgb) != expected:
+            raise ValueError(
+                f"rgb buffer holds {len(self.rgb)} bytes, expected {expected} "
+                f"for {self.width}x{self.height}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class TimelineState:
     """The full animation state the UI and core operate on."""
 
