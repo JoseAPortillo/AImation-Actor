@@ -236,3 +236,9 @@ Planned units (one work-unit commit each, tests with the behavior)
   was correct all along (`end.x, end.z, -end.y`), no bug was ever committed, and
   the lesson is to verify this kind of claim from the bytes rather than from the
   rendered console.
+- **L23.** Delivered: `feat/develop` fast-forwarded into `main` (`210df96` →
+  `53b251c`), so `main` now carries all of M4 and the branch continues from that
+  same commit. **Not pushed** — the user keeps delivery local ("estamos solos, no
+  habrá PR"), which takes the PR-size heuristic and the chained-PR question off
+  the table for this repo, now recorded as a project constraint. Verified after
+  the merge: `main` and `feat/develop` both point at `53b251c` with a clean tree.
