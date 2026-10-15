@@ -168,6 +168,9 @@ class MainWindow(QMainWindow):
         self.controller.timeline_changed.connect(self._refresh_timeline)
         self.controller.media_changed.connect(self._on_media_changed)
         self.controller.status_changed.connect(self.statusBar().showMessage)
+        # Show the starting pose right away: a pane that only fills in after the
+        # first event would look broken on an empty session.
+        self._on_pose_changed(self.controller.current_pose())
 
     def _on_pose_changed(self, pose: Mapping[str, JointPose]) -> None:
         # The controller already resolves an unkeyed frame to the neutral pose

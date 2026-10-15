@@ -65,3 +65,16 @@ def test_the_viewport_accepts_a_session_without_a_rig(qtbot) -> None:
     viewport.set_pose(Skeleton(joints=()), {})
 
     assert viewport.segments == ()
+
+
+def test_the_viewport_names_a_missing_rig_and_clears_it_when_one_arrives(qtbot) -> None:
+    # A blank pane would read as a broken app, so it has to say which blank it is.
+    viewport = SkeletonViewport()
+    qtbot.addWidget(viewport)
+    skeleton = _skeleton()
+
+    viewport.set_pose(Skeleton(joints=()), {})
+    assert "No rig" in viewport.notice_label.text()
+
+    viewport.set_pose(skeleton, neutral_pose(skeleton))
+    assert "No rig" not in viewport.notice_label.text()

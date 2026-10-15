@@ -14,9 +14,10 @@ vertices are rotated by ``R_x(-90°)`` — the same conjugation the FBX writer u
 GL coordinates are ``(x, z, -y)``; that keeps the figure upright and, unlike a
 plain axis swap, does not mirror it.
 
-If the driver cannot do fixed-function drawing (an ANGLE backend, for example)
-the pane says so instead of showing an empty frame: a silent blank view would
-read as "the rig failed to load" (NFR-03).
+An empty pane never means "something went wrong" and nothing else: if the driver
+cannot do fixed-function drawing, or there is no rig to draw yet (the production
+skeleton arrives with M5), the pane says which of the two it is. A silent blank
+view would read as a failed load (NFR-03).
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ _FIXED_FUNCTION_NOTICE = (
     "This OpenGL driver has no fixed-function pipeline, so the 3D preview is unavailable."
 )
 _NO_CONTEXT_NOTICE = "No OpenGL context is available, so the 3D preview is unavailable."
+_NO_RIG_NOTICE = "No rig loaded yet: the 3D preview appears once a skeleton is available."
 
 
 def fit_view(points: Iterable[Vector3], *, margin: float = 0.1) -> tuple[Vector3, float]:
@@ -73,6 +75,8 @@ class SkeletonViewport(QOpenGLWidget):
         super().__init__(parent)
         self._segments: tuple[tuple[Vector3, Vector3], ...] = ()
         self._ready = False
+        self._gl_notice = ""
+        self._rig_notice = ""
 
         self.notice_label = QLabel(self)
         self.notice_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -94,9 +98,12 @@ class SkeletonViewport(QOpenGLWidget):
         """Show ``pose`` on ``skeleton``.
 
         A session can legitimately have no rig yet (until M5 supplies the
-        production skeleton), in which case there are simply no segments to draw.
+        production skeleton). That draws nothing, so the pane names the reason
+        instead of leaving the animator to guess.
         """
         self._segments = bone_segments(skeleton, pose)
+        self._rig_notice = "" if skeleton.joints else _NO_RIG_NOTICE
+        self._refresh_notice()
         self.update()
 
     # -- OpenGL ------------------------------------------------------------ #
@@ -142,17 +149,22 @@ class SkeletonViewport(QOpenGLWidget):
         """Whether this context can draw the immediate-mode subset we use."""
         context = self.context()
         if context is None or not context.isValid():
-            self._show_notice(_NO_CONTEXT_NOTICE)
+            self._gl_notice = _NO_CONTEXT_NOTICE
+            self._refresh_notice()
             return False
         try:
             GL.glBegin(GL.GL_LINES)
             GL.glEnd()
         except Exception:  # noqa: BLE001 - any GL failure means "cannot draw"
-            self._show_notice(_FIXED_FUNCTION_NOTICE)
+            self._gl_notice = _FIXED_FUNCTION_NOTICE
+            self._refresh_notice()
             return False
-        self._show_notice("")
+        self._gl_notice = ""
+        self._refresh_notice()
         return True
 
-    def _show_notice(self, text: str) -> None:
+    def _refresh_notice(self) -> None:
+        """An unusable context outranks a missing rig: it is the harder blocker."""
+        text = self._gl_notice or self._rig_notice
         self.notice_label.setText(text)
         self.notice_label.setVisible(bool(text))

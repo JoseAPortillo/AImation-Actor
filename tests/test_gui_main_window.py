@@ -77,6 +77,15 @@ def test_the_window_puts_the_video_beside_the_viewport(window: MainWindow) -> No
     assert window.splitter.widget(1) is window.viewport
 
 
+def test_a_window_without_a_rig_says_so_in_the_3d_pane(qtbot, source: _FakeSource) -> None:
+    # M4 ships before the production skeleton exists (that is M5's job), so the
+    # pane has to name that blank instead of looking like a failed load (NFR-03).
+    window = MainWindow(source=source)
+    qtbot.addWidget(window)
+
+    assert "No rig" in window.viewport.notice_label.text()
+
+
 def test_the_shortcuts_are_the_ones_the_plan_names(window: MainWindow) -> None:
     # plan §3.A / S4: the exact key bindings, not an approximation.
     assert window.action_play_pause.shortcut() == QKeySequence("Space")
