@@ -1,7 +1,10 @@
 """Tests for the capture controller (spec FR-CAP-03, FR-CAP-04, FR-CAP-07, NFR-03).
 
-The controller is driven through a fake video source, so the timeline, marking
-and shortcut behavior are proven without a media backend.
+The controller is driven through a fake video source and a fake engine, so the
+timeline, marking and shortcut behavior are proven without a media backend or a
+GPU. The extraction path itself is exercised for real in
+``test_ai_extraction_pipeline.py``; here the extractor answers **synchronously**,
+which keeps every case deterministic.
 """
 
 from __future__ import annotations
@@ -13,12 +16,14 @@ from PySide6.QtCore import QObject, Signal
 
 from aimation_actor.adapters.gui.capture_controller import CaptureController
 from aimation_actor.core.models import (
+    FrameImage,
     JointData,
     JointPose,
     Quaternion,
     Skeleton,
     TimelineState,
     Vector3,
+    WorldPose,
 )
 from aimation_actor.core.services import key_frames, neutral_pose
 
@@ -38,6 +43,7 @@ class _FakeSource(QObject):
         self.plays = 0
         self.pauses = 0
         self.playing = False
+        self.grabs = 0
 
     def open(self, path: str) -> None:
         self.opened.append(path)
@@ -55,6 +61,37 @@ class _FakeSource(QObject):
     def seek_frame(self, frame: int, fps: float) -> None:
         self.seeks.append((frame, fps))
 
+    def grab_frame(self) -> FrameImage | None:
+        self.grabs += 1
+        return FrameImage(width=1, height=1, rgb=bytes(3))
+
+
+class _FakeExtractor(QObject):
+    """The extractor seam, in memory: answers on the spot, no thread involved."""
+
+    extracted = Signal(int, object)
+    failed = Signal(int, str)
+
+    def __init__(self, hip_height: float = 140.0) -> None:
+        super().__init__()
+        self.requests: list[tuple[int, FrameImage]] = []
+        self.refuse = False
+        self.failure: str | None = None
+        self._hip_height = hip_height
+
+    def start(self, frame_index: int, image: FrameImage) -> bool:
+        if self.refuse:
+            return False
+        self.requests.append((frame_index, image))
+        if self.failure is not None:
+            self.failed.emit(frame_index, self.failure)
+            return True
+        self.extracted.emit(
+            frame_index,
+            WorldPose(translation=Vector3(z=self._hip_height), rotations={}),
+        )
+        return True
+
 
 def _skeleton() -> Skeleton:
     return Skeleton(
@@ -71,9 +108,14 @@ def source() -> _FakeSource:
 
 
 @pytest.fixture
-def controller(source: _FakeSource) -> CaptureController:
+def extractor() -> _FakeExtractor:
+    return _FakeExtractor()
+
+
+@pytest.fixture
+def controller(source: _FakeSource, extractor: _FakeExtractor) -> CaptureController:
     state = TimelineState(skeleton=_skeleton(), fps=24.0, frame_start=0, frame_end=0)
-    return CaptureController(source, state)
+    return CaptureController(source, state, extractor=extractor)
 
 
 def _load_clip(source: _FakeSource, fps: float = 24.0, duration_ms: int = 5000) -> None:
@@ -270,9 +312,13 @@ def test_a_paused_position_is_not_treated_as_playback(
 # --------------------------------------------------------------------------- #
 
 
-def test_marking_the_current_frame_adds_a_neutral_pose_key(
-    controller: CaptureController, source: _FakeSource
+def test_marking_the_current_frame_writes_the_extracted_pose(
+    controller: CaptureController, source: _FakeSource, extractor: _FakeExtractor
 ) -> None:
+    # M5: ``K`` extracts the pose at the playhead and writes the *remapped*
+    # result. The engine reports a 140 cm hip and the rig's Pelvis binds at
+    # 100 cm, so the written offset is 40 — Pelvis carries height as an offset
+    # (AGENTS.md).
     changes: list[int] = []
     controller.timeline_changed.connect(lambda: changes.append(controller.frame))
     controller.open_video("clip.mp4")
@@ -284,8 +330,10 @@ def test_marking_the_current_frame_adds_a_neutral_pose_key(
 
     assert key_frames(controller.state) == (15,)
     key = next(k for k in controller.state.keyframes if k.frame == 15)
-    assert key.pose == neutral_pose(_skeleton())
+    assert key.pose["Pelvis"].translation == Vector3(z=40.0)
+    assert key.pose != neutral_pose(_skeleton())  # a real pose, not a placeholder
     assert changes == [15]
+    assert [frame for frame, _image in extractor.requests] == [15]
 
 
 def test_remarking_a_frame_does_not_duplicate_the_key(
@@ -341,10 +389,10 @@ def test_the_pose_is_the_key_on_a_keyed_frame_and_neutral_elsewhere(
     controller.mark_current()
 
     shown = controller.current_pose()
-    assert shown == neutral_pose(_skeleton())
+    assert shown["Pelvis"].translation == Vector3(z=40.0)  # the key's pose
 
     controller.go_to_frame(16)
-    assert controller.current_pose() == neutral_pose(_skeleton())
+    assert controller.current_pose() == neutral_pose(_skeleton())  # no key: the bind
     assert controller.has_key(15) is True
     assert controller.has_key(16) is False
 

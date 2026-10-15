@@ -8,7 +8,11 @@ It drives the video through a small seam — the ``VideoSource`` protocol below 
 so the capture behavior is testable without a media backend, and it never reads
 or decodes media itself: the player streams and reports (FR-CAP-02).
 
-State rules (see ``odd/tasks/m4-capture-gui.md``):
+Marking a golden pose is an **asynchronous** request (M5): the engine runs off the
+UI thread, so the key appears a moment after ``K`` is pressed, on the frame it was
+extracted from — not on wherever the playhead has moved to.
+
+State rules (see ``odd/tasks/m4-capture-gui.md``, ``odd/tasks/m5-pose-extraction.md``):
 
 - a timeline holds at most one key per frame, and marking overwrites (FR-CAP-07);
 - the playhead lives here, not in ``TimelineState``: the core API takes the frame
@@ -16,7 +20,10 @@ State rules (see ``odd/tasks/m4-capture-gui.md``):
 - the frame rate follows the clip when the player reports one, and keeps the
   timeline's default (24) otherwise (FR-CAP-03);
 - the position the player reports only moves the playhead during playback, so the
-  echo of our own seek cannot bounce it.
+  echo of our own seek cannot bounce it;
+- a frame whose pose was never extracted gains **no** key: a failed extraction
+  keeps the prior keys and reports (FR-CAP-07), and a result that belongs to a
+  clip which is no longer open is discarded rather than written onto the new one.
 """
 
 from __future__ import annotations
@@ -28,8 +35,9 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, Signal
 
-from aimation_actor.core.models import JointPose, TimelineState
+from aimation_actor.core.models import FrameImage, JointPose, TimelineState, WorldPose
 from aimation_actor.core.services import (
+    build_production_pose,
     clamp_frame,
     find_key,
     key_frames,
@@ -40,9 +48,13 @@ from aimation_actor.core.services import (
     remove_pose,
 )
 
-__all__ = ["CaptureController", "VideoSource"]
+__all__ = ["CaptureController", "PoseExtractor", "VideoSource"]
 
 _NO_CLIP = "Open a reference video before marking golden poses."
+_NO_ENGINE = "No pose engine is configured, so no pose can be extracted."
+_NO_FRAME = "Could not read the frame at the playhead."
+_BUSY = "Still extracting the previous frame; try again when it finishes."
+_STALE = "Discarded a pose extracted for the clip that is no longer open."
 
 
 class VideoSource(Protocol):
@@ -62,6 +74,30 @@ class VideoSource(Protocol):
     def pause(self) -> None: ...
 
     def seek_frame(self, frame: int, fps: float) -> None: ...
+
+    def grab_frame(self) -> FrameImage | None:
+        """The frame at the playhead, or ``None`` when it is not there yet.
+
+        A seek is asynchronous, so a source returns the frame only when it really
+        belongs to the playhead: handing over the previous position's frame would
+        extract the pose of a frame the animator is not looking at. ``None`` is
+        therefore expected right after a scrub — the animator retries once the
+        video shows the new frame — and not only when no clip is loaded.
+        """
+        ...
+
+
+class PoseExtractor(Protocol):
+    """What the controller needs from an off-thread pose extractor.
+
+    The extractor owns the isolation (NFR-02): ``start`` returns as soon as the
+    work is handed off, and the result arrives later through ``extracted`` or
+    ``failed``. A request that cannot be served — one already in flight — is
+    refused by ``start`` returning ``False``, so the controller never has to
+    guess whether the engine is busy.
+    """
+
+    def start(self, frame_index: int, image: FrameImage) -> bool: ...
 
 
 class CaptureController(QObject):
@@ -85,6 +121,8 @@ class CaptureController(QObject):
         source: VideoSource,
         state: TimelineState,
         parent: QObject | None = None,
+        *,
+        extractor: PoseExtractor | None = None,
     ) -> None:
         super().__init__(parent)
         self._source = source
@@ -93,11 +131,20 @@ class CaptureController(QObject):
         self._video_path: Path | None = None
         self._pending_path: Path | None = None
         self._playing = False
+        self._extractor = extractor
+        # Any in-flight extraction belongs to the clip it was started against, so
+        # "which clip" is tracked as a generation that a load bumps.
+        self._generation = 0
+        self._extraction_generation: int | None = None
 
         source.media_loaded.connect(self._on_media_loaded)
         source.position_changed.connect(self._on_position_changed)
         source.playback_changed.connect(self._on_playback_changed)
         source.failed.connect(self._on_source_failed)
+
+        if extractor is not None:
+            extractor.extracted.connect(self._on_pose_extracted)
+            extractor.failed.connect(self._on_pose_failed)
 
     # -- reported state ---------------------------------------------------- #
 
@@ -174,6 +221,9 @@ class CaptureController(QObject):
         """Adopt the clip's frame rate and range, and start a fresh timeline."""
         self._video_path = self._pending_path
         self._pending_path = None
+        # A new clip invalidates any extraction still running against the old one.
+        self._generation += 1
+        self._extraction_generation = None
         fps = reported_fps if reported_fps > 0.0 else self._state.fps
         total = max(1, int(math.floor(duration_ms / 1000.0 * fps)))
         # Keys belong to the clip that was loaded when they were marked, so a new
@@ -195,8 +245,7 @@ class CaptureController(QObject):
     def _on_source_failed(self, message: str) -> None:
         """Report a player failure; the loaded clip and its keys stay usable."""
         self._pending_path = None
-        self.failed.emit(message)
-        self._emit_status(actionable=message)
+        self._report(message)
 
     # -- playhead (FR-CAP-04, plan §3.A) ----------------------------------- #
 
@@ -250,19 +299,73 @@ class CaptureController(QObject):
     # -- keys (FR-CAP-07, plan §3.A) --------------------------------------- #
 
     def mark_current(self) -> None:
-        """Mark the playhead with a golden pose, replacing any key there.
+        """Extract the pose at the playhead and write it as a golden pose.
 
-        Until GVHMR extracts a real pose (M5), the key carries the neutral pose,
-        which M5 then overwrites on the same frame.
+        The request is **asynchronous** (FR-CAP-05, NFR-02): the engine runs off
+        the UI thread, so this returns before the pose exists and the key appears
+        when the result arrives. Nothing is written when the request cannot be
+        served — a frame whose pose was never extracted must not gain a key
+        (FR-CAP-07).
         """
         if not self.has_media:
-            self.failed.emit(_NO_CLIP)
-            self._emit_status(actionable=_NO_CLIP)
+            self._report(_NO_CLIP)
             return
-        self._state = mark_pose(self._state, self._frame, neutral_pose(self._state.skeleton))
+        if self._extractor is None:
+            self._report(_NO_ENGINE)
+            return
+
+        target = self._frame
+        image = self._source.grab_frame()
+        if image is None:
+            self._report(_NO_FRAME)
+            return
+
+        # Claim the extraction *before* handing it over: an extractor is free to
+        # answer synchronously, and its result must not look stale when it does.
+        # A refusal keeps whichever claim was already in force — stomping it would
+        # discard the result that is still in flight.
+        previous_claim = self._extraction_generation
+        self._extraction_generation = self._generation
+        if not self._extractor.start(target, image):
+            self._extraction_generation = previous_claim
+            self._report(_BUSY)
+            return
+
+        self._emit_status(actionable=f"Extracting the pose at frame {target}…")
+
+    def _on_pose_extracted(self, frame_index: int, pose: WorldPose) -> None:
+        """Write the extracted pose onto the frame it was extracted from (S5).
+
+        The playhead may have moved on since the request: the result is attributed
+        to its own frame, never to wherever the animator is now looking.
+        """
+        if self._is_stale():
+            self._report(_STALE)
+            return
+        self._extraction_generation = None
+        built = build_production_pose(pose, self._state.skeleton)
+        self._state = mark_pose(self._state, frame_index, built)
         self.timeline_changed.emit()
-        self.pose_changed.emit(self.current_pose())
-        self._emit_status()
+        if frame_index == self._frame:
+            self.pose_changed.emit(self.current_pose())
+        self._emit_status(actionable=f"Extracted the pose at frame {frame_index}.")
+
+    def _on_pose_failed(self, frame_index: int, message: str) -> None:
+        """Report a failed extraction; the session and prior keys survive (FR-CAP-07)."""
+        if self._is_stale():
+            self._report(_STALE)
+            return
+        self._extraction_generation = None
+        self._report(f"Pose extraction failed at frame {frame_index}: {message}")
+
+    def _is_stale(self) -> bool:
+        """Whether the finishing extraction belongs to a clip no longer open."""
+        return self._extraction_generation != self._generation
+
+    def _report(self, message: str) -> None:
+        """Surface a failure the way the window shows it (NFR-03)."""
+        self.failed.emit(message)
+        self._emit_status(actionable=message)
 
     def remove_current(self) -> None:
         """Drop the golden pose at the playhead; an empty frame is a no-op."""

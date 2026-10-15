@@ -31,11 +31,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from aimation_actor.adapters.ai.pose_runner import PoseExtractionRunner
 from aimation_actor.adapters.gui.capture_controller import CaptureController, VideoSource
 from aimation_actor.adapters.gui.timeline_bar import TimelineBar
 from aimation_actor.adapters.gui.video_player import VideoPlayer
 from aimation_actor.adapters.gui.viewport_3d import SkeletonViewport
 from aimation_actor.core.models import JointPose, Skeleton, TimelineState
+from aimation_actor.ports.ai_port import AIPort
 
 __all__ = ["MainWindow"]
 
@@ -51,14 +53,17 @@ class MainWindow(QMainWindow):
         *,
         source: VideoSource | None = None,
         skeleton: Skeleton | None = None,
+        engine: AIPort | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build the window.
 
-        ``source`` and ``skeleton`` exist so a caller can supply the player and
-        the rig; the defaults are the real player and an **empty rig**, because
-        until M5 supplies the production skeleton there is none to load, and the
-        window will not invent one.
+        ``source``, ``skeleton`` and ``engine`` exist so a caller can supply the
+        player, the rig and the pose engine; the defaults are the real player, an
+        **empty rig**, and **no engine**, because until M5 supplies the production
+        skeleton and the GVHMR adapter there are none to load, and the window will
+        not invent them. Without an engine, ``K`` reports that it cannot extract
+        rather than writing a pose nobody computed.
         """
         super().__init__(parent)
         self.setWindowTitle("AImation Actor")
@@ -73,7 +78,8 @@ class MainWindow(QMainWindow):
             player if isinstance(player, QWidget) else QLabel("No video pane.", self)
         )
 
-        self.controller = CaptureController(player, state, self)
+        self.extractor = None if engine is None else PoseExtractionRunner(engine, self)
+        self.controller = CaptureController(player, state, self, extractor=self.extractor)
         self.viewport = SkeletonViewport(self)
         self.timeline = TimelineBar(self)
 
@@ -190,3 +196,18 @@ class MainWindow(QMainWindow):
         self._refresh_timeline()
         clip = self.controller.video_path
         self.setWindowTitle("AImation Actor" if clip is None else f"AImation Actor — {clip.name}")
+
+    # -- teardown ----------------------------------------------------------- #
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt's naming, not ours
+        """Stop a running extraction before the window goes away.
+
+        A ``QThread`` destroyed while its work is still running aborts the
+        process, so the worker is asked to stop and waited on here. The wait is
+        the one place a blocking moment is the honest choice: the alternative is
+        a crash on close.
+        """
+        if self.extractor is not None:
+            self.extractor.shutdown()
+        super().closeEvent(event)
+

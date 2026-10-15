@@ -12,7 +12,14 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QKeySequence
 
 from aimation_actor.adapters.gui.main_window import MainWindow
-from aimation_actor.core.models import JointData, Skeleton, Vector3
+from aimation_actor.core.models import FrameImage, JointData, Skeleton, Vector3, WorldPose
+
+
+class _ConstantEngine:
+    """A deterministic engine, so the window's wiring is checked without a GPU."""
+
+    def extract_pose(self, image: FrameImage, *, frame_index: int) -> WorldPose:
+        return WorldPose(translation=Vector3(z=140.0), rotations={})
 
 
 class _FakeSource(QObject):
@@ -29,6 +36,8 @@ class _FakeSource(QObject):
         self.played = 0
         self.paused = 0
         self.seeks: list[tuple[int, float]] = []
+        self.grabs = 0
+        self._frame = FrameImage(width=1, height=1, rgb=bytes(3))
 
     def open(self, path: str) -> None:
         self.opened.append(path)
@@ -41,6 +50,10 @@ class _FakeSource(QObject):
 
     def seek_frame(self, frame: int, fps: float) -> None:
         self.seeks.append((frame, fps))
+
+    def grab_frame(self) -> FrameImage | None:
+        self.grabs += 1
+        return self._frame
 
 
 def _skeleton() -> Skeleton:
@@ -59,7 +72,7 @@ def source() -> _FakeSource:
 
 @pytest.fixture
 def window(qtbot, source: _FakeSource) -> MainWindow:
-    window = MainWindow(source=source, skeleton=_skeleton())
+    window = MainWindow(source=source, skeleton=_skeleton(), engine=_ConstantEngine())
     qtbot.addWidget(window)
     return window
 
@@ -143,13 +156,15 @@ def test_the_arrow_keys_step_one_frame_at_a_time(window: MainWindow, source: _Fa
 
 
 def test_k_marks_the_playhead_and_delete_removes_it(
-    window: MainWindow, source: _FakeSource
+    qtbot, window: MainWindow, source: _FakeSource
 ) -> None:
     _load_two_seconds(window, source)
     window.action_step_forward.trigger()
 
     window.action_mark.trigger()
-    assert window.controller.has_key(1)
+    # The pose is extracted off the UI thread, so the key lands a moment later
+    # (M5, NFR-02) — but it lands on the frame that was marked.
+    qtbot.waitUntil(lambda: window.controller.has_key(1), timeout=5000)
     assert window.timeline.key_strip.keys == (1,)
 
     window.action_remove_key.trigger()
@@ -157,14 +172,19 @@ def test_k_marks_the_playhead_and_delete_removes_it(
     assert window.timeline.key_strip.keys == ()
 
 
-def test_shift_arrows_jump_between_golden_poses(window: MainWindow, source: _FakeSource) -> None:
+def test_shift_arrows_jump_between_golden_poses(
+    qtbot, window: MainWindow, source: _FakeSource
+) -> None:
     _load_two_seconds(window, source)
     window.controller.go_to_frame(10)
     window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(10), timeout=5000)
+
     window.controller.go_to_frame(30)
     window.action_mark.trigger()
-    window.controller.go_to_frame(20)
+    qtbot.waitUntil(lambda: window.controller.has_key(30), timeout=5000)
 
+    window.controller.go_to_frame(20)
     window.action_next_key.trigger()
     assert window.controller.frame == 30
 
