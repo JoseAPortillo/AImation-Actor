@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from aimation_actor.adapters.gui.viewport_3d import SkeletonViewport, fit_view
+from aimation_actor.adapters.gui.viewport_3d import SkeletonViewport, fit_view, to_view
 from aimation_actor.core.models import JointData, Skeleton, Vector3
 from aimation_actor.core.services import neutral_pose
 
@@ -38,6 +38,22 @@ def test_fitting_a_single_point_keeps_a_usable_size() -> None:
 
     assert center.z == pytest.approx(100.0)
     assert half_size == pytest.approx(1.0)  # a floor, so the view never collapses
+
+
+def test_the_view_mapping_is_a_rotation_and_not_a_mirror() -> None:
+    # The domain is Z-up and OpenGL is Y-up, so this is R_x(-90 degrees).
+    # `(x, z, y)` would leave the figure upright but swap left and right, which an
+    # animator would read backwards without anything looking wrong.
+    assert to_view(Vector3(x=1.0, y=2.0, z=3.0)) == pytest.approx((1.0, 3.0, -2.0))
+
+
+def test_the_view_mapping_sends_domain_up_to_screen_up() -> None:
+    # The invariant that keeps the figure standing: +Z in the domain is +Y on screen.
+    assert to_view(Vector3(z=1.0))[1] == pytest.approx(1.0)
+
+    # And depth goes away from the eye (OpenGL looks down -Z), so a point further
+    # along +Y in the domain must not land in front of the camera.
+    assert to_view(Vector3(y=1.0))[2] == pytest.approx(-1.0)
 
 
 def test_fitting_nothing_keeps_a_usable_size() -> None:

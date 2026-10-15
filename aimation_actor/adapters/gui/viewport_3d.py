@@ -32,7 +32,7 @@ from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from aimation_actor.core.kinematics import bone_segments
 from aimation_actor.core.models import JointPose, Skeleton, Vector3
 
-__all__ = ["SkeletonViewport", "fit_view"]
+__all__ = ["SkeletonViewport", "fit_view", "to_view"]
 
 #: The smallest half-size a view may collapse to, in centimeters. Without a
 #: floor a figure that is a single point would produce a zero-width projection.
@@ -66,6 +66,20 @@ def fit_view(points: Iterable[Vector3], *, margin: float = 0.1) -> tuple[Vector3
     )
     half_size = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs)) / 2.0
     return center, max(half_size * (1.0 + margin), _MIN_HALF_SIZE)
+
+
+def to_view(point: Vector3) -> tuple[float, float, float]:
+    """Map a domain point to OpenGL coordinates: ``(x, z, -y)``.
+
+    This is the ``R_x(-90°)`` conjugation the FBX writer also applies, not an
+    axis swap. The difference matters: a swap such as ``(x, z, y)`` would leave
+    the figure upright but **mirrored**, and an animator would be reading left and
+    right backwards without anything looking obviously wrong.
+
+    Kept as a function of its own so that convention has one home and one test,
+    rather than living inside the draw loop.
+    """
+    return (point.x, point.z, -point.y)
 
 
 class SkeletonViewport(QOpenGLWidget):
@@ -141,8 +155,8 @@ class SkeletonViewport(QOpenGLWidget):
         GL.glColor3f(0.85, 0.87, 0.90)
         GL.glBegin(GL.GL_LINES)
         for start, end in self._segments:
-            GL.glVertex3f(start.x, start.z, -start.y)
-            GL.glVertex3f(end.x, end.z, -end.y)
+            GL.glVertex3f(*to_view(start))
+            GL.glVertex3f(*to_view(end))
         GL.glEnd()
 
     def _probe_fixed_function(self) -> bool:

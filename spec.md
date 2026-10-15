@@ -148,7 +148,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   read from the clip, 48 frames, ±1 per step, `K` marking, `Shift+←` jumping
   back to the key, playback and pause). FR-CAP-02 measured: 48-frame and
   1440-frame clips both peak ≈ 8 MiB above baseline. `tests/test_layering.py`
-  enforces NFR-01. 116 tests green, `ruff check` clean.
+  enforces NFR-01. 118 tests green, `ruff check` clean.
 
 **Next**
 

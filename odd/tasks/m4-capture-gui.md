@@ -92,7 +92,7 @@ coordination a delegation would cost.
 | T2 | S3, S4, S5 | inline | done | `75065da` + `c670736` fix — 18 controller tests over a fake source, RED first |
 | T3 | S1, S2, S6, S10 | inline | done | `ac40a0b` + `6926b9c` fix — 7 player tests (seam, boundaries, metadata) |
 | T4 | S3, S4, S8, S9 | inline | done | `3aea43e` — 8 timeline tests, RED first (module missing) |
-| T5 | S9, S11 | inline | done | `2870f72` + `973b2a3` — 5 viewport tests + a real-driver pixel probe |
+| T5 | S9, S11 | inline | done | `2870f72` + `973b2a3` — 7 viewport tests + a real-driver pixel probe |
 | T6 | S4, S6, S8, S9, S12 | inline | done | `740bf54` — 10 window tests, mutation-checked |
 | T7 | S1, S12 | inline | done | `65ac11e` — 3 entry-point tests + a real end-to-end run |
 | T8 | all | inline | done | spec.md statuses + session state; `tests/test_layering.py` |
@@ -221,3 +221,18 @@ Planned units (one work-unit commit each, tests with the behavior)
   covers this box's compatibility context only; `K` marks the neutral pose, since
   GVHMR is M5 (A1); and the real app shows the empty-rig pane until M5, which is
   the M4/M5 seam reported to the user.
+- **L22.** Reviewing my own risk line before reporting turned up a real gap: the
+  axis convention (`(x, z, -y)`) lived inline in `paintGL`, where no test could
+  see it. A **mirror** — `(x, z, y)` — leaves the figure upright and entirely
+  plausible while swapping left and right, so an animator would read the skeleton
+  backwards with nothing looking wrong. The earlier pixel probe could not have
+  caught it either: it counted coloured pixels, and a mirrored figure rasterises
+  just as many. `to_view` now owns the convention with two tests (the rotation,
+  and the invariant that +Z in the domain is +Y on screen). Mutation-checked:
+  mirroring the mapping fails both new tests, restoring passes all 118.
+  This also cost a detour worth recording: chasing the change through the shell
+  produced mangled output that appeared to show a *pre-existing* `end.y` typo in
+  the committed code, and only a programmatic read of the bytes settled it. HEAD
+  was correct all along (`end.x, end.z, -end.y`), no bug was ever committed, and
+  the lesson is to verify this kind of claim from the bytes rather than from the
+  rendered console.
