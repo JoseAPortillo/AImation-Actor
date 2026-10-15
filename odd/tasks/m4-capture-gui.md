@@ -84,8 +84,8 @@ coordination a delegation would cost.
 | ID | Specs | Route | Status | Evidence |
 | -- | ----- | ----- | ------ | -------- |
 | T1 | S7, S9 | inline | done | `da0ddfd` — 6 kinematics tests + 2 neutral-pose tests, RED first |
-| T2 | S3, S4, S5 | inline | done | `75065da` — 17 controller tests over a fake source, RED first |
-| T3 | S1, S2, S6, S10 | inline | pending | |
+| T2 | S3, S4, S5 | inline | done | `75065da` + `c670736` fix — 18 controller tests over a fake source, RED first |
+| T3 | S1, S2, S6, S10 | inline | done | `ac40a0b` + `6926b9c` fix — 7 player tests (seam, boundaries, metadata) |
 | T4 | S3, S4, S8, S9 | inline | pending | |
 | T5 | S9, S11 | inline | pending | |
 | T6 | S4, S6, S8, S9, S12 | inline | pending | |
@@ -149,3 +149,19 @@ Planned units (one work-unit commit each, tests with the behavior)
 - **L10.** A second clip starts a fresh timeline (keys are cleared) because the
   keys belong to the clip they were marked on, and the MVP is one reference video
   per session (spec §4.6). The rig is not clip data and survives.
+- **L11.** T3 slip, recorded honestly: the `VideoPlayer` module was written
+  *before* its tests (an order error), so its tests were not a RED-then-GREEN
+  pair. They still earned their place immediately — they caught two real defects:
+  `QMediaPlayer.positionChanged` carries a `qlonglong` and cannot be connected
+  straight to the seam's `Signal(int)`, and driving the real widget through the
+  controller exposed that `CaptureController(source)` crashed because
+  `TimelineState()` requires a skeleton. The state is now a required argument.
+  Both fixes are committed with their tests.
+- **L12.** Tooling incident, logged because it cost real time and could have
+  shipped silently: three file edits (`media_player`, the `positionChanged` fix,
+  `_on_position`) were present, then reverted on disk before the next command ran,
+  so the suite failed with an already-fixed error. Mitigation adopted: read a file
+  back after editing it, and re-check the edited lines after a run. Nothing was
+  lost in the final state — the source was re-verified line by line.
+- **L13.** Qt Multimedia on this box runs on the FFmpeg 9.0.1 backend (reported
+  by Qt itself in the test run), which matters for the manual playback check.
