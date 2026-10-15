@@ -1,1 +1,83 @@
-"""Pure business logic: keyframe management and offset calculation."""
+"""Pure business logic: keyframe management and offset calculation.
+
+Standard library only: this module may import the domain (``core.models``) and
+nothing from ``ports/`` or ``adapters/``, and no third-party package.
+
+Key management implements the timeline rules the UI relies on:
+
+- a timeline carries **at most one key per frame** (spec ``FR-CAP-07``);
+- keys stay ordered by frame, so navigation and export are deterministic;
+- ``TimelineState`` is frozen, so every operation returns a **new** state and
+  leaves the input untouched.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import replace
+
+from aimation_actor.core.models import JointPose, Keyframe, TimelineState
+
+__all__ = [
+    "clamp_frame",
+    "find_key",
+    "key_frames",
+    "mark_pose",
+    "next_key_frame",
+    "previous_key_frame",
+    "remove_pose",
+]
+
+
+def key_frames(state: TimelineState) -> tuple[int, ...]:
+    """The frame indices that carry a keyframe, sorted ascending and unique."""
+    return tuple(sorted({keyframe.frame for keyframe in state.keyframes}))
+
+
+def find_key(state: TimelineState, frame: int) -> Keyframe | None:
+    """The keyframe at ``frame``, or ``None`` when the frame is empty."""
+    for keyframe in state.keyframes:
+        if keyframe.frame == frame:
+            return keyframe
+    return None
+
+
+def mark_pose(state: TimelineState, frame: int, pose: Mapping[str, JointPose]) -> TimelineState:
+    """Add or replace the pose at ``frame`` and return the new timeline.
+
+    Re-marking an existing frame **overwrites** it, so a frame never holds two
+    keys (spec ``FR-CAP-07``); the result is always sorted by frame.
+    """
+    replacement = Keyframe(frame=frame, pose=dict(pose))
+    kept = [keyframe for keyframe in state.keyframes if keyframe.frame != frame]
+    kept.append(replacement)
+    kept.sort(key=lambda keyframe: keyframe.frame)
+    return replace(state, keyframes=tuple(kept))
+
+
+def remove_pose(state: TimelineState, frame: int) -> TimelineState:
+    """Drop the key at ``frame``; removing an empty frame is a no-op."""
+    kept = tuple(keyframe for keyframe in state.keyframes if keyframe.frame != frame)
+    if len(kept) == len(state.keyframes):
+        return state
+    return replace(state, keyframes=kept)
+
+
+def next_key_frame(state: TimelineState, frame: int) -> int | None:
+    """The first keyed frame strictly after ``frame``, or ``None``."""
+    later = [candidate for candidate in key_frames(state) if candidate > frame]
+    return later[0] if later else None
+
+
+def previous_key_frame(state: TimelineState, frame: int) -> int | None:
+    """The last keyed frame strictly before ``frame``, or ``None``."""
+    earlier = [candidate for candidate in key_frames(state) if candidate < frame]
+    return earlier[-1] if earlier else None
+
+
+def clamp_frame(state: TimelineState, frame: int) -> int:
+    """``frame`` constrained to the timeline's ``[frame_start, frame_end]`` span."""
+    low, high = state.frame_start, state.frame_end
+    if high < low:  # empty/unset range: the start is the only valid frame.
+        return low
+    return max(low, min(high, frame))
