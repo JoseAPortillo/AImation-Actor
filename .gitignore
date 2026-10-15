@@ -13,3 +13,8 @@ dist/
 *.mov
 *.pth
 *.ckpt
+
+# local tooling / code intelligence — per-checkout, regenerable
+.codegraph/
+.atl/
+.engram/
