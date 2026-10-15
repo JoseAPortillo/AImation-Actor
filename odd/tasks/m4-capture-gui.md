@@ -83,8 +83,8 @@ coordination a delegation would cost.
 
 | ID | Specs | Route | Status | Evidence |
 | -- | ----- | ----- | ------ | -------- |
-| T1 | S7, S9 | inline | pending | |
-| T2 | S3, S4, S5 | inline | pending | |
+| T1 | S7, S9 | inline | done | `da0ddfd` — 6 kinematics tests + 2 neutral-pose tests, RED first |
+| T2 | S3, S4, S5 | inline | done | `75065da` — 17 controller tests over a fake source, RED first |
 | T3 | S1, S2, S6, S10 | inline | pending | |
 | T4 | S3, S4, S8, S9 | inline | pending | |
 | T5 | S9, S11 | inline | pending | |
@@ -134,3 +134,18 @@ Planned units (one work-unit commit each, tests with the behavior)
   before M5 exists), so it belongs in `core/services.py` rather than inline in a
   widget; and forward kinematics to world positions is pure math that both the
   viewport and M7's IK need, so it goes to a new `core/kinematics.py`.
+- **L7.** T1 and T2 landed with RED observed first, 77 tests green, `ruff check`
+  clean. Two of my own test expectations were wrong and were corrected, not the
+  code: `timeline_changed` also fires when a clip's range arrives, and the
+  controller deliberately does not emit a status during construction (a signal
+  emitted before the window connects would be lost — the window pulls `status()`).
+- **L8.** RDD assessment after T1 (`--base-ref main --committed-only`) returned
+  `risk: medium`, `review_due: false`, `review_due_reason: under_budget`: the
+  slice stays pending until a later commit reaches the budget.
+- **L9.** Frame base (assumption, not a requirement): the playhead is **0-based**,
+  so frame `0` is the clip's first frame and a range of `N` frames spans
+  `0 .. N-1`. This matches FBX time (`AGENTS.md`: FBX time 0 = frame 0) and
+  avoids mixing bases; a 1-based *display* would be a separate, small change.
+- **L10.** A second clip starts a fresh timeline (keys are cleared) because the
+  keys belong to the clip they were marked on, and the MVP is one reference video
+  per session (spec §4.6). The rig is not clip data and survives.
