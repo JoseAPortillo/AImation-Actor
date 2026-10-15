@@ -36,12 +36,12 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 | ID | Pri | Status | Requirement | Acceptance criteria |
 | -- | --- | ------ | ----------- | ------------------- |
-| FR-CAP-01 | Must | ⬜ | Open a reference video (`.mp4`/`.mov`, H.264/ProRes). | Opens the file; corrupt input errors out and leaves the app usable. |
-| FR-CAP-02 | Must | ⬜ | Video streams; never fully decoded into RAM. | No path reads all frames; peak RAM does not scale with clip length. |
-| FR-CAP-03 | Must | ⬜ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). |
-| FR-CAP-04 | Must | ⬜ | Shortcuts: `Space` play/pause, `←`/`→` ±1 frame, `K` mark, `Delete` remove, `Shift+←/→` jump between keys. | Each shortcut behaves as described, clamped to the frame range. |
+| FR-CAP-01 | Must | ✅ | Open a reference video (`.mp4`/`.mov`, H.264/ProRes). | Opens the file; corrupt input errors out and leaves the app usable. *(A missing or unreadable file fails immediately with a message, and a clip already loaded is kept.)* |
+| FR-CAP-02 | Must | ✅ | Video streams; never fully decoded into RAM. | No path reads all frames; peak RAM does not scale with clip length. *(Measured through the FFmpeg backend: a 48-frame clip and a 1440-frame clip both peak ≈ 8 MiB above the window-only baseline.)* |
+| FR-CAP-03 | Must | ✅ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). *(Frame 0 is the first frame — the range is 0-based, matching FBX time; a 2 s / 24 fps clip reports 48 frames.)* |
+| FR-CAP-04 | Must | ✅ | Shortcuts: `Space` play/pause, `←`/`→` ±1 frame, `K` mark, `Delete` remove, `Shift+←/→` jump between keys. | Each shortcut behaves as described, clamped to the frame range. *(`Ctrl+O` opens a clip; `Delete` removes the key at the playhead, the MVP having no separate selection.)* |
 | FR-CAP-05 | Must | ⬜ | `K` runs GVHMR on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. |
-| FR-CAP-06 | Must | ⬜ | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. |
+| FR-CAP-06 | Must | 🟡 | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. *(`build_production_pose` performs the mapping and is tested; nothing extracts a pose to feed it yet — that is FR-CAP-05.)* |
 | FR-CAP-07 | Should | 🟡 | At most one key per frame; extraction failure is non-fatal. | Re-marking a frame does not duplicate; a failed `K` keeps prior keys and reports. |
 
 ### Blocking export
@@ -73,9 +73,9 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 | ID | Pri | Status | Requirement | Acceptance criteria |
 | -- | --- | ------ | ----------- | ------------------- |
-| NFR-01 | Must | 🟡 | `core/` and `ports/` stay free of third-party imports. | Enforced by a test/lint check on import surfaces. |
+| NFR-01 | Must | ✅ | `core/` and `ports/` stay free of third-party imports. | Enforced by a test/lint check on import surfaces. *(`tests/test_layering.py` reads the imports of every domain module and also rejects an adapter import.)* |
 | NFR-02 | Must | ⬜ | No blocking of the UI on AI/IO work. | No frozen window during extraction/generation. |
-| NFR-03 | Must | 🟡 | Errors are explicit and actionable; state stays recoverable. | Failures report a message; no silent failures. |
+| NFR-03 | Must | ✅ | Errors are explicit and actionable; state stays recoverable. | Failures report a message; no silent failures. *(A damaged clip, a mark with nothing loaded, a missing rig and an unusable GL driver each name what happened; the loaded clip and its keys survive a failure.)* |
 | NFR-04 | Should | ✅ | Blender read path is manual-test-only (needs a Blender install). | Documented as manual; not required in CI. |
 
 ## 4. Open questions
@@ -83,6 +83,8 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 1. VRAM pre-check (≥ 6 GB): hard block or warning?
 2. Import behavior when Blender is not installed?
 3. `fps` source: clip metadata, user setting, or project setting?
+   *(MVP answered in M4: clip metadata, defaulting to 24 when the clip does not
+   report one. Revisit if a project/session setting arrives.)*
 4. Re-marking an existing frame: overwrite or refuse? *(service layer: overwrite.)*
 5. Project persistence (session file) or export-only? *(MVP assumption: export-only.)*
 6. One reference video per session or a list? *(MVP: one.)*
@@ -97,6 +99,16 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
    rotation only. Translations are offsets from each joint's `rest_translation`,
    the convention the FBX writer adds back. This supersedes the plan's §5.B
    assignment of the AI scene displacement to `Main`.
+10. *(Opened 2026-10-15, M4.)* The capture GUI has no rig to preview: the joint
+    hierarchy and proportions come from GVHMR (M5), and the app will not invent
+    joint data behind the production mapping. Options: leave the pane saying "no
+    rig loaded yet" until M5 (current), or ship a provisional production rig now.
+    *(Current choice is the honest empty pane; a provisional rig would have to
+    guess the hierarchy M5 must match.)*
+11. *(Opened 2026-10-15, M4.)* A failed **open** is reported in the status bar.
+    Non-modal suits a failed mark (the session continues), but a clip the
+    animator just picked is easy to miss in a line of text. A dialog for that one
+    case is a candidate.
 
 ## 5. Change log
 
@@ -109,6 +121,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.3.2   | 2026-10-15 | Resume notes + open question on "offset calculation". |
 | 0.3.3   | 2026-10-15 | "Offset calculation" landed: plan §5.B split, §4.9 resolved. |
 | 0.3.4   | 2026-10-15 | `Main` reserved for the animator; blocking export ships in place. |
+| 0.4.0   | 2026-10-15 | M4 capture GUI landed (FR-CAP-01..04 ✅, NFR-01/03 ✅); frame range is 0-based. |
 
 ## 6. Session state (resume here)
 
@@ -126,15 +139,29 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   `Main` stays clean (`(0,0,0)`, identity) for the animator and `Pelvis` takes
   the hip height as an offset from its bind (§4.9). 52 tests green,
   `ruff check` clean.
+- M4 capture GUI (`feat/develop`): `CaptureController` owns the timeline and the
+  playhead; `VideoPlayer` streams through Qt Multimedia (FFmpeg backend);
+  `TimelineBar` is the scrubber with Golden-Pose markers; `SkeletonViewport`
+  draws the pose in a fixed orthographic front view; `MainWindow` composes the
+  split view and the plan's §3.A shortcuts; `main.py` is the entry point.
+  FR-CAP-01..04 verified by hand against a real 2 s / 24 fps H.264 clip (24 fps
+  read from the clip, 48 frames, ±1 per step, `K` marking, `Shift+←` jumping
+  back to the key, playback and pause). FR-CAP-02 measured: 48-frame and
+  1440-frame clips both peak ≈ 8 MiB above baseline. `tests/test_layering.py`
+  enforces NFR-01. 116 tests green, `ruff check` clean.
 
 **Next**
 
-1. **M4 (GUI)**: split view, video, timeline, shortcuts — the largest
-   remaining pillar; `core/services.py` already provides its key logic.
-2. Then M5 (`AIPort` + GVHMR) → M6 (CondMDI + Model Factory) → M7 (IK) → M8
-   (wiring in `main.py`).
+1. **M5 (`AIPort` + GVHMR)**: per-frame extraction behind the port, which also
+   closes FR-CAP-05/06/07 and lets `K` capture a real pose.
+2. Then M6 (CondMDI + Model Factory) → M7 (IK) → M8 (generative export).
 
 **Known follow-ups**
 
 - `AIPort` is still an empty stub (§4.7).
-- NFR-01 has no automated "no third-party imports" check yet (only a smoke test).
+- M4 has no production rig to preview: the joint hierarchy and proportions come
+  from GVHMR (M5), so the 3D pane reports "no rig loaded yet" instead of
+  inventing one (§4.10).
+- Failure reporting is non-modal (status bar). Worth revisiting for a failed
+  *open*, where the animator picked the bad file and a line of text is easy to
+  miss.

@@ -74,6 +74,11 @@ renders what the timeline already holds.
 - **A5.** The viewport draws an orthographic skeleton with fixed-function OpenGL
   lines and a runtime capability probe; no orbit/zoom controls, because no
   requirement asks for them.
+- **A6.** `Delete` removes the Golden Pose **at the playhead**. §3.A says "remove
+  the selected Golden Pose", and the MVP has no separate selection: the playhead
+  is the only cursor the animator has.
+- **A7.** `Ctrl+O` opens a clip. FR-CAP-01 needs a way in and §3.A reserves no key
+  for it; every other binding in §3.A is implemented exactly as written.
 
 ## Tasks
 
@@ -86,11 +91,11 @@ coordination a delegation would cost.
 | T1 | S7, S9 | inline | done | `da0ddfd` — 6 kinematics tests + 2 neutral-pose tests, RED first |
 | T2 | S3, S4, S5 | inline | done | `75065da` + `c670736` fix — 18 controller tests over a fake source, RED first |
 | T3 | S1, S2, S6, S10 | inline | done | `ac40a0b` + `6926b9c` fix — 7 player tests (seam, boundaries, metadata) |
-| T4 | S3, S4, S8, S9 | inline | pending | |
-| T5 | S9, S11 | inline | pending | |
-| T6 | S4, S6, S8, S9, S12 | inline | pending | |
-| T7 | S1, S12 | inline | pending | |
-| T8 | all | inline | pending | |
+| T4 | S3, S4, S8, S9 | inline | done | `3aea43e` — 8 timeline tests, RED first (module missing) |
+| T5 | S9, S11 | inline | done | `2870f72` + `973b2a3` — 5 viewport tests + a real-driver pixel probe |
+| T6 | S4, S6, S8, S9, S12 | inline | done | `740bf54` — 10 window tests, mutation-checked |
+| T7 | S1, S12 | inline | done | `65ac11e` — 3 entry-point tests + a real end-to-end run |
+| T8 | all | inline | done | spec.md statuses + session state; `tests/test_layering.py` |
 
 Planned units (one work-unit commit each, tests with the behavior)
 
@@ -165,3 +170,54 @@ Planned units (one work-unit commit each, tests with the behavior)
   lost in the final state — the source was re-verified line by line.
 - **L13.** Qt Multimedia on this box runs on the FFmpeg 9.0.1 backend (reported
   by Qt itself in the test run), which matters for the manual playback check.
+- **L14.** T4 landed (`3aea43e`): `TimelineBar` with `frame_x`, `KeyStrip` and the
+  scrubber, 8 tests, RED first (the module did not exist). Writing the tests first
+  caught a latent ordering defect in the widget's own range/value handling: the
+  range must be set before the value, or the value is clamped against the stale
+  range. 93 tests green, `ruff check` clean.
+- **L15.** T5 landed (`2870f72`): `fit_view` + `SkeletonViewport` over
+  `QOpenGLWidget`, 5 tests, RED observed first (ImportError on the missing
+  module). Because a widget test cannot prove that anything is *rasterised*, the
+  draw path was probed against the real driver as well: 879 bone-coloured pixels
+  with a rig, 0 without it, and no fallback notice — so the check discriminates
+  rather than passing on a blank frame either way.
+- **L16.** T5 follow-up (`973b2a3`), found by looking at the real app rather than
+  the tests: with no rig loaded — which is *every* session until M5 — the pane was
+  blank with no explanation, exactly the silent failure NFR-03 forbids. It now
+  distinguishes "this driver cannot draw" from "there is no rig yet" and clears
+  the notice when a skeleton arrives. The window also shows the starting pose on
+  construction instead of only after the first event.
+- **L17.** T6 landed (`740bf54`): `MainWindow` composes the player, the panes and
+  the §3.A shortcuts over one controller, 10 tests. Because all 10 passed on the
+  first run after the implementation, they were **mutation-checked**: renaming
+  `K` to `J` and reversing one step broke 5 of them, and all 10 passed again once
+  the source was restored. `Ctrl+O` and the `Delete` target are assumptions A7/A6.
+- **L18.** T7 landed (`65ac11e`): the real entry point plus 3 tests, then a real
+  end-to-end run against a generated 2 s / 24 fps H.264 clip through the FFmpeg
+  backend. Observed: `state_fps = 24.0` (read from the clip, S3), `total_frames =
+  48`, timeline 48, 3 viewport segments; `→` moved the playhead 0→2 with the
+  timeline at 2 (S9); `K` marked frame 2 and the status read "clip.mp4 — frame 2 /
+  48 · 24 fps · 1 golden pose · keyed"; `Shift+←` jumped back to that key; the
+  window rendered 48 distinct colours. A second, focused probe checked the
+  play/pause link: `is_playing` is still `False` immediately after `play()` (the
+  player reports asynchronously), `True` at 800 ms with the playhead at frame 15,
+  and `False` again after the second `Space`, with the playhead frozen for the
+  next 600 ms.
+- **L19.** FR-CAP-02 measured rather than assumed, since "peak RAM does not scale
+  with clip length" is a measurement, not an inspection. Process peak working set,
+  one process per clip: 2 s / 48 frames → 167.8 MiB idle, 175.7 after load, 176.5
+  after seeking to the end; 60 s / 1440 frames → 167.4, 175.5, 176.3. Thirty times
+  the frames, the same ≈ 8 MiB, so the decode is streamed. The first attempt at
+  this probe printed `peak=0.0 MiB` because a ctypes call was failing silently; it
+  was fixed and re-run rather than reported.
+- **L20.** T8 landed: spec.md statuses (FR-CAP-01..04 ✅, FR-CAP-06 🟡 for the
+  unwired mapping, NFR-01/03 ✅), changelog 0.4.0, session state, and §4.10/§4.11
+  opened for the two decisions M4 raises. `tests/test_layering.py` now enforces
+  NFR-01 by reading every domain module's imports and rejecting third-party ones
+  and adapter imports alike.
+- **L21.** Limits of this evidence, stated rather than implied: only H.264 was
+  played (ProRes is required by S10 but no ProRes file was available); the memory
+  measurement covers load and seek, not a long playback session; the GL probe
+  covers this box's compatibility context only; `K` marks the neutral pose, since
+  GVHMR is M5 (A1); and the real app shows the empty-rig pane until M5, which is
+  the M4/M5 seam reported to the user.
