@@ -94,6 +94,23 @@ class Keyframe:
 
 
 @dataclass(frozen=True, slots=True)
+class WorldPose:
+    """A raw, world-space pose as an AI backend reports it, before production mapping.
+
+    ``translation`` is the actor's hip position in world space (centimetres,
+    Z-up): its ``z`` is the ground-to-hip height, and it is the only component
+    consumed by ``build_production_pose``. The horizontal components are the
+    scene displacement the backend recovers, but they are deliberately **not**
+    exported — world placement belongs to the animator. ``rotations`` maps a
+    joint name to that joint's local rotation; a joint absent from the mapping
+    keeps its bind rotation.
+    """
+
+    translation: Vector3
+    rotations: Mapping[str, Quaternion]
+
+
+@dataclass(frozen=True, slots=True)
 class TimelineState:
     """The full animation state the UI and core operate on."""
 

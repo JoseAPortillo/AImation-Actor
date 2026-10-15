@@ -88,9 +88,15 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 6. One reference video per session or a list? *(MVP: one.)*
 7. `AIPort` method signatures for extraction and inbetweening.
 8. Numeric threshold defining "no foot sliding".
-9. Scope of "offset calculation" in `core/services.py`: most likely plan §5.B
-   (derive `Main` global translation + `Pelvis` height from a raw pose), but
-   **unconfirmed** — clarify before implementing M3 part 2.
+9. *(Resolved 2026-10-15.)* "Offset calculation" in `core/services.py`:
+   `build_production_pose` maps a raw `WorldPose` onto the production
+   hierarchy — `Main` stays **clean** (`(0,0,0)`, identity rotation), because it
+   is the animator's world control and the export ships "in place"; the captured
+   horizontal displacement is deliberately **not** exported. `Pelvis` carries the
+   hip **height** only, with local x/y pinned to `0`; every other joint carries
+   rotation only. Translations are offsets from each joint's `rest_translation`,
+   the convention the FBX writer adds back. This supersedes the plan's §5.B
+   assignment of the AI scene displacement to `Main`.
 
 ## 5. Change log
 
@@ -101,6 +107,8 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.3.0   | 2026-10-15 | Added per-requirement status column and legend.       |
 | 0.3.1   | 2026-10-15 | Core keyframe-management services landed (FR-CAP-07). |
 | 0.3.2   | 2026-10-15 | Resume notes + open question on "offset calculation". |
+| 0.3.3   | 2026-10-15 | "Offset calculation" landed: plan §5.B split, §4.9 resolved. |
+| 0.3.4   | 2026-10-15 | `Main` reserved for the animator; blocking export ships in place. |
 
 ## 6. Session state (resume here)
 
@@ -113,14 +121,17 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   validated, duplicate frames rejected.
 - `core/services.py`: pure keyframe management (mark/remove/find/navigation/
   clamp) with tests. 46 tests green, `ruff check` clean.
+- `core/services.py` offset calculation (M3 part 2): `WorldPose` +
+  `build_production_pose` map a raw world pose onto the production hierarchy —
+  `Main` stays clean (`(0,0,0)`, identity) for the animator and `Pelvis` takes
+  the hip height as an offset from its bind (§4.9). 52 tests green,
+  `ruff check` clean.
 
 **Next**
 
-1. **M3 part 2 — `offset calculation`**: blocked on open question §4.9 (confirm
-   plan §5.B meaning), then implement + test.
-2. Then **M4 (GUI)**: split view, video, timeline, shortcuts — the largest
+1. **M4 (GUI)**: split view, video, timeline, shortcuts — the largest
    remaining pillar; `core/services.py` already provides its key logic.
-3. Then M5 (`AIPort` + GVHMR) → M6 (CondMDI + Model Factory) → M7 (IK) → M8
+2. Then M5 (`AIPort` + GVHMR) → M6 (CondMDI + Model Factory) → M7 (IK) → M8
    (wiring in `main.py`).
 
 **Known follow-ups**

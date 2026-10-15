@@ -136,7 +136,7 @@ Main (Master Bone / Ground Root)
 #### Data Format and Offset Compensation Logic
 
 - **File Format:** **Binary FBX** (version 2014/2016 for maximum compatibility with older and newer versions of Maya and Blender).
-- **Global Transformations (Main Bone):** The Python export script will take the scene displacement data calculated by the AI and assign it to the `Main` bone (`Translation X, Y, Z`). This keeps position control at the scene’s ground level.
+- **Global Transformations (Main Bone):** `Main` is the **animator's** world control and the Python export script leaves it untouched — `Translation (0, 0, 0)` and identity rotation — so the blocking file ships **in place**. The scene displacement the AI calculates is deliberately **not** exported; the animator places the character at the scene's ground level in their 3D software, and that authored motion is what the re-import reads back as a hard constraint (§5.C.2).
 - **Relative Transformations (Pelvis Bone):** The pelvis will be positioned relative to its parent (`Main`). Its local X and Y translation coordinates will remain at `0`, while the Z coordinate will store only the distance (height) from the ground to the actor’s hip.
 - **Local Transformations (Body Bones):** All secondary bones will store **Rotation** data only, expressed as **Quaternions (Quaternion: W, X, Y, Z)** to avoid gimbal lock.
 - **Timeline Structure (Sparse Keyframing):**

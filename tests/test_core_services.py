@@ -1,6 +1,9 @@
-"""Tests for the pure keyframe-management services (spec FR-CAP-04, FR-CAP-07)."""
+"""Tests for the pure keyframe-management services (spec FR-CAP-04, FR-CAP-07, FR-EXP-02)."""
 
 from __future__ import annotations
+
+import pytest
+from fbx_helpers import rotation_z
 
 from aimation_actor.core.models import (
     JointData,
@@ -10,8 +13,10 @@ from aimation_actor.core.models import (
     Skeleton,
     TimelineState,
     Vector3,
+    WorldPose,
 )
 from aimation_actor.core.services import (
+    build_production_pose,
     clamp_frame,
     find_key,
     key_frames,
@@ -103,3 +108,72 @@ def test_clamp_frame_keeps_the_frame_within_the_span() -> None:
     assert clamp_frame(state, 0) == 15
     assert clamp_frame(state, 30) == 30
     assert clamp_frame(state, 99) == 42
+
+
+# --------------------------------------------------------------------------- #
+# Offset calculation (plan §5.B): splitting a world pose over Main / Pelvis.
+# --------------------------------------------------------------------------- #
+
+BIND_HIP_HEIGHT = 100.0
+
+
+def _production_skeleton() -> Skeleton:
+    return Skeleton(
+        joints=(
+            JointData(name="Main", parent=None),
+            JointData(name="Pelvis", parent="Main", rest_translation=Vector3(z=BIND_HIP_HEIGHT)),
+            JointData(name="Spine_1", parent="Pelvis"),
+            JointData(name="Head", parent="Spine_1"),
+        )
+    )
+
+
+def test_build_production_pose_keeps_the_ground_root_clean_for_the_animator() -> None:
+    pose = WorldPose(translation=Vector3(x=10.0, y=20.0, z=95.0), rotations={})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    # ``Main`` is the animator's world control: the capture never writes it, so
+    # the blocking export ships "in place" and the recovered horizontal
+    # displacement is deliberately dropped.
+    assert built["Main"].translation == Vector3()
+    assert built["Main"].rotation == Quaternion.identity()
+
+
+def test_build_production_pose_turns_the_world_hip_height_into_a_bind_offset() -> None:
+    pose = WorldPose(translation=Vector3(x=10.0, y=20.0, z=95.0), rotations={})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    pelvis = built["Pelvis"]
+    # 95 cm of world height against a 100 cm bind -> a -5 cm local offset, which
+    # the FBX writer adds back to the bind translation.
+    assert (pelvis.translation.x, pelvis.translation.y, pelvis.translation.z) == pytest.approx(
+        (0.0, 0.0, 95.0 - BIND_HIP_HEIGHT)
+    )
+
+
+def test_build_production_pose_keeps_body_rotations_and_zeroes_their_translation() -> None:
+    rotation = rotation_z(30.0)
+    pose = WorldPose(translation=Vector3(), rotations={"Spine_1": rotation})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert built["Spine_1"] == JointPose(rotation=rotation, translation=Vector3())
+
+
+def test_build_production_pose_returns_a_full_pose_with_bind_defaults() -> None:
+    pose = WorldPose(translation=Vector3(), rotations={"Spine_1": rotation_z(30.0)})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert set(built) == {"Main", "Pelvis", "Spine_1", "Head"}
+    assert built["Head"].rotation == Quaternion.identity()
+
+
+def test_build_production_pose_ignores_a_raw_rotation_for_the_ground_root() -> None:
+    pose = WorldPose(translation=Vector3(), rotations={"Main": rotation_z(90.0)})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert built["Main"].rotation == Quaternion.identity()

@@ -8,7 +8,8 @@ import pytest
 
 from aimation_actor.adapters.io.fbx import binary, document
 from aimation_actor.adapters.io.fbx.binary import FBXNode
-from aimation_actor.core.models import TimelineState
+from aimation_actor.core.models import TimelineState, Vector3, WorldPose
+from aimation_actor.core.services import build_production_pose, mark_pose
 
 
 def _parse(state: TimelineState) -> dict[str, FBXNode]:
@@ -93,6 +94,20 @@ def test_pelvis_rest_translation_is_mapped_to_y_up(sample_state: TimelineState) 
     model = _models(_parse(sample_state)["Objects"])["Pelvis"]
     translation = _property(model.find("Properties70"), "Lcl Translation")
     assert [prop.value for prop in translation.props[-3:]] == pytest.approx([0.0, 100.0, 0.0])
+
+
+def test_exported_pelvis_carries_the_world_hip_height(sample_state: TimelineState) -> None:
+    pose = build_production_pose(
+        WorldPose(translation=Vector3(z=95.0), rotations={}),
+        sample_state.skeleton,
+    )
+    state = mark_pose(sample_state, 15, pose)
+
+    channels = _animation_channels(_parse(state))
+
+    # Frame 15: 95 cm of world height (100 cm bind - 5). Frame 42 has no pelvis
+    # pose, so the bind translation (100 cm) applies. FBX is Y-up.
+    assert channels["Pelvis"]["Lcl Translation"]["d|Y"] == pytest.approx((95.0, 100.0))
 
 
 def test_keys_are_sparse_sorted_and_stepped(sample_state: TimelineState) -> None:

@@ -101,8 +101,15 @@ splitting the read and write paths:
 ## Domain invariants (do not break)
 
 - **SMPL → production hierarchy** is remapped under a ground root bone `Main`.
-- **Global motion** (scene translation X,Y,Z) lives on `Main`.
+- **`Main` is the animator's world control.** The capture never writes it: the
+  blocking export ships **in place**, with `Main` at `(0, 0, 0)` and identity
+  rotation, and the horizontal displacement GVHMR recovers is deliberately
+  dropped. Moving `Main` never rewrites the captured local coordinates of its
+  children, so world placement stays independent from the captured pose.
 - **Pelvis** stores height only: local X/Y = 0, Z = ground-to-hip distance.
+- **Pose translations are offsets from each joint's `rest_translation`**, not
+  absolute locals: the FBX writer adds the bind back when it emits
+  `Lcl Translation` (`adapters/io/fbx/document.py`).
 - **Body bones** store **quaternions only** (W, X, Y, Z) — no Euler angles.
 - **Sparse keyframing:** keys exist strictly at the user-selected frame indices;
   gaps contain no keys at all.

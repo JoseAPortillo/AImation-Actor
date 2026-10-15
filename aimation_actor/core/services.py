@@ -16,9 +16,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
-from aimation_actor.core.models import JointPose, Keyframe, TimelineState
+from aimation_actor.core.models import (
+    JointPose,
+    Keyframe,
+    Quaternion,
+    Skeleton,
+    TimelineState,
+    Vector3,
+    WorldPose,
+)
 
 __all__ = [
+    "build_production_pose",
     "clamp_frame",
     "find_key",
     "key_frames",
@@ -27,6 +36,8 @@ __all__ = [
     "previous_key_frame",
     "remove_pose",
 ]
+
+_PELVIS = "Pelvis"
 
 
 def key_frames(state: TimelineState) -> tuple[int, ...]:
@@ -81,3 +92,42 @@ def clamp_frame(state: TimelineState, frame: int) -> int:
     if high < low:  # empty/unset range: the start is the only valid frame.
         return low
     return max(low, min(high, frame))
+
+
+def build_production_pose(pose: WorldPose, skeleton: Skeleton) -> dict[str, JointPose]:
+    """Map a raw world-space ``pose`` onto ``skeleton``'s production hierarchy.
+
+    The split follows the domain invariants:
+
+    - the ground root is the **animator's world control**: the capture never
+      writes it, so the blocking export ships "in place" and the horizontal
+      displacement the AI recovered is deliberately dropped;
+    - ``Pelvis`` carries the hip **height** only, with local ``x``/``y`` pinned
+      to ``0``;
+    - every other joint carries rotation only.
+
+    Translations are offsets from each joint's ``rest_translation`` — the
+    convention ``document._channel_values`` adds back when it writes the FBX
+    ``Lcl Translation`` — and the ground root keeps an identity rotation,
+    because global motion is a pure translation. The production skeleton must
+    name its hip joint ``Pelvis``; a missing rotation falls back to the bind
+    pose, so the result is always a full pose.
+    """
+    root = skeleton.root().name
+    hip_height = pose.translation.z
+
+    built: dict[str, JointPose] = {}
+    for joint in skeleton.joints:
+        rest = joint.rest_translation
+        if joint.name == _PELVIS:
+            translation = Vector3(x=-rest.x, y=-rest.y, z=hip_height - rest.z)
+            rotation = pose.rotations.get(joint.name, Quaternion.identity())
+        else:
+            translation = Vector3()
+            rotation = (
+                Quaternion.identity()
+                if joint.name == root
+                else pose.rotations.get(joint.name, Quaternion.identity())
+            )
+        built[joint.name] = JointPose(rotation=rotation, translation=translation)
+    return built
