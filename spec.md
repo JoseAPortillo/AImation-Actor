@@ -125,6 +125,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.4.1   | 2026-10-15 | M5 pose-extraction pipeline landed (`AIPort`, frame capture, `QThread` batch 1, remap): FR-CAP-06/07 ✅, FR-CAP-05/NFR-02 🟡 (the engine is a stand-in). |
 | 0.4.2   | 2026-10-16 | M5 verification blocker fixed: the captured frame carries its own index (`K` keys it, the playhead moves there) and the playhead follows the delivered frame while playing (FR-CAP-03/05). |
 | 0.4.3   | 2026-10-16 | M5 fix independently verified: the blocked case reproduced 6/6 rounds per clip at baseline and 0/6 after; 7 regression pins committed (FR-CAP-03/05). |
+| 0.4.4   | 2026-10-16 | M5 fix reviewed (native review, 3 lenses): approved, no blockers, 10 advisories carried as follow-ups (FR-CAP-03/05). |
 
 ## 6. Session state (resume here)
 
@@ -183,6 +184,10 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   a neighbouring frame was working and only the attribution was not. The
   verifier's 7 regression pins are committed, so this coverage no longer depends
   on the manual probe. 168 tests green, `ruff check` clean.
+  **Reviewed** (native review, three lenses: resilience, readability,
+  reliability) over the whole slice `187b822..7e22c5e`: **approved, no blockers**,
+  the correction budget untouched, and ten advisory findings carried forward as
+  follow-ups below rather than fixed inside this candidate.
 
 **Next**
 
@@ -211,3 +216,25 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 - Failure reporting is non-modal (status bar). Worth revisiting for a failed
   *open*, where the animator picked the bad file and a line of text is easy to
   miss.
+- **Native-review advisories from the M5 fix** (L18 in
+  `odd/tasks/m5-pose-extraction.md`). None is a defect in the behavior that was
+  specified or delivered; all were left out of the reviewed candidate on purpose:
+  - **The caller-supplied `fps` seam.** `VideoSource.grab_frame` computes the
+    frame index from the rate the caller passes, and the controller can only pass
+    `self._state.fps` — the default-24 fallback when the backend reported none. So
+    the documented "unknown frame rate → `frame_index` `None`" degradation cannot
+    fire on the real call path, and the player's grab path and its `frame_shown`
+    path can disagree about one frame's index. Fix by giving the player one
+    authority for the index instead of two.
+  - **The one-way `_frames_are_indexed` latch.** The latch is set before the
+    `not self._playing` return, re-armed only by a new clip load, and not scoped
+    to the clip it was proved for; once set, `position_changed` can never move the
+    playhead again for that clip, so a backend that stops supplying timestamps
+    mid-playback freezes the playhead with no fallback. Needs a re-arm or a
+    watchdog.
+  - **Test and observability hygiene.** The metadata → `_fps` → `frame_shown` link
+    is pinned only through the private attribute; the refusal pin never asserts
+    the playhead; `frame_index_of`'s boundaries are pinned three times over; the
+    `_FakeSource` doubles model `VideoSource` two incompatible ways; and the
+    playhead-source switch is silent (nothing reports which source owns the
+    playhead, or that a frame could not be indexed).

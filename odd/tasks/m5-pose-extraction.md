@@ -94,7 +94,7 @@ remap all land here, verified with a deterministic engine.
 | T6 | S3 | inline | ✅ done | `engine=` injection + `closeEvent` shutdown (C4) + `tests/test_gui_main_window.py` |
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
-| T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17) |
+| T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17); native review approved, authority burned (L18) |
 
 ## Log
 
@@ -356,3 +356,57 @@ remap all land here, verified with a deterministic engine.
      slot. Left as documented rather than "fixed" into a third unrequested
      behavior change; the boundaries that *are* reachable are pinned by the first
      of the seven tests.
+
+- **L18.** The last step before this task can be called done: the **native review**
+  (RDD on, global), over the whole slice `187b822..7e22c5e` — four commits, 9
+  paths, 700 changed lines — and not over one file of it. Lenses
+  `resilience,readability,reliability`, chosen because the change touches the
+  capture path's async ordering, its frame attribution and the `VideoSource`
+  contract; `risk` was left out deliberately (no stored data, no credentials, no
+  irreversible effect — the keys are in-session UI state, and the changed protocol
+  has a single implementer updated in the same change). The tier was escalated to
+  `high` on item 4 (async signal ordering across the play/pause boundary) rather
+  than accepted as `medium`: a wider range diluted by tests and docs must not
+  lower a candidate already known to be high risk.
+
+  Consent was relayed losslessly and **granted**. `review-080c6543e28c6cbe` froze
+  the three lenses with a 200-line correction budget.
+
+  **Verdict: approved, authority burned** (`gentle-ai.review-acknowledged/v1`).
+  No blocker, and **no finding opened a correction** — the correction budget was
+  never touched. Ten advisory findings, all `disposition: informational`. Three
+  distinct follow-ups come out of them, and none of the three is a defect in what
+  was specified here:
+
+  1. **The caller-supplied `fps` seam** (`R4-1`, `R2-fps-provenance`, `R3-2`, all
+     WARNING). `grab_frame` derives the index from the rate the *caller* passes,
+     and the controller only ever passes `self._state.fps` — the default-24
+     fallback when the backend reported none (FR-CAP-03). So the degradation S12
+     documents ("unknown frame rate -> `frame_index` `None`") cannot fire on the
+     real call path: it needs `fps <= 0.0`, which the controller has no path to
+     pass. The player's signal path and its grab path can also disagree about one
+     and the same frame's index. Three lenses found one seam, not three bugs.
+  2. **The one-way `_frames_are_indexed` latch** (`R4-2`, `R3-4`, WARNING). The
+     latch is set on the first delivered frame — *before* the `not self._playing`
+     return — and re-armed only by a new clip load, and it is not scoped to the
+     clip it was proved for. Once set, `position_changed` stops moving the
+     playhead for the rest of that clip with no watchdog, timeout or re-arm, so a
+     backend that stops delivering usable timestamps mid-playback freezes the
+     playhead instead of falling back. `R3-4` rates it a gap rather than a
+     regression: the baseline's `position_changed` path was unguarded in the same
+     way.
+  3. **Test and observability hygiene** (`R3-1` WARNING; `R3-3`,
+     `R2-duplicate-index-pins`, `R2-divergent-fake-contract`, `R4-3`,
+     SUGGESTION). The metadata -> `_fps` -> `frame_shown` link is pinned only
+     through the private attribute, so a regression that stops assigning `_fps`
+     would leave every pin green while S13 dies in the real player; the refusal
+     pin never asserts the playhead, so the documented refusal path where the
+     index *is* known and the playhead *does* move has no fake-driven test;
+     `frame_index_of`'s boundaries are pinned three times over; and the
+     `_FakeSource` copies model `VideoSource` two mutually exclusive ways (one
+     wraps a possibly-`None` frame even though `CapturedFrame.image` is
+     non-optional).
+
+  All ten are carried forward in `spec.md` §6 as follow-ups, not fixed here: none
+  is a defect in the specified behavior, and amending the candidate to chase them
+  would have invalidated the very review that found them.
