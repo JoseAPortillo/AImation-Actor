@@ -545,3 +545,81 @@ def test_a_corrupt_pose_mapping_is_never_needed_to_show_a_frame(
         assert set(shown) == set(_skeleton().names())
 
     assert Quaternion.identity() == controller.current_pose()["Main"].rotation
+
+
+# --------------------------------------------------------------------------- #
+# S12/S13 regression additions (verifier probes)
+# --------------------------------------------------------------------------- #
+
+
+def test_an_out_of_range_captured_index_is_clamped(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    # S12: the source's index is trusted for the key, but never outside the range.
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0, duration_ms=1000)  # 24 frames: 0..23
+    controller.go_to_frame(15)
+    source.frame_index = 9999
+
+    controller.mark_current()
+
+    assert key_frames(controller.state) == (23,)
+    assert controller.frame == 23
+
+
+def test_indexing_must_be_proved_again_for_a_new_clip(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    # S13 — "once a source has proved it can index a frame of the current clip".
+    # A new clip re-proves it, so a position event still owns the playhead there.
+    controller.open_video("first.mp4")
+    _load_clip(source, fps=24.0)
+    controller.toggle_playback()
+    source.frame_shown.emit(30)
+    assert controller.frame == 30
+
+    controller.open_video("second.mp4")
+    source.playback_changed.emit(False)  # setSource stops playback
+    _load_clip(source, fps=24.0)
+    controller.toggle_playback()
+    source.position_changed.emit(500)  # 500 ms at 24 fps
+
+    assert controller.frame == 12
+
+
+def test_a_proved_index_keeps_owning_the_playhead(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    # S13: position stops driving the playhead the moment indexing is proved.
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0)
+    controller.toggle_playback()
+    source.position_changed.emit(500)  # 12
+    source.frame_shown.emit(20)
+    source.position_changed.emit(1000)  # 24 — still ignored
+
+    assert controller.frame == 20
+
+
+def test_a_refused_mark_writes_no_key_and_leaves_the_timeline_intact(
+    controller: CaptureController, source: _FakeSource, extractor: _FakeExtractor
+) -> None:
+    # S4: a K while an extraction is in flight is refused and marks nothing.
+    controller.open_video("clip.mp4")
+    _load_clip(source)
+    controller.go_to_frame(15)
+    controller.mark_current()
+    before = controller.state.keyframes
+    requests = list(extractor.requests)
+    failures: list[str] = []
+    controller.failed.connect(failures.append)
+
+    extractor.refuse = True
+    controller.go_to_frame(30)
+    controller.mark_current()
+
+    assert failures[-1] == (
+        "Still extracting the previous frame; try again when it finishes."
+    )
+    assert controller.state.keyframes == before
+    assert extractor.requests == requests

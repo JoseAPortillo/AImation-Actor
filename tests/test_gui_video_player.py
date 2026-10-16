@@ -378,3 +378,40 @@ def test_an_explicit_play_is_reported_once_priming_is_over(qtbot) -> None:
     player._on_playback_state(QMediaPlayer.PlaybackState.PlayingState)
 
     assert reported == [True]
+
+
+# --------------------------------------------------------------------------- #
+# S12/S13 regression additions (verifier probes)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_frame_index_boundaries() -> None:
+    # S12: the named boundaries of ``frame_index_of``, plus the no-answer cases.
+    assert frame_index_of(500000, 24.0) == 12
+    assert frame_index_of(2000000, 24.0) == 48
+    assert frame_index_of(0, 24.0) == 0
+    assert frame_index_of(-1, 24.0) is None
+    assert frame_index_of(2000000, 0.0) is None
+    assert frame_index_of(500000, -24.0) is None
+
+
+def test_the_seek_targets_predate_the_fix_and_must_not_move() -> None:
+    # S10: these values are from the baseline commit and are unchanged.
+    assert frame_time_ms(0, 24.0) == 21
+    assert frame_time_ms(5, 24.0) == 229
+    assert frame_time_ms(12, 24.0) == 521
+    assert frame_time_ms(199, 24.0) == 8312
+
+
+def test_a_live_frame_without_a_frame_rate_reports_no_index(qtbot) -> None:
+    # S12: degrade, never refuse — the caller falls back to its own playhead.
+    player = VideoPlayer()
+    qtbot.addWidget(player)
+
+    player.play()
+    player._on_frame(_timed_frame(2000000, 2041667))
+
+    captured = player.grab_frame(0.0)
+
+    assert captured is not None
+    assert captured.frame_index is None
