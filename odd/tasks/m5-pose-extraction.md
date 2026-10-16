@@ -123,7 +123,7 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
 | T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17); native review approved, authority burned (L18) |
-| T10 | S15 | inline | 🔄 in progress | **Measurement gate — nothing downstream is specified in detail until this lands.** Python **3.10.20** via `uv` (no usable 3.10 base existed on the box); torch 2.14.1+cu130 sees the GPU; the explicit inference set installed — `detectron2` skipped (it is only an `extras_require`), **`chumpy` IS required** and only the `mattloper/chumpy` git fork works (PyPI 0.70 cannot import under numpy 2); HMR2.0b checkpoint fetched (2584 MB) into `.engine/.cache/4DHumans`; **blocked on the user-supplied SMPL body model**; then measured on this box (**RTX 3080, 10,240 MiB**): VRAM, per-frame latency, and **hip-height stability** (L20, **L21**) |
+| T10 | S15 | inline | 🔄 in progress | **Measurement gate — nothing downstream is specified in detail until this lands.** Python **3.10.20** via `uv` (no usable 3.10 base existed on the box); torch 2.14.1+cu130 sees the GPU; the explicit inference set installed — `detectron2` skipped (it is only an `extras_require`), **`chumpy` IS required** and only the `mattloper/chumpy` git fork works (PyPI 0.70 cannot import under numpy 2); **both** checkpoints fetched and extracted into `.engine/.cache/4DHumans` (2584 MB each, additive directories — neither clobbers the other); **`b` is the chosen default** — the released checkpoint, and the authors' pick for unusual poses (L22) — with `a` kept on disk for the latency comparison; **blocked on the user-supplied SMPL body model**; then measured on this box (**RTX 3080, 10,240 MiB**): VRAM and per-frame latency for both, and **hip-height stability** (L20, **L21**, **L22**) |
 | T11 | S14,S16 | TBD after T10 | ⬜ open | the adapter module behind `AIPort`, out-of-process; typed actionable failure when the engine, environment or weights are absent (S6, S7) |
 | T12 | S5,S14 | TBD after T10 | ⬜ open | engine output → `WorldPose`: hip height in centimetres plus per-joint local quaternions named for the production skeleton, world displacement dropped; conversion tests |
 | T13 | — | TBD after T10 | ⬜ open | docs in sync, gates green, evidence recorded |
@@ -471,10 +471,15 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 
   **HMR2.0 is GVHMR's own backbone**, single-image by design. On 3DPW, `PA-MPJPE`:
   GVHMR `36.2 mm` **with 120 frames of context**, against HMR2.0a `44.5 mm` with
-  **one** — and the released checkpoint is the `b` variant at **`54.3 mm`**. So the
-  switch costs 8–18 mm *that the single-frame path could not have had anyway*, in
-  exchange for a lighter pipeline. Honest limits recorded with it: `PCK@0.05` on
-  `LSP-Ext` is `0.53`, so budget an animator cleanup pass per Golden Pose.
+  **one** — and the released checkpoint is the `b` variant at **`54.3 mm`** on that
+  same column. *(L22 corrects my first reading of this: 3DPW `PA-MPJPE` is one of
+  seven reported columns, `b` wins the other six, and the authors call it the more
+  robust model — see L22.)* So the switch costs 8–18 mm *that the single-frame
+  path could not have had anyway*, in exchange for a lighter pipeline. Honest
+  limits recorded with it: `PCK@0.05` on `LSP-Ext` is `0.53` — which is the
+  **best** figure reported at that threshold (*"1.6× better than the second
+  best"*), not a shortcoming; the real limit is that **absolute** accuracy still
+  warrants an animator cleanup pass per Golden Pose.
 
   **Two corrections to the survey that drove this**, both verified against primary
   artifacts rather than restated: 4D-Humans is **MIT** (not Apache-2.0) with a
@@ -647,13 +652,92 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   error. Any retry after an interrupted download must delete the leftover file
   first.
 
-  **Accuracy lever, still open.** The tarball ships HMR2.0**b** (54.3 mm 3DPW
-  PA-MPJPE). The README states the HMR2.0**a** variant is a separate download
-  (`hmr2a_model.tar.gz`, 2,709,514,240 bytes) at **44.5 mm** — an 18 % error
-  reduction on the standard metric, which is the axis the user named as the top
-  priority. Both checkpoints are being fetched so T10 can **measure** them rather
-  than choose on paper.
+  **Checkpoint choice — my first framing here was WRONG, corrected in L22.**
+  The tarball ships HMR2.0**b**; the README says HMR2.0**a** is a separate
+  download (`hmr2a_model.tar.gz`, 2,709,514,240 bytes). Both were fetched. What
+  I first wrote in this spot — that `a` is "the accuracy lever", an 18 % error
+  reduction "on the standard metric" — **cherry-picked one metric out of five
+  and drew the opposite conclusion from the paper's own.** L22 has the full
+  table and the correction.
 
   **Nothing measured yet.** VRAM, latency and hip-height stability all still
   require the body model, so no number in this log is a measurement. The
   measurement gate is still shut.
+- **L22.** **Checkpoint `a` vs `b`: I checked the paper instead of trusting my
+  own note, and my note was misleading. `b` is the authors' recommended model.**
+  Both tarballs are now downloaded and extracted; the extraction is *additive*
+  (they land in different directories, so neither clobbers the other):
+
+  | variant | path under `.engine/.cache/4DHumans` | size |
+  | ------- | ------------------------------------ | ---- |
+  | `b` | `logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt` | 2584 MB |
+  | `a` | `logs/train/multiruns/hmr2a/0/checkpoints/epoch=10-step=25000.ckpt` | 2584 MB |
+
+  `load_hmr2(checkpoint_path=...)` selects between them; `DEFAULT_CHECKPOINT` is
+  hardcoded to the `b` path, and each checkpoint's own `model_config.yaml` sits
+  where `load_hmr2` looks for it (`Path(checkpoint_path).parent.parent /`),
+  which is why the `a` variant could not simply be dropped into `hmr2/`.
+
+  **Why I checked.** The `a` checkpoint is `epoch=10`, step 25 000, against
+  `b`'s step 1 000 000 — a 40× shorter run. A shorter run scoring better is not
+  impossible, but it is exactly the kind of claim worth a source. The README has
+  **no metrics table** at all (it only names `b` as the default), so the numbers
+  were re-read from the paper's own tables: *Humans in 4D* (Goel et al., ICCV
+  2023), **arXiv:2305.20091v3**, Table 1 (3D, mm — lower better) and Table 2
+  (2D PCK — higher better).
+
+  | model | 3DPW MPJPE | 3DPW PA-MPJPE | H36M MPJPE | H36M PA-MPJPE | LSP-Ext @0.05 | COCO @0.05 | PoseTrack @0.05 |
+  | ----- | ---------- | ------------- | ---------- | ------------- | ------------- | ---------- | --------------- |
+  | HMR 2.0 **a** | **70.0** | **44.5** | **44.8** | 33.6 | 0.38 | 0.79 | 0.86 |
+  | HMR 2.0 **b** | 81.3 | 54.3 | 50.0 | **32.4** | **0.53** | **0.86** | **0.90** |
+
+  So the two numbers I had recorded (`a` 44.5, `b` 54.3) are real — they are
+  simply **one column of seven**. `a` wins 3DPW MPJPE, 3DPW PA-MPJPE and H36M
+  MPJPE; `b` wins H36M PA-MPJPE and **every single 2D column**, by a wide margin
+  on the hard ones. My "18 % error reduction on the standard metric" line
+  promoted a single saturated benchmark to "the standard" and silently dropped
+  the six that disagree.
+
+  **The paper's own reading, which decides this.** Verbatim:
+
+  > *"we observe that by a small compromise of the performance on 3DPW, our
+  > HMR 2.0b model, which trains for longer on more data (AVA, AI Challenger,
+  > and InstaVariety), achieves results that perform better on **more unusual
+  > poses**... Furthermore, we observe that HMR 2.0b is a **more robust model
+  > and use it for evaluation in the rest of the paper**."*
+
+  and, on the benchmarks `a` wins:
+
+  > *"we believe that these benchmarks are very saturated and these smaller
+  > differences in pose metrics tend to not be very significant."*
+
+  The authors made the trade **deliberately** and then chose `b` for everything
+  downstream. On LSP-Extended — the dataset built for unusual poses — `b`'s
+  `PCK@0.05` of `0.53` is described as *"1.6× better than the second best"*,
+  against `a`'s `0.38`.
+
+  **Why this lands on this project specifically.** Production animation footage
+  is *by definition* the unusual-pose case: action, combat, dance, extreme
+  contortion. That is LSP-Extended's regime, not 3DPW's. And the 2D PCK columns
+  measure reprojection alignment against the image — which is the fidelity the
+  animator actually **sees in the viewport** while deciding whether a Golden Pose
+  is usable. The 3D columns `a` wins are Procrustes-aligned, i.e. with global
+  orientation and scale removed, and this tool discards world placement anyway.
+
+  **The configs independently corroborate that `a` is not a "better `b`".**
+  They are two different training recipes, not two lengths of the same one:
+  `a` is `exp_name: 3001d` with **`BACKBONE.FREEZE: true`** (only the head is
+  trained, which is why it converges in 25 k steps) on the classic HMR data mix
+  (H36M/MPII/COCO/MPI-INF, `BATCH_SIZE: 512`, `LR: 1e-4`); `b` is full
+  fine-tuning on that mix **plus AVA, AI Challenger and InstaVariety**
+  (`BATCH_SIZE: 48`, `LR: 1e-5`, 1 M steps). Freezing the backbone in training
+  changes nothing at *inference* — both load the same ViT — so VRAM and latency
+  should be close, but that is a thing to **measure**, not to assume.
+
+  **Decision.** Default to **`b`**: it is the released checkpoint, the one the
+  README's own code path uses, and the one the authors say is more robust for
+  exactly the poses this tool exists to capture. Both are kept on disk so T10
+  can still measure them against each other for VRAM and latency — and **note
+  what cannot be measured here**: accuracy has no ground truth on this box, so
+  the paper is the *only* accuracy evidence available and it points at `b`. The
+  earlier framing of `a` as the accuracy pick is withdrawn.

@@ -120,8 +120,15 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
     constraint HMR2.0 inherits anyway via the SMPL body model, so picking GVHMR
     buys no freedom. Measured on the same benchmark (3DPW, PA-MPJPE): GVHMR
     **36.2 mm with 120 frames** against HMR2.0's **44.5 mm with one** — and the
-    released HMR2.0 checkpoint is the `b` variant at **54.3 mm**. That ~8-18 mm is
-    the entire price of the switch, and it is not reachable at `F=1` regardless.
+    **released** checkpoint is the `b` variant at **54.3 mm** on that one column.
+    That column is not the whole picture, and it is not the deciding one: across
+    the paper's other reported columns `b` wins — Human3.6M PA-MPJPE (`32.4`
+    against `33.6`) and **every 2D PCK column**, by `0.53` against `0.38` on
+    LSP-Extended, the unusual-pose benchmark. The authors call `b` the *"more
+    robust model"* and *"use it for evaluation in the rest of the paper"*, and
+    call the 3DPW gap a *"small compromise"*. So the price of the switch is
+    ~8-18 mm on one saturated benchmark, and it is not reachable at `F=1`
+    regardless.
     `docs/Plan_AImation_Actor_EN.md` names GVHMR throughout and needs the same
     correction when it is next revised; **this entry is the authority until then**.
 13. *(Opened 2026-10-16, M5.)* Two HMR2.0 properties are **unmeasured**, and both
@@ -233,7 +240,10 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   body-model constraint, so the switch costs nothing in freedom. The one real
   price is per-joint accuracy — 36.2 mm (GVHMR, 120 frames) against 44.5/54.3 mm
   (HMR2.0, one) on 3DPW PA-MPJPE — and it is unreachable at `F=1` anyway. The
-  install also loses `detectron2`, which only produced bounding boxes. Recorded
+  install also loses `detectron2`, which only produced bounding boxes, but
+  **keeps `chumpy`** — the SMPL body model is chumpy-pickled and `smplx` must be
+  able to unpickle it, so the fork 4D-Humans pins is a real runtime dependency
+  (PyPI 0.70 cannot even import under numpy 2). Recorded
   as §4.12 (the decision), §4.13 (the two unmeasured properties) and §4.14 (the
   licensing posture).
 
@@ -242,7 +252,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 1. **The real HMR2.0 adapter** — the remaining half of M5, in two steps, because
    two of its properties are still unmeasured (§4.13). **(a) Environment and
    measurement:** a dedicated Python 3.10 venv (torch cu130, `smplx`,
-   pytorch-lightning — no `detectron2`, no `chumpy`), the 2.7 GB checkpoint and
+   `pytorch-lightning` and `chumpy` — the SMPL body model is chumpy-pickled, so `smplx` must be able to unpickle it, and only the `chumpy` fork 4D-Humans pins imports under numpy 2; `detectron2` is *not* needed, it only produced bounding boxes), the 2.7 GB checkpoint and
    the SMPL `.pkl`, then measure VRAM, per-frame latency and **hip-height
    stability** on real footage. **(b) The adapter:** the `AIPort` implementation —
    SMPL parameters to hip height in centimetres plus per-joint local quaternions

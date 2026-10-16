@@ -122,19 +122,27 @@ GVHMR's advantage is **unreachable here** — while costing ViTPose (~2.55 GB), 
 detector, and a much heavier pipeline.
 
 - **Engine: HMR2.0** — single-image by design, MIT code, ~2.7 GB checkpoint.
-  Accuracy, 3DPW `PA-MPJPE`: `44.5 mm` for the `a` variant, **`54.3 mm` for the
-  released `b` checkpoint**. GVHMR's `36.2 mm` is *with 120 frames of context*,
-  which is not available at one frame. **Budget an animator cleanup pass per
-  Golden Pose**; `PCK@0.05` on `LSP-Ext` is only `0.53`.
+  Accuracy on 3DPW `PA-MPJPE`: `44.5 mm` for the `a` variant and `54.3 mm` for
+  the **released** `b`. That one column is **not** the deciding one — `b` is the
+  authors' pick, beating `a` on Human3.6M `PA-MPJPE` and on **every 2D PCK
+  column** (on `LSP-Ext` at `@0.05`, `0.53` against `0.38`), and they describe it
+  as the *"more robust model"* for unusual poses. GVHMR's `36.2 mm` is *with 120
+  frames of context*, which is not available at one frame. **Budget an animator
+  cleanup pass per Golden Pose** — even `b`'s `LSP-Ext` `PCK@0.05` is `0.53`.
 - **Out of process, like Blender.** HMR2.0's stack pins versions this project's
   interpreter does not carry, so it runs in its own **Python 3.10** environment
   and the adapter talks to it across a process boundary.
   **Never import the engine into the application process** — same isolation
   reasons as `bpy` (FR-IMP-03).
-- **No `detectron2`, no `chumpy`.** `detectron2` only produces bounding boxes
-  (the model and its dataset class consume boxes directly) and the animator
-  already chooses the frame, so a manual box — or any detector — replaces it.
-  `chumpy` is needed only to unpickle the SMPL `.pkl`, converted once offline.
+- **No `detectron2`, but `chumpy` IS required.** `detectron2` only produces
+  bounding boxes (the model and its dataset class consume boxes directly) and the
+  animator already chooses the frame, so a manual box — or any detector — replaces
+  it. `chumpy`, by contrast, is a **runtime** dependency, not a one-off offline
+  tool: `convert_pkl()` unpickles the SMPL body model, which contains
+  `chumpy.ch.Ch` objects, and re-pickles them unchanged — so `smplx` must be able
+  to import `chumpy` at *load* time too. Install the git fork 4D-Humans pins;
+  PyPI `0.70` builds but **cannot import** under numpy 2 (`chumpy/__init__.py`
+  does `from numpy import ... int ...`, and `np.int` was removed in numpy 1.24).
 - **Weights are user-supplied, never vendored.** The checkpoint and the SMPL body
   model are downloaded and registered by the user; no weight file is tracked.
 - **Licensing — do not lose this.** The *code* is MIT, but the runtime needs
