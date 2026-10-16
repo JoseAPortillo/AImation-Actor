@@ -123,7 +123,7 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
 | T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17); native review approved, authority burned (L18) |
-| T10 | S15 | inline | 🔄 in progress | **Measurement gate — nothing downstream is specified in detail until this lands.** Python 3.10 via **`uv`** (already installed; no usable 3.10 base exists on the box), then torch cu130 + `smplx` + pytorch-lightning — **no** `detectron2`, **no** `chumpy`; the 2.7 GB HMR2.0 checkpoint and the SMPL `.pkl`; then measured on this box (**RTX 3080, 10,240 MiB**): VRAM, per-frame latency, and **hip-height stability** across real production footage (L20) |
+| T10 | S15 | inline | 🔄 in progress | **Measurement gate — nothing downstream is specified in detail until this lands.** Python **3.10.20** via `uv` (no usable 3.10 base existed on the box); torch 2.14.1+cu130 sees the GPU; the explicit inference set installed — `detectron2` skipped (it is only an `extras_require`), **`chumpy` IS required** and only the `mattloper/chumpy` git fork works (PyPI 0.70 cannot import under numpy 2); HMR2.0b checkpoint fetched (2584 MB) into `.engine/.cache/4DHumans`; **blocked on the user-supplied SMPL body model**; then measured on this box (**RTX 3080, 10,240 MiB**): VRAM, per-frame latency, and **hip-height stability** (L20, **L21**) |
 | T11 | S14,S16 | TBD after T10 | ⬜ open | the adapter module behind `AIPort`, out-of-process; typed actionable failure when the engine, environment or weights are absent (S6, S7) |
 | T12 | S5,S14 | TBD after T10 | ⬜ open | engine output → `WorldPose`: hip height in centimetres plus per-joint local quaternions named for the production skeleton, world displacement dropped; conversion tests |
 | T13 | — | TBD after T10 | ⬜ open | docs in sync, gates green, evidence recorded |
@@ -556,3 +556,104 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   `E:\Python310_old\python.exe` is a stray 3.10.4 install not to be depended on.
   The chosen path is **`uv` (0.11.32, already installed)** managing a standalone
   CPython 3.10 — reproducible and independent of the user's ad-hoc interpreters.
+- **L21.** **T10 execution — the engine is installed, imports, and sees the GPU.
+  It is now blocked on exactly one thing: the user-supplied SMPL body model.**
+
+  **What was built.** `uv` fetched **CPython 3.10.20** into `.engine\venv`.
+  4D-Humans was cloned shallow to `.engine\hmr2`, pinned at
+  **`efe18deff163b29dff87ddbd575fa29b716a356c`**. The inference set went in from the
+  **cu130** index: `torch 2.14.1+cu130`, `torchvision 0.29.1+cu130`, plus
+  `pytorch-lightning 2.6.6`, `smplx 0.1.28`, `timm 1.0.30`, `yacs`, `einops`,
+  `opencv-python`, `scikit-image`, `dill 0.4.1`, `pandas`, `pyrender`, `trimesh`.
+  `numpy 2.2.6` throughout. Resolution reported **zero conflicts**.
+  `.engine/` was added to `.gitignore` with a comment saying why, because that
+  directory now holds a venv and a 2.5 GB checkpoint.
+
+  **Verified, not assumed.** `torch.cuda.is_available()` is **True**,
+  `torch.cuda.get_device_name(0)` is **NVIDIA GeForce RTX 3080**, compute
+  capability **(8, 6)**. The ≤ 10 GB VRAM target in the plan is literally this
+  card (10,240 MiB), so T10 measures the real target rather than a proxy.
+
+  **Windows blocker 1 — `HOME`.** `hmr2/configs/__init__.py:5` builds
+  `CACHE_DIR` from `os.environ.get("HOME")`, which Windows does not define; the
+  result is `os.path.join(None, ".cache")` and a `TypeError` before anything else
+  runs. Fixed by defining `HOME` in the subprocess environment. Nothing on Windows
+  supplies it, so the adapter must own this.
+
+  **Windows blocker 2 — EGL.** `hmr2/utils/renderer.py:1-3` sets
+  `PYOPENGL_PLATFORM='egl'` **only if it is not already set**, and EGL does not
+  exist on Windows, so `import pyrender` dies with
+  `ImportError: ('Unable to load EGL library', ...)`. That guard is the escape
+  hatch: pre-setting the variable stops the override. Tested values —
+  **`win32` works**, `wgl` works, `pyglet` works, **`osmesa` fails** (needs an
+  OSMesa DLL). `win32` is the native choice. Again: no line of vendored code was
+  modified, and the adapter must own this too.
+
+  **Why the renderers are a hard dependency even though we never render.**
+  `hmr2/models/hmr2.py:7` does `from ..utils import SkeletonRenderer,
+  MeshRenderer`, and `hmr2/utils/__init__.py` pulls the renderer modules, so
+  `pyrender` and `trimesh` are import-time requirements of merely *loading the
+  model*. Worth recording: `hmr2/__init__.py` is **empty**, so `import hmr2`
+  itself costs nothing — the entire cost sits in the submodule chain we choose
+  to import, which is why our own entry point controls it.
+
+  **Correction to my own earlier claim: `chumpy` is NOT avoidable.** The T10 row
+  said "no `chumpy`" and it was wrong — corrected here and in that row. (L19 never
+  mentioned `chumpy`; its `detectron2` claim is a separate one and it held up.)
+  `setup.py` pins `chumpy @ git+https://github.com/mattloper/chumpy` as a **hard**
+  `install_requires`, and the reason is real: `convert_pkl()` un-pickles the SMPL
+  body model, which contains `chumpy.ch.Ch` objects, so `chumpy` must be
+  importable — and because `convert_pkl` re-pickles those objects unchanged,
+  `smplx` needs `chumpy` importable at *load* time too. It is a runtime
+  dependency, not a one-time conversion tool. The PyPI release **0.70 builds but
+  cannot import** under numpy 2 (`chumpy/__init__.py:11` does
+  `from numpy import bool, int, float, ...` and `np.int` was removed in numpy
+  1.24). The **git fork installs and imports cleanly** — `chumpy 0.71` from
+  `mattloper/chumpy@580566eafc9ac68b2614b64d6f7aaa84eebb70da`. It needs
+  `pip` in the environment plus `--no-build-isolation`, because it declares no
+  build dependency on pip. **Install the fork, not PyPI.** My "no chumpy" claim
+  came from reading `setup.py` and assuming the git URL was incidental; it was
+  the whole fix.
+  **`detectron2` really is avoidable**, and this one held up: it sits in
+  `extras_require['all']`, and it only produces bounding boxes, which the
+  animator supplies by choosing the frame. `demo.py` does import it directly, so
+  our entry point must not be `demo.py`.
+
+  **The checkpoint downloaded and extracted** — `hmr2_data.tar.gz`, 2,710,589,440
+  bytes (2585 MB), auto-fetched by the project's own `download_models()`. It
+  yields `data/smpl_mean_params.npz`, `data/SMPL_to_J19.pkl`, and the HMR2.0b
+  checkpoint at
+  `logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt`
+  (**2584 MB**), beside its `model_config.yaml` and `dataset_config.yaml`.
+  **`data/smpl/` extracts empty.** The body model is deliberately not in the
+  tarball and is not on this machine (searched the user profile, the ComfyUI
+  tree and the project drive).
+
+  **The one thing only the user can do.** `check_smpl_exists()` accepts either
+  `{CACHE_DIR_4DHUMANS}/data/smpl/SMPL_NEUTRAL.pkl` or
+  `data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl`, and converting the second
+  into the first is exactly what `convert_pkl` is for. The file requires
+  registering at **<https://smplify.is.tue.mpg.de/>** — that URL is the one in
+  the code's own `FileNotFoundError`, and it supersedes the `smpl.is.tue.mpg.de`
+  I first quoted. Registration approval can take a day, so it went to the user
+  immediately rather than after the rest of the work. `spec.md` §4.14 already
+  records the licence posture this implies.
+
+  **Trap found while reading the downloader — do not lose this.**
+  `cache_url()` returns early when the destination **exists at all**
+  (`download.py:58`), and `download_models()` wraps both the download *and* the
+  extraction in `if not os.path.exists(output_path)`. So a **partial or 0-byte
+  `hmr2_data.tar.gz` silently skips both steps**, leaving no checkpoint and no
+  error. Any retry after an interrupted download must delete the leftover file
+  first.
+
+  **Accuracy lever, still open.** The tarball ships HMR2.0**b** (54.3 mm 3DPW
+  PA-MPJPE). The README states the HMR2.0**a** variant is a separate download
+  (`hmr2a_model.tar.gz`, 2,709,514,240 bytes) at **44.5 mm** — an 18 % error
+  reduction on the standard metric, which is the axis the user named as the top
+  priority. Both checkpoints are being fetched so T10 can **measure** them rather
+  than choose on paper.
+
+  **Nothing measured yet.** VRAM, latency and hip-height stability all still
+  require the body model, so no number in this log is a measurement. The
+  measurement gate is still shut.

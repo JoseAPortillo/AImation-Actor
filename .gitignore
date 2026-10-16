@@ -18,3 +18,9 @@ dist/
 .codegraph/
 .atl/
 .engram/
+
+# local pose-engine environment — machine-specific and multi-GB; weights are
+# user-supplied and never vendored (see AGENTS.md «Pose engine decision» and
+# spec.md §4.14). Removing this line would put a venv and a 2.7 GB checkpoint
+# on the path to being committed.
+.engine/
