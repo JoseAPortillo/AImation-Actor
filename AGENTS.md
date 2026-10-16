@@ -12,6 +12,10 @@ gaps with a 3D motion diffusion model (**CondMDI**).
   spec. `spec.md` holds the implementable, ID-tagged requirements (SDD layer).
   This file is the quick summary for agents. Where they disagree, the plan
   wins — **except** for the FBX backend and pose engine decisions below.
+  The plan keeps its original wording but now carries a **superseded-statements
+  notice at the top** plus an inline marker on every affected sentence, so a
+  reader who lands mid-document still sees that those two technologies were
+  replaced. Never implement a technology the notice lists as superseded.
 
 ## Architecture: Hexagonal Monolith (Ports & Adapters)
 
@@ -232,8 +236,8 @@ are the bar for a change to be acceptable.
   spec (and this summary) in the same change set that touches the code.
 - Every implementation must be traceable to a spec requirement. If it is not in
   the spec, propose the spec change before writing the code.
-- Where spec and code disagree, the spec wins for behavior — the FBX backend
-  decision in this file is the standing exception.
+- Where spec and code disagree, the spec wins for behavior — the FBX backend and
+  pose engine decisions in this file are the standing exceptions.
 
 ### General good practices
 
@@ -250,6 +254,15 @@ are the bar for a change to be acceptable.
 - Apply the engineering principles above (SOLID, SDD, good practices) to every
   change; the plan (`docs/Plan_AImation_Actor_EN.md`) wins on behavior/interface
   questions; keep this summary in sync if decisions change.
+- **Superseded-plan discipline.** The plan is never rewritten to erase a decision
+  this file overrides — a spec that silently loses its history cannot be audited.
+  Instead every supersession gets three parts: (a) a decision section in this
+  file, (b) a row in the plan's top notice table, and (c) an inline marker on
+  every affected sentence there, with the original wording struck through so it
+  stays visible. The Autodesk FBX SDK entry is the worked example. Follow that
+  shape for the next supersession; **never leave a stale recommendation
+  unmarked**, because that is exactly how a reader — or an agent — ends up
+  implementing a technology this project already rejected.
 - Keep `core/` and `ports/` free of third-party imports at all times.
 - Add new infrastructure only as an adapter behind a port.
 - `tests/` covers `core/`, `ports/`, and the pure-Python parts of the FBX

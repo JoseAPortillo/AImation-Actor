@@ -2,6 +2,25 @@
 
 This document consolidates the software architecture, pipeline design decisions, interface specifications, and input/output (I/O) management for developing the **Minimum Viable Product (MVP)** of a standalone application for professional 3D animators.
 
+> ## ⚠️ Superseded statements in this document
+>
+> This is the **original** functional specification, kept as authored. **Two of its
+> technology decisions were later replaced**, after research showed the original
+> choices could not meet the requirements. The authoritative record lives in
+> `AGENTS.md`; for these two items only, `AGENTS.md` wins over this document.
+>
+> | This document specifies | The project actually uses | Authority |
+> | ----------------------- | ------------------------- | --------- |
+> | **Autodesk FBX Python SDK** for 3D I/O | A **custom, in-repo pure-Python binary FBX writer** to write `.fbx`, and **Blender 5.2 run as an external subprocess** to read it | `AGENTS.md` → *FBX backend decision (supersedes the plan)* |
+> | **GVHMR** as the pose-capture engine | **HMR2.0** (`shubham-goel/4D-Humans`), single-image by design, run in its own out-of-process Python 3.10 environment | `AGENTS.md` → *Pose engine decision (supersedes the plan)* |
+>
+> Every affected sentence below carries an inline marker. **Nothing else in this
+> document is superseded** — the pipeline shape, the bone hierarchy, the
+> sparse-keyframe conventions and the inbetweening design all stand as written.
+>
+> *Annotated 2026-10-16, so that no reader — human or agent — implements a
+> technology this project has already rejected.*
+
 ---
 
 ## 1. Software Technology Architecture
@@ -21,8 +40,8 @@ The software will be structured as a unified desktop application (a monolith) to
 - **Language and GUI Framework:** **PySide6** (Qt6 for Python 3.14.x or earlier) for native window management, cross-platform performance (Windows, Linux, macOS), and low-latency event handling.
 - **Video Module:** `PySide6.QtMultimedia` and `PySide6.QtMultimediaWidgets` for hardware-accelerated video streaming and frame-accurate inspection.
 - **Integrated 3D Viewer (Viewport):** `PySide6.QtOpenGLWidgets.QOpenGLWidget` integrated with **PyOpenGL** (or `PySide6.QtQuick3D`) to render the interactive skeleton with GPU acceleration.
-- **3D Interchange Engine (I/O):** _Autodesk FBX Python SDK_ (or open-source parsing libraries such as `pyfbx` / `trimesh`) to read, structure, and write `.fbx` animation files.
-- **Pose Capture and Estimation Core:** **GVHMR** (World-Grounded Human Motion Recovery).
+- **3D Interchange Engine (I/O):** ~~_Autodesk FBX Python SDK_ (or open-source parsing libraries such as `pyfbx` / `trimesh`)~~ — **superseded, not used.** Writing is a **custom, in-repo pure-Python binary FBX writer** (`aimation_actor/adapters/io/fbx/`); reading is **Blender run as an external subprocess**. See the notice at the top of this document.
+- **Pose Capture and Estimation Core:** ~~**GVHMR** (World-Grounded Human Motion Recovery)~~ — **superseded.** The engine is **HMR2.0** (`shubham-goel/4D-Humans`), single-image by design and run outside the application process. See the notice at the top of this document.
 - **Artificial Intelligence Backend:** **PyTorch** to run generative models and vision networks. All heavy processing is isolated from the interface in Qt worker threads (`QThread`).
 
 ---
@@ -47,7 +66,7 @@ The pipeline strictly separates AI-automated calculations from the animator’s 
 
 1. **Load and Inspect:** The animator imports the reference video (MP4/MOV) into the application’s split-view interface.
 2. **Human Marking:** The animator moves through the timeline and manually selects the exact frames that represent their _Golden Poses_ (contacts, extremes, anticipations) using keyboard shortcuts.
-3. **Per-Frame Inference:** When a pose is marked, the **GVHMR** backend processes **only that isolated frame** atomically.
+3. **Per-Frame Inference:** When a pose is marked, the **HMR2.0** backend processes **only that isolated frame** atomically. *(The original wording named GVHMR. Requiring a single isolated frame from GVHMR was the core error of this specification: GVHMR is **sequence-native** — its world trajectory starts at `[0,0,0]` and accumulates per-frame root velocities, while its foot-locking and camera frame are cumulative too — so at one frame those mechanisms are not weakened but **undefined**. HMR2.0 is single-image by design and satisfies this requirement natively. See the notice at the top of this document.)*
 4. **Instant Visual Feedback:** The 3D viewer draws the extracted 3D skeleton in real time so the animator can verify whether the pose is a good starting point.
 5. **Clean Blocking Export:** The application generates an `.fbx` file in which rotations are stored **strictly at the original frame indices** (e.g., Frame 12 and Frame 45). Intermediate sections are exported with no keyframes at all.
 
@@ -74,7 +93,7 @@ Designed to emulate the experience and speed of professional tools that are indu
 
 - **`Space`:** Play / pause the background reference video.
 - **`Right Arrow` / `Left Arrow`:** Advance or rewind exactly **1 frame** for frame-accurate tracking of kinetic contacts.
-- **`K` (Keyframe):** Capture the current frame’s pose, send it to the GVHMR engine, and draw a key marker on the timeline.
+- **`K` (Keyframe):** Capture the current frame’s pose, send it to the **HMR2.0** pose engine, and draw a key marker on the timeline.
 - **`Delete`:** Remove the selected Golden Pose from the application timeline.
 - **`Shift + Right Arrow / Left Arrow`:** Jump directly between captured Golden Poses on the timeline.
 
@@ -90,11 +109,11 @@ Designed to emulate the experience and speed of professional tools that are indu
 A mitigation plan designed specifically to ensure absolute stability when operating with graphics cards limited to **10 GB of VRAM**.
 
 - **Video Performance:** Avoids overloading RAM by reading video through native, direct hardware streaming via PySide. The AI only accesses a temporary bitmap when the capture key is pressed.
-- **AI Engine Optimization (GVHMR requires at least 6 GB of VRAM):**
+- **AI Engine Optimization (the original *"GVHMR requires at least 6 GB of VRAM"* was an unverified community figure, not an official requirement; HMR2.0's real footprint is being measured on the target card):**
   - **Atomic Inference:** Process one frame at a time (Batch Size = 1) in an isolated `QThread`.
   - **Mixed Precision:** Halve the model weights’ memory footprint by using half-precision data types (`FP16`).
   - **Cache Release:** Explicitly call PyTorch’s memory cleanup function (`torch.cuda.empty_cache()`) after each successful inference.
-- **Character Independence (Rig-Agnostic):** The initial `.fbx` export contains only a **clean joint hierarchy** based on the rotation points of the standard analyzed by GVHMR. By excluding complex meshes and heavy deformers, the file is ultralight and compatible with any retargeting system, such as _HumanIK_ in Maya or _Auto-Rig Pro / Rokoko_ in Blender.
+- **Character Independence (Rig-Agnostic):** The initial `.fbx` export contains only a **clean joint hierarchy** based on the rotation points of the standard analyzed by **HMR2.0**. By excluding complex meshes and heavy deformers, the file is ultralight and compatible with any retargeting system, such as _HumanIK_ in Maya or _Auto-Rig Pro / Rokoko_ in Blender.
 
 ---
 
@@ -113,7 +132,7 @@ The goal is to generate an ultralight `.fbx` file containing only the skeleton a
 
 #### Standard Bone Hierarchy with Ground Control (Naming Convention)
 
-To ensure direct compatibility with retargeting systems such as **HumanIK (Maya)** or **Auto-Rig Pro / Rokoko (Blender)**, the tool will add a root node at ground level. The base biological rotations calculated by **GVHMR** (SMPL format) will be remapped relative to this node:
+To ensure direct compatibility with retargeting systems such as **HumanIK (Maya)** or **Auto-Rig Pro / Rokoko (Blender)**, the tool will add a root node at ground level. The base biological rotations calculated by **HMR2.0** (SMPL format) will be remapped relative to this node:
 
 ```text
 Main (Master Bone / Ground Root)
@@ -140,7 +159,7 @@ Main (Master Bone / Ground Root)
 - **Relative Transformations (Pelvis Bone):** The pelvis will be positioned relative to its parent (`Main`). Its local X and Y translation coordinates will remain at `0`, while the Z coordinate will store only the distance (height) from the ground to the actor’s hip.
 - **Local Transformations (Body Bones):** All secondary bones will store **Rotation** data only, expressed as **Quaternions (Quaternion: W, X, Y, Z)** to avoid gimbal lock.
 - **Timeline Structure (Sparse Keyframing):**
-  - If the animator marks Golden Poses on frames `15` and `42`, the FBX SDK will create animation curves containing keys only at indices `15` and `42`.
+  - If the animator marks Golden Poses on frames `15` and `42`, the **in-repo FBX writer** will create animation curves containing keys only at indices `15` and `42`. *(The original wording named the Autodesk FBX SDK, which this project does not use — see the notice at the top of this document.)*
   - **Tangent Settings:** Keyframes will be exported with **Stepped (Constant)** tangents. This prevents the 3D software from automatically interpolating poses before the animator works on them.
 
 ### C. Import from 3D Software ➡️ Tool (Phase 3: Generative Inbetweening)

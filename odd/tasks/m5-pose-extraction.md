@@ -123,7 +123,7 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
 | T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17); native review approved, authority burned (L18) |
-| T10 | S15 | inline | ⬜ open | **Measurement gate — nothing downstream is specified in detail until this lands.** A dedicated Python 3.10 venv (torch cu130, `smplx`, pytorch-lightning — **no** `detectron2`, **no** `chumpy`), the 2.7 GB HMR2.0 checkpoint and the SMPL `.pkl`; then measured on this box: VRAM, per-frame latency, and **hip-height stability** across real production footage |
+| T10 | S15 | inline | 🔄 in progress | **Measurement gate — nothing downstream is specified in detail until this lands.** Python 3.10 via **`uv`** (already installed; no usable 3.10 base exists on the box), then torch cu130 + `smplx` + pytorch-lightning — **no** `detectron2`, **no** `chumpy`; the 2.7 GB HMR2.0 checkpoint and the SMPL `.pkl`; then measured on this box (**RTX 3080, 10,240 MiB**): VRAM, per-frame latency, and **hip-height stability** across real production footage (L20) |
 | T11 | S14,S16 | TBD after T10 | ⬜ open | the adapter module behind `AIPort`, out-of-process; typed actionable failure when the engine, environment or weights are absent (S6, S7) |
 | T12 | S5,S14 | TBD after T10 | ⬜ open | engine output → `WorldPose`: hip height in centimetres plus per-joint local quaternions named for the production skeleton, world displacement dropped; conversion tests |
 | T13 | — | TBD after T10 | ⬜ open | docs in sync, gates green, evidence recorded |
@@ -494,8 +494,11 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   **What changed in the tree** (C10): FR-CAP-05 corrected, §4.12–4.14 opened (the
   decision, the two unmeasured properties, the licensing posture), the pose engine
   added to the supersessors list in `AGENTS.md` with its own decision section
-  mirroring the FBX precedent — the **plan itself is left as the original
-  document**, exactly as the FBX SDK supersession did. Five docstrings that named a
+  mirroring the FBX precedent. *(At the time of C10 the plan was left untouched,
+  exactly as the FBX SDK supersession had done; **L20 reverses that** — the user
+  asked for the plan to be annotated in place, so a reader who lands mid-document
+  cannot walk away with a rejected technology. The rest of L19 stands.)* Five
+  docstrings that named a
   swappable engine in *generic* layers (`ai_port`, `pose_runner`, `main`,
   `main_window`, `neutral_pose`) were made engine-neutral instead, and the orphan
   stub `gvhmr_adapter.py` became `hmr2_adapter.py` — nothing imported it, so the
@@ -506,3 +509,50 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   VRAM/latency against the ≤ 10 GB target), so they are measured **before** the
   adapter is specified in detail — T10 — and only then do T11–T13 get their route
   and their detail.
+- **L20.** **The plan is now annotated in place, and that replaces the old
+  "leave the plan untouched" convention.** User instruction, verbatim: *"modifica
+  el plan para que no haya confusiones en el futuro con respecto a FBX SDK de
+  autodesk y arranca con T10"*.
+
+  **Why the old convention was wrong.** L19 recorded the plan as deliberately
+  untouched, on the reasoning that the FBX SDK supersession had done the same.
+  That reasoning was circular: the FBX precedent was not a decision, it was an
+  omission that had already been sitting there unnoticed — the plan named
+  *Autodesk FBX Python SDK* at two places and never said it was rejected. Copying
+  it propagated the defect instead of fixing it. A reader who opens the plan
+  mid-document (which is what people and agents actually do) had no way to learn
+  that either technology was dead.
+
+  **Scope note — I extended past what was asked, deliberately.** The user named
+  the Autodesk FBX SDK. The identical defect existed for GVHMR, whose
+  supersession was decided *in this same unit* (L19): the plan recommended GVHMR
+  as the technology stack, asserted the false single-frame premise, and repeated
+  the name four more times. Annotating one and not the other would have been
+  strictly worse than annotating neither, because it would have implied the
+  unmarked one was still current. Both are marked. Easy to revert if the user
+  wants only FBX.
+
+  **What landed.** The plan (192 → 220 lines) gained: a **top notice** with a
+  table naming both supersessions, their replacement, and the authority in
+  `AGENTS.md`; and **inline markers on every affected sentence** — the two
+  technology-stack bullets and the sparse-keyframe paragraph struck through
+  (`~~…~~`) so the original wording stays visible and auditable, and the
+  remaining references corrected in place. The false premise at §2 keeps its
+  **why**: GVHMR is sequence-native, so one frame is undefined rather than
+  weakened. The unverified *"GVHMR requires at least 6 GB of VRAM"* is now
+  labelled as an unverified community figure rather than a requirement.
+  `AGENTS.md` gained the source-of-truth clause, the corrected exceptions list,
+  and a new **Superseded-plan discipline** convention codifying the three-part
+  shape (decision section + notice row + inline marker) for the next time.
+
+  **Rule this establishes:** a supersession is never recorded by omission. The
+  plan keeps its history in plain sight, struck through and pointed at.
+
+  **T10 started in the same turn.** Machine survey, before any install: GPU is an
+  **RTX 3080 with 10,240 MiB** — the ≤ 10 GB target is the actual hardware, not a
+  hypothetical. `torch 2.14.1+cu130` already works in the repo venv, so the cu130
+  index is proven on this box. **No usable Python 3.10 as a base:** `E:\Python310`
+  exists but has no `python.exe` (only `Lib`, `Scripts`, `Tools`), and
+  `E:\Python310_old\python.exe` is a stray 3.10.4 install not to be depended on.
+  The chosen path is **`uv` (0.11.32, already installed)** managing a standalone
+  CPython 3.10 — reproducible and independent of the user's ad-hoc interpreters.
