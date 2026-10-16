@@ -8,14 +8,18 @@ no pull requests, so the P/R-size heuristic and the chained-PR strategy do not
 apply here).
 **Runner:** `.\.venv\Scripts\python.exe -m pytest` · lint: `.\.venv\Scripts\ruff.exe check .`
 
-**Scope note — what this unit does NOT deliver.** The real GVHMR adapter is a
-separate, bounded task: it needs an external research repo plus multi-GB
+**Scope note — what this unit does NOT deliver.** The real pose-engine adapter is
+a separate, bounded task: it needs an external research repo plus multi-GB
 checkpoints and `torchvision`, none of which are present. Ship the *contract*
 now and the engine behind it later, so the engine lands as one file with no
 caller changes (`O` in SOLID). That also means **FP16** and
 `torch.cuda.empty_cache()` stay open: they are engine internals, not pipeline
 behavior. `AIPort`, the frame capture, the single-frame `QThread` runner and the
 remap all land here, verified with a deterministic engine.
+
+**The engine changed after this unit shipped** (2026-10-16): it is **HMR2.0**, not
+the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
+`AGENTS.md`. The adapter's own tasks are **T10-T13**.
 
 ## Specs
 
@@ -82,6 +86,30 @@ remap all land here, verified with a deterministic engine.
   owns it then. A clip that cannot be indexed keeps the old
   position-driven behavior (S3, FR-CAP-03, FR-CAP-04).
 
+### Adapter specs (added 2026-10-16, after the backend decision in L19)
+
+- **S14.** The engine behind `AIPort` is **HMR2.0**, not the plan's GVHMR, and it
+  stays behind the port **unchanged**: the adapter lands as one module with no
+  caller edits (`O` in SOLID), and `extract_pose(image, *, frame_index)` keeps its
+  current signature. It runs **outside the application process**, in its own
+  Python 3.10 environment, because its stack pins versions this interpreter does
+  not carry — the same shape and the same reasons as the Blender read path
+  (`FR-IMP-03`). Nothing on this side of the boundary imports the engine.
+- **S15.** Before the adapter is specified in detail, its two **unmeasured**
+  properties are measured on the real box, because either can change the design:
+  **(a) hip-height stability** — the absolute hip height `build_production_pose`
+  consumes comes from a weak-perspective estimate, so monocular scale is a learned
+  guess rather than a measurement, and an unstable height is immediately visible in
+  the viewport; **(b) cost** — no VRAM or per-frame latency figure is published for
+  HMR2.0, and the target is ≤ 10 GB at batch 1. Measured, not assumed
+  (`spec.md` §4.13).
+- **S16.** Weights and the body model are **user-supplied and never vendored**: the
+  HMR2.0 checkpoint and the SMPL `.pkl` are downloaded and registered by the user,
+  and no weight file is tracked in this repository. A missing engine, environment,
+  checkpoint or body model is an **actionable non-fatal failure** through the
+  existing typed path (S6, S7) — never a crash and never a silent placeholder.
+  The licensing posture this implies is recorded in `spec.md` §4.14, not assumed.
+
 ## Tasks
 
 | ID | Spec | Route | Status | Evidence |
@@ -95,6 +123,10 @@ remap all land here, verified with a deterministic engine.
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
 | T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17); native review approved, authority burned (L18) |
+| T10 | S15 | inline | ⬜ open | **Measurement gate — nothing downstream is specified in detail until this lands.** A dedicated Python 3.10 venv (torch cu130, `smplx`, pytorch-lightning — **no** `detectron2`, **no** `chumpy`), the 2.7 GB HMR2.0 checkpoint and the SMPL `.pkl`; then measured on this box: VRAM, per-frame latency, and **hip-height stability** across real production footage |
+| T11 | S14,S16 | TBD after T10 | ⬜ open | the adapter module behind `AIPort`, out-of-process; typed actionable failure when the engine, environment or weights are absent (S6, S7) |
+| T12 | S5,S14 | TBD after T10 | ⬜ open | engine output → `WorldPose`: hip height in centimetres plus per-joint local quaternions named for the production skeleton, world displacement dropped; conversion tests |
+| T13 | — | TBD after T10 | ⬜ open | docs in sync, gates green, evidence recorded |
 
 ## Log
 
@@ -410,3 +442,67 @@ remap all land here, verified with a deterministic engine.
   All ten are carried forward in `spec.md` §6 as follow-ups, not fixed here: none
   is a defect in the specified behavior, and amending the candidate to chase them
   would have invalidated the very review that found them.
+- **L19.** **The pose engine changed: it is HMR2.0, not GVHMR.** User decisions,
+  verbatim, in order:
+  1. *"no se va a distribuir, es uso propio, al menos por ahora, pero si va a
+     complicar el uso y funcionalidad buscamos otra alternativa similar de que sea
+     libre de uso."*
+  2. *"Necesito que la captura sea lo mas precisa posible, MedaPipe BlazePose me
+     dará resultados similares a BVHMR?"*
+  3. *"vamos con la primera opción pero haz un estudio mas exaustivo porfavor y
+     dame conclusión de lo que encuentres y que encaje en el proyecto."*
+  4. *"Confirmo HMR2.0 y sigo"*.
+
+  **The premise this unit shipped under was false.** FR-CAP-05 said *"GVHMR
+  processes **only** that isolated frame"*. GVHMR is **sequence-native**: its world
+  trajectory starts at `[0,0,0]` and is a cumulative sum of per-frame root
+  velocities, its foot-locking updates frame by frame, and its camera frame comes
+  from visual odometry. At `F=1` — exactly what a Golden Pose mark produces —
+  those mechanisms are not weakened, they are **undefined** (`compute_cam_angvel`
+  returns shape `(0,6)`), and the shipped demos accept video only. The plan's
+  "batch 1, one frame" was a requirement written for the wrong class of model.
+
+  **GVHMR's advantage is the world, not the joints.** Its own ablation (RICH) is
+  the proof: removing foot-locking leaves local `PA-MPJPE`/`MPJPE` **identical**
+  (`39.5`/`66.0`) while only the world metrics move (`WA-MPJPE100` `78.8 → 89.3`,
+  foot-sliding `3.0 → 6.8`). This tool discards world placement by design —
+  `Main` ships in place at `(0,0,0)` — so the machinery that makes GVHMR GVHMR is
+  unreachable here, and it costs ViTPose (2.55 GB) plus a detector to carry.
+
+  **HMR2.0 is GVHMR's own backbone**, single-image by design. On 3DPW, `PA-MPJPE`:
+  GVHMR `36.2 mm` **with 120 frames of context**, against HMR2.0a `44.5 mm` with
+  **one** — and the released checkpoint is the `b` variant at **`54.3 mm`**. So the
+  switch costs 8–18 mm *that the single-frame path could not have had anyway*, in
+  exchange for a lighter pipeline. Honest limits recorded with it: `PCK@0.05` on
+  `LSP-Ext` is `0.53`, so budget an animator cleanup pass per Golden Pose.
+
+  **Two corrections to the survey that drove this**, both verified against primary
+  artifacts rather than restated: 4D-Humans is **MIT** (not Apache-2.0) with a
+  **2.7 GB** checkpoint (not 27 GB), and it does **not** need `detectron2` at
+  inference — that package only produces bounding boxes, and the animator already
+  chooses the frame, so the largest install blocker dissolves.
+
+  **The licence did not improve, and that is recorded rather than glossed.** HMR2.0
+  inherits GVHMR's constraint through the SMPL body model and `smplx`: code MIT,
+  model non-commercial-only and non-redistributable. Since the user's position is
+  personal use, this is acceptable — but the consequence (distribution needs a
+  Meshcapade licence) is written down in `spec.md` §4.14, not left implicit. Every
+  body-model estimator surveyed inherits the same terms; only landmark models
+  (MediaPipe BlazePose, Apache-2.0) avoid them, at the price of no body model and
+  **no published 3D accuracy metric at all**.
+
+  **What changed in the tree** (C10): FR-CAP-05 corrected, §4.12–4.14 opened (the
+  decision, the two unmeasured properties, the licensing posture), the pose engine
+  added to the supersessors list in `AGENTS.md` with its own decision section
+  mirroring the FBX precedent — the **plan itself is left as the original
+  document**, exactly as the FBX SDK supersession did. Five docstrings that named a
+  swappable engine in *generic* layers (`ai_port`, `pose_runner`, `main`,
+  `main_window`, `neutral_pose`) were made engine-neutral instead, and the orphan
+  stub `gvhmr_adapter.py` became `hmr2_adapter.py` — nothing imported it, so the
+  rename is inert.
+
+  **Plan for the adapter: T10 gates everything.** Two properties are unmeasured and
+  either can change the design (hip-height stability under monocular scale, and
+  VRAM/latency against the ≤ 10 GB target), so they are measured **before** the
+  adapter is specified in detail — T10 — and only then do T11–T13 get their route
+  and their detail.

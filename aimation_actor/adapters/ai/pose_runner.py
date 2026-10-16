@@ -1,7 +1,7 @@
 """Off-thread pose extraction: one frame at a time, off the UI thread.
 
 ``AIPort`` is blocking by contract, so the capture UI must never call it
-directly: a GVHMR inference would freeze the window (NFR-02). This module is the
+directly: a pose inference would freeze the window (NFR-02). This module is the
 small piece of infrastructure that keeps the window alive while an engine works —
 it runs one extraction on its own ``QThread`` and reports the outcome through
 signals (FR-CAP-05).

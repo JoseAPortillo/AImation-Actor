@@ -1,4 +1,4 @@
-"""Abstract contract for AI engines (GVHMR pose extraction, CondMDI inbetweening).
+"""Abstract contract for AI engines (pose extraction, CondMDI inbetweening).
 
 Implementations live in ``adapters/ai/``. This module is part of the interface
 layer: it may import the domain (``core``) but must not import any adapter or

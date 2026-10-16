@@ -40,7 +40,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | FR-CAP-02 | Must | ✅ | Video streams; never fully decoded into RAM. | No path reads all frames; peak RAM does not scale with clip length. *(Measured through the FFmpeg backend: a 48-frame clip and a 1440-frame clip both peak ≈ 8 MiB above the window-only baseline.)* |
 | FR-CAP-03 | Must | ✅ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). *(Frame 0 is the first frame — the range is 0-based, matching FBX time; a 2 s / 24 fps clip reports 48 frames. While the clip plays, the playhead follows the frame the decoder delivered, not the backend's rarer position events, so the number and the video pane cannot disagree.)* |
 | FR-CAP-04 | Must | ✅ | Shortcuts: `Space` play/pause, `←`/`→` ±1 frame, `K` mark, `Delete` remove, `Shift+←/→` jump between keys. | Each shortcut behaves as described, clamped to the frame range. *(`Ctrl+O` opens a clip; `Delete` removes the key at the playhead, the MVP having no separate selection.)* |
-| FR-CAP-05 | Must | 🟡 | `K` runs GVHMR on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. *(The pipeline landed: batch 1 is enforced by the runner itself, the engine runs off the UI thread, and one `K` sends exactly one frame. The engine behind the port is still a deterministic stand-in — GVHMR needs an external repo, multi-GB weights and `torchvision`, none of which are present — so FP16 and the CUDA-cache release are not exercised yet. The extracted frame is the one the animator is looking at: it carries its own frame index from the clip's timestamps, the key is written there, and the playhead moves onto it — measured on real clips after play → pause → `K`.)* |
+| FR-CAP-05 | Must | 🟡 | `K` runs the pose engine on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. *(The pipeline landed: batch 1 is enforced by the runner itself, the engine runs off the UI thread, and one `K` sends exactly one frame. The engine behind the port is still a deterministic stand-in. **The engine is HMR2.0**, not the plan's GVHMR: GVHMR is sequence-native — its trajectory, its per-frame velocity rollout and its foot-locking are each cumulative over frames, so at one frame they are undefined — and its non-commercial-only licence is one HMR2.0 inherits anyway through the SMPL body model, so GVHMR buys no licensing freedom either. The ~8 mm of per-joint accuracy GVHMR gains with 120 frames of context is therefore not available here, and a heavier pipeline would buy nothing. HMR2.0 also removes `detectron2` from the install (it only produced bounding boxes, and the animator already chooses the frame). HMR2.0 runs in a dedicated Python 3.10 environment **outside this process** (§4.12); FP16 and the CUDA-cache release stay engine internals and are not exercised yet. The extracted frame is the one the animator is looking at: it carries its own frame index from the clip's timestamps, the key is written there, and the playhead moves onto it — measured on real clips after play → pause → `K`.)* |
 | FR-CAP-06 | Must | ✅ | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. *(`build_production_pose` performs the mapping and every extraction now goes through it, verified end to end on a real clip: a stand-in hip height of 140 with a Pelvis bind of 100 wrote an offset of exactly 40.0, and `Main` came back at `(0, 0, 0)` with identity rotation. The mapping is engine-independent.)* |
 | FR-CAP-07 | Should | ✅ | At most one key per frame; extraction failure is non-fatal. | Re-marking a frame does not duplicate; a failed `K` keeps prior keys and reports. *(Re-marking overwrites by frame; a failure keeps every prior key and writes none; a second `K` while an engine runs is refused instead of queued; a late answer from a clip that is no longer open is discarded. M4's neutral placeholder is retired — it would have passed a failure off as a capture.)* |
 
@@ -100,7 +100,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
    the convention the FBX writer adds back. This supersedes the plan's §5.B
    assignment of the AI scene displacement to `Main`.
 10. *(Opened 2026-10-15, M4.)* The capture GUI has no rig to preview: the joint
-    hierarchy and proportions come from GVHMR (M5), and the app will not invent
+    hierarchy and proportions come from the pose engine (M5), and the app will not invent
     joint data behind the production mapping. Options: leave the pane saying "no
     rig loaded yet" until M5 (current), or ship a provisional production rig now.
     *(Current choice is the honest empty pane; a provisional rig would have to
@@ -109,6 +109,41 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
     Non-modal suits a failed mark (the session continues), but a clip the
     animator just picked is easy to miss in a line of text. A dialog for that one
     case is a candidate.
+12. *(Opened 2026-10-16, M5 — supersedes the plan's GVHMR choice.)* **The pose
+    engine is HMR2.0**, behind `AIPort`, in a dedicated Python 3.10 environment
+    outside the app process — the same shape as the Blender read path (FR-IMP-03),
+    and for the same reason: the research stack pins versions this project's
+    interpreter does not carry. Why not the plan's GVHMR: it is sequence-native
+    (its trajectory starts at `[0,0,0]` and accumulates per-frame velocities, and
+    its foot-locking and camera odometry are cumulative too), so at one frame
+    those mechanisms are undefined; and its licence is non-commercial-only, a
+    constraint HMR2.0 inherits anyway via the SMPL body model, so picking GVHMR
+    buys no freedom. Measured on the same benchmark (3DPW, PA-MPJPE): GVHMR
+    **36.2 mm with 120 frames** against HMR2.0's **44.5 mm with one** — and the
+    released HMR2.0 checkpoint is the `b` variant at **54.3 mm**. That ~8-18 mm is
+    the entire price of the switch, and it is not reachable at `F=1` regardless.
+    `docs/Plan_AImation_Actor_EN.md` names GVHMR throughout and needs the same
+    correction when it is next revised; **this entry is the authority until then**.
+13. *(Opened 2026-10-16, M5.)* Two HMR2.0 properties are **unmeasured**, and both
+    can change the adapter's design — so they are measured before the adapter is
+    specified in detail, not after:
+    1. **Monocular scale.** `pred_cam_t` is a weak-perspective estimate, so the
+       absolute **hip height** `build_production_pose` consumes is a learned
+       guess, not a measurement. If it is not stable enough to key, the animator
+       needs a way to set the height (or the adapter needs another anchor).
+    2. **Cost.** No VRAM or per-frame latency figure is published for HMR2.0.
+       The target is ≤ 10 GB, batch 1 — this has to be measured on the real box.
+14. *(Opened 2026-10-16, M5.)* **Licensing posture, recorded rather than assumed.**
+    The code is MIT, but the runtime needs `smplx` and the **SMPL body model**,
+    both non-commercial (research/education/artistic), and the model forbids
+    redistribution. The user's position, verbatim: *"no se va a distribuir, es uso
+    propio, al menos por ahora"*. So personal use is covered and the tool may be
+    built — but **distributing or selling it later requires a commercial licence
+    from Meshcapade/Max-Planck**, and no permissively-licensed body-model
+    estimator exists (every one surveyed — HybrIK, OSX, SMPLer-X, TokenHMR,
+    Multi-HMR, VideoPose3D — inherits the same terms). Only landmark models
+    (MediaPipe BlazePose, Apache-2.0) avoid it, and they publish no 3D accuracy
+    metric at all.
 
 ## 5. Change log
 
@@ -126,6 +161,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.4.2   | 2026-10-16 | M5 verification blocker fixed: the captured frame carries its own index (`K` keys it, the playhead moves there) and the playhead follows the delivered frame while playing (FR-CAP-03/05). |
 | 0.4.3   | 2026-10-16 | M5 fix independently verified: the blocked case reproduced 6/6 rounds per clip at baseline and 0/6 after; 7 regression pins committed (FR-CAP-03/05). |
 | 0.4.4   | 2026-10-16 | M5 fix reviewed (native review, 3 lenses): approved, no blockers, 10 advisories carried as follow-ups (FR-CAP-03/05). |
+| 0.4.5   | 2026-10-16 | Backend decision: the pose engine is **HMR2.0**, not the plan's GVHMR (sequence-native and undefined at one frame; its licence buys no freedom HMR2.0 does not already have). FR-CAP-05 corrected; §4.12-4.14 opened (engine + out-of-process boundary, the two unmeasured properties, the licensing posture). |
 
 ## 6. Session state (resume here)
 
@@ -188,17 +224,35 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   reliability) over the whole slice `187b822..7e22c5e`: **approved, no blockers**,
   the correction budget untouched, and ten advisory findings carried forward as
   follow-ups below rather than fixed inside this candidate.
+- M5 backend decision (2026-10-16, `feat/develop`): the pose engine is **HMR2.0**,
+  not the plan's GVHMR, and `FR-CAP-05` now says so. The premise it carried —
+  "batch 1, one frame" for a video model — was false, and it was corrected from
+  primary sources rather than left standing: GVHMR is sequence-native (trajectory
+  starts at `[0,0,0]` and accumulates, foot-locking and camera odometry are
+  cumulative), its licence is non-commercial-only, and HMR2.0 inherits the same
+  body-model constraint, so the switch costs nothing in freedom. The one real
+  price is per-joint accuracy — 36.2 mm (GVHMR, 120 frames) against 44.5/54.3 mm
+  (HMR2.0, one) on 3DPW PA-MPJPE — and it is unreachable at `F=1` anyway. The
+  install also loses `detectron2`, which only produced bounding boxes. Recorded
+  as §4.12 (the decision), §4.13 (the two unmeasured properties) and §4.14 (the
+  licensing posture).
 
 **Next**
 
-1. **The real GVHMR adapter** — the remaining half of M5: the `AIPort`
-   implementation plus FP16 and the CUDA-cache release, which needs an external
-   repo, multi-GB weights and `torchvision`.
+1. **The real HMR2.0 adapter** — the remaining half of M5, in two steps, because
+   two of its properties are still unmeasured (§4.13). **(a) Environment and
+   measurement:** a dedicated Python 3.10 venv (torch cu130, `smplx`,
+   pytorch-lightning — no `detectron2`, no `chumpy`), the 2.7 GB checkpoint and
+   the SMPL `.pkl`, then measure VRAM, per-frame latency and **hip-height
+   stability** on real footage. **(b) The adapter:** the `AIPort` implementation —
+   SMPL parameters to hip height in centimetres plus per-joint local quaternions
+   named for the production skeleton — plus FP16 and the CUDA-cache release.
+   Weights are user-supplied and never vendored.
 2. Then M6 (CondMDI + Model Factory) → M7 (IK) → M8 (generative export).
 
 **Known follow-ups**
 
-- `AIPort` has one implementation to write: the real GVHMR adapter (§4.7). The
+- `AIPort` has one implementation to write: the real HMR2.0 adapter (§4.12). The
   contract and the whole pipeline around it are in place, so the adapter lands as
   one file with no caller changes.
 - **ProRes (FR-CAP-01) was never exercised** — only H.264 has been played. The
@@ -211,8 +265,8 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   for the pending frame and then proceed. Add that only if real use shows the
   refusal is common.
 - M4 has no production rig to preview: the joint hierarchy and proportions come
-  from GVHMR (M5), so the 3D pane reports "no rig loaded yet" instead of
-  inventing one (§4.10).
+  from the pose engine (M5), so the 3D pane reports "no rig loaded yet" instead
+  of inventing one (§4.10).
 - Failure reporting is non-modal (status bar). Worth revisiting for a failed
   *open*, where the animator picked the bad file and a line of text is easy to
   miss.

@@ -99,9 +99,9 @@ def neutral_pose(skeleton: Skeleton) -> dict[str, JointPose]:
     """Every joint of ``skeleton`` at its bind: identity rotation, zero offset.
 
     This is the pose the 3D viewport shows on a frame without a Golden Pose
-    (plan §3.B), and the placeholder that marking writes until GVHMR extracts a
-    real pose (M5) — which then overwrites it on the same frame, because a
-    timeline holds at most one key per frame (spec ``FR-CAP-07``).
+    (plan §3.B). Marking no longer writes it: per ``FR-CAP-07`` a frame whose pose
+    was never extracted must not gain a key, so the placeholder M4 wrote was
+    retired when the pipeline landed (M5, L5).
     """
     return {joint.name: JointPose(rotation=Quaternion.identity()) for joint in skeleton.joints}
 

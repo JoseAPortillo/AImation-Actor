@@ -21,7 +21,7 @@ def build_window() -> MainWindow:
     """The application's window, wired to the real video player.
 
     The rig is deliberately left empty. The production skeleton arrives with the
-    GVHMR pipeline (M5); inventing one here would put invented joint data behind
+    pose pipeline (M5); inventing one here would put invented joint data behind
     the production mapping, which is worse than an honest empty pane. Until then
     the 3D pane names the reason it is blank.
     """

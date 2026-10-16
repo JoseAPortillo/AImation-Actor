@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
         ``source``, ``skeleton`` and ``engine`` exist so a caller can supply the
         player, the rig and the pose engine; the defaults are the real player, an
         **empty rig**, and **no engine**, because until M5 supplies the production
-        skeleton and the GVHMR adapter there are none to load, and the window will
+        skeleton and the HMR2.0 adapter there are none to load, and the window will
         not invent them. Without an engine, ``K`` reports that it cannot extract
         rather than writing a pose nobody computed.
         """
