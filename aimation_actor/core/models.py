@@ -135,6 +135,26 @@ class FrameImage:
 
 
 @dataclass(frozen=True, slots=True)
+class CapturedFrame:
+    """A frame handed over for extraction, paired with the frame it belongs to.
+
+    The pixels alone are not enough to key a pose: the timeline follows the
+    backend's *position* events, which arrive far less often than frames, so
+    after a playback the playhead can lag the pane by one to three frames.
+    Pairing the image with the frame index the source can prove makes that
+    mismatch impossible to write unnoticed — the key lands on the frame the
+    animator was looking at, and the playhead is moved there.
+
+    ``frame_index`` is ``None`` when the source cannot establish it (a backend
+    reporting no timestamps, or an unknown frame rate); the caller then falls
+    back to its own playhead rather than refusing the capture.
+    """
+
+    image: FrameImage
+    frame_index: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TimelineState:
     """The full animation state the UI and core operate on."""
 

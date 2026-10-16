@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication
 from aimation_actor.adapters.gui.capture_controller import CaptureController
 from aimation_actor.adapters.gui.video_player import (
     VideoPlayer,
+    frame_index_of,
     frame_rate_of,
     frame_time_ms,
     to_frame_image,
@@ -144,7 +145,7 @@ def test_a_player_with_no_frame_yet_gives_none(qtbot) -> None:
     player = VideoPlayer()
     qtbot.addWidget(player)
 
-    assert player.grab_frame() is None
+    assert player.grab_frame(24.0) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -191,7 +192,10 @@ def test_the_frame_for_the_seek_is_handed_over(qtbot) -> None:
     player.seek_frame(12, 24.0)  # 521 ms -> the slot [500000, 541667) us
     player._on_frame(_timed_frame(500000, 541667))
 
-    assert player.grab_frame() is not None
+    captured = player.grab_frame(24.0)
+
+    assert captured is not None
+    assert captured.frame_index == 12
 
 
 def test_the_previous_positions_frame_is_not_handed_over(qtbot) -> None:
@@ -203,19 +207,23 @@ def test_the_previous_positions_frame_is_not_handed_over(qtbot) -> None:
     player.seek_frame(12, 24.0)
     player._on_frame(_timed_frame(166667, 208334))
 
-    assert player.grab_frame() is None
+    assert player.grab_frame(24.0) is None
 
 
 def test_a_frame_without_timestamps_is_not_blocked(qtbot) -> None:
     # Degrade rather than refuse: a backend that reports no timestamps must still
-    # be able to hand a frame over.
+    # be able to hand a frame over. It cannot say which frame it is, though, so
+    # the index is left unknown for the caller to resolve.
     player = VideoPlayer()
     qtbot.addWidget(player)
 
     player.seek_frame(12, 24.0)
     player._on_frame(_timed_frame(-1, -1))
 
-    assert player.grab_frame() is not None
+    captured = player.grab_frame(24.0)
+
+    assert captured is not None
+    assert captured.frame_index is None
 
 
 def test_frames_become_live_again_once_the_seek_landed(qtbot) -> None:
@@ -227,9 +235,9 @@ def test_frames_become_live_again_once_the_seek_landed(qtbot) -> None:
     player.seek_frame(12, 24.0)
     player._on_frame(_timed_frame(500000, 541667))
 
-    assert player.grab_frame() is not None
+    assert player.grab_frame(24.0) is not None
     player._on_frame(_timed_frame(541667, 583334))
-    assert player.grab_frame() is not None
+    assert player.grab_frame(24.0) is not None
 
 
 def test_playback_makes_the_frame_on_screen_the_answer_again(qtbot) -> None:
@@ -240,7 +248,70 @@ def test_playback_makes_the_frame_on_screen_the_answer_again(qtbot) -> None:
     player.play()  # the animator asked for live playback
     player._on_frame(_timed_frame(2000000, 2041667))
 
-    assert player.grab_frame() is not None
+    assert player.grab_frame(24.0) is not None
+
+
+def test_a_live_frame_is_the_frame_it_says_it_is_not_the_seek_target(qtbot) -> None:
+    # The playback half of the attribution problem (M5 verification, S12). While
+    # playing, the seek guard is off on purpose — the frame on screen is the
+    # answer — but the playhead only follows the backend's *position* events,
+    # which are far rarer than frames. So the pane can be showing frame 48 while
+    # the timeline still says 12. The frame must say which frame it is; otherwise
+    # the key lands wherever the playhead happened to lag to.
+    player = VideoPlayer()
+    qtbot.addWidget(player)
+
+    player.seek_frame(12, 24.0)
+    player.play()
+    player._on_frame(_timed_frame(2000000, 2041667))  # frame 48
+
+    captured = player.grab_frame(24.0)
+
+    assert captured is not None
+    assert captured.frame_index == 48
+
+
+def test_the_index_is_left_unknown_without_a_frame_rate() -> None:
+    # A clip whose frame rate the backend never reported cannot be indexed; the
+    # caller falls back to its own playhead rather than receiving a guess.
+    assert frame_index_of(2000000, 0.0) is None
+
+
+def test_a_delivered_frame_reports_its_own_index(qtbot) -> None:
+    # S13: the controller follows this instead of the backend's position events,
+    # which are far rarer than frames. The frame rate is what the clip reported,
+    # read back through the same path the player uses (``_announce_loaded``).
+    player = VideoPlayer()
+    qtbot.addWidget(player)
+    player._fps = 24.0
+    shown: list[int] = []
+    player.frame_shown.connect(shown.append)
+
+    player._on_frame(_timed_frame(2000000, 2041667))  # frame 48
+
+    assert shown == [48]
+
+
+def test_a_frame_without_timestamps_reports_no_index(qtbot) -> None:
+    # No timestamps means no provable index, so nothing is claimed and the
+    # controller keeps resolving the playhead its own way.
+    player = VideoPlayer()
+    qtbot.addWidget(player)
+    player._fps = 24.0
+    shown: list[int] = []
+    player.frame_shown.connect(shown.append)
+
+    player._on_frame(_timed_frame(-1, -1))
+
+    assert shown == []
+
+
+def test_the_frame_index_is_derived_from_the_slot_the_frame_occupies() -> None:
+    assert frame_index_of(500000, 24.0) == 12
+    assert frame_index_of(2000000, 24.0) == 48
+    assert frame_index_of(0, 24.0) == 0
+    # No usable timestamps: the index is unknown, never invented.
+    assert frame_index_of(-1, 24.0) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -268,9 +339,9 @@ def test_a_primed_player_hands_the_animator_its_first_frame(qtbot) -> None:
     player._on_media_status(QMediaPlayer.MediaStatus.LoadedMedia)
     player._on_frame(_video_frame())
 
-    frame = player.grab_frame()
-    assert frame is not None
-    assert (frame.width, frame.height) == (2, 2)
+    captured = player.grab_frame(24.0)
+    assert captured is not None
+    assert (captured.image.width, captured.image.height) == (2, 2)
 
 
 def test_a_priming_nudge_is_not_reported_as_playback(qtbot) -> None:
@@ -292,7 +363,7 @@ def test_a_priming_nudge_is_not_reported_as_playback(qtbot) -> None:
     # The first frame ends the nudge and the player pauses itself; the clip must
     # still be capturable afterwards.
     player._on_frame(_video_frame())
-    assert player.grab_frame() is not None
+    assert player.grab_frame(24.0) is not None
 
 
 def test_an_explicit_play_is_reported_once_priming_is_over(qtbot) -> None:

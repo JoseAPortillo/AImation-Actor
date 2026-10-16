@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, Signal
 from aimation_actor.adapters.ai.pose_runner import PoseExtractionRunner
 from aimation_actor.adapters.gui.capture_controller import CaptureController
 from aimation_actor.core.models import (
+    CapturedFrame,
     FrameImage,
     JointData,
     Quaternion,
@@ -36,6 +37,7 @@ class _FakeSource(QObject):
 
     media_loaded = Signal(float, int)
     position_changed = Signal(int)
+    frame_shown = Signal(int)
     playback_changed = Signal(bool)
     failed = Signal(str)
 
@@ -56,9 +58,11 @@ class _FakeSource(QObject):
     def seek_frame(self, frame: int, fps: float) -> None:
         self.seeks.append((frame, fps))
 
-    def grab_frame(self) -> FrameImage | None:
+    def grab_frame(self, fps: float) -> CapturedFrame | None:
         self.grabs += 1
-        return self._frame
+        if self._frame is None:
+            return None
+        return CapturedFrame(image=self._frame, frame_index=None)
 
 
 class _Engine:

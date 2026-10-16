@@ -16,6 +16,7 @@ from PySide6.QtCore import QObject, Signal
 
 from aimation_actor.adapters.gui.capture_controller import CaptureController
 from aimation_actor.core.models import (
+    CapturedFrame,
     FrameImage,
     JointData,
     JointPose,
@@ -33,6 +34,7 @@ class _FakeSource(QObject):
 
     media_loaded = Signal(float, int)
     position_changed = Signal(int)
+    frame_shown = Signal(int)
     playback_changed = Signal(bool)
     failed = Signal(str)
 
@@ -44,6 +46,9 @@ class _FakeSource(QObject):
         self.pauses = 0
         self.playing = False
         self.grabs = 0
+        # Which frame the pane is really showing, when the source can prove it.
+        # ``None`` stands for a backend that reports no timestamps.
+        self.frame_index: int | None = None
 
     def open(self, path: str) -> None:
         self.opened.append(path)
@@ -61,9 +66,12 @@ class _FakeSource(QObject):
     def seek_frame(self, frame: int, fps: float) -> None:
         self.seeks.append((frame, fps))
 
-    def grab_frame(self) -> FrameImage | None:
+    def grab_frame(self, fps: float) -> CapturedFrame | None:
         self.grabs += 1
-        return FrameImage(width=1, height=1, rgb=bytes(3))
+        return CapturedFrame(
+            image=FrameImage(width=1, height=1, rgb=bytes(3)),
+            frame_index=self.frame_index,
+        )
 
 
 class _FakeExtractor(QObject):
@@ -307,6 +315,66 @@ def test_a_paused_position_is_not_treated_as_playback(
     assert source.seeks == []
 
 
+def test_the_playhead_follows_the_frame_that_was_delivered(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    # S13. The frame knows which frame it is; the backend's position events do
+    # not arrive often enough to keep up with it, so the timeline follows the
+    # frame once the source proves it can index one.
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0)
+    controller.toggle_playback()
+
+    source.frame_shown.emit(48)
+
+    assert controller.frame == 48
+
+
+def test_a_stale_position_does_not_pull_the_playhead_back(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    # Measured on a real clip: after the pause, one more position event for an
+    # older position still arrives. Following it would walk the timeline back
+    # behind the frame on screen and leave the animator's key on a frame the
+    # number no longer shows.
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0)
+    controller.toggle_playback()
+    source.frame_shown.emit(48)
+
+    source.position_changed.emit(1958)  # 1958 ms -> frame 46, behind the pane
+
+    assert controller.frame == 48
+
+
+def test_a_position_still_drives_a_clip_that_cannot_be_indexed(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    # Degradation, not a regression: a backend that never reports frame
+    # timestamps keeps the old behavior, where position is all there is.
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0)
+    controller.toggle_playback()
+
+    source.position_changed.emit(500)  # 500 ms at 24 fps
+
+    assert controller.frame == 12
+
+
+def test_a_frame_delivered_while_paused_does_not_move_the_playhead(
+    controller: CaptureController, source: _FakeSource
+) -> None:
+    # A seek (and the priming nudge on open) delivers a frame too. The animator's
+    # own navigation owns the playhead then, so the frame must not relocate it.
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0)
+    controller.go_to_frame(15)
+
+    source.frame_shown.emit(48)
+
+    assert controller.frame == 15
+
+
 # --------------------------------------------------------------------------- #
 # Marking and removing (FR-CAP-07, plan §3.A)
 # --------------------------------------------------------------------------- #
@@ -333,6 +401,44 @@ def test_marking_the_current_frame_writes_the_extracted_pose(
     assert key.pose["Pelvis"].translation == Vector3(z=40.0)
     assert key.pose != neutral_pose(_skeleton())  # a real pose, not a placeholder
     assert changes == [15]
+    assert [frame for frame, _image in extractor.requests] == [15]
+
+
+def test_a_mark_after_playback_keys_the_frame_on_screen(
+    controller: CaptureController, source: _FakeSource, extractor: _FakeExtractor
+) -> None:
+    # The M5 verification blocker: the playhead follows the backend's *position*
+    # events, which are far rarer than frames, so after a play it can lag the
+    # pane by 1-3 frames. The captured frame is what the animator is looking at —
+    # the key must land there, and the playhead must catch up to it. Otherwise the
+    # animator sees one pose and gets another, silently.
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0)
+    controller.go_to_frame(40)
+    source.frame_index = 43  # the pane is three frames ahead of the playhead
+    controller.toggle_playback()
+
+    controller.mark_current()
+
+    assert key_frames(controller.state) == (43,)
+    assert controller.frame == 43
+    assert [frame for frame, _image in extractor.requests] == [43]
+
+
+def test_a_source_that_cannot_index_the_frame_keeps_the_playhead(
+    controller: CaptureController, source: _FakeSource, extractor: _FakeExtractor
+) -> None:
+    # Degradation, not refusal: a backend without timestamps cannot say which
+    # frame it delivered, so the capture falls back to the playhead instead of
+    # writing no key at all (the M5 rule for unusable metadata).
+    controller.open_video("clip.mp4")
+    _load_clip(source, fps=24.0)
+    controller.go_to_frame(15)
+    source.frame_index = None
+
+    controller.mark_current()
+
+    assert key_frames(controller.state) == (15,)
     assert [frame for frame, _image in extractor.requests] == [15]
 
 

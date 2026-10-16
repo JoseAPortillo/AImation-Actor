@@ -35,7 +35,13 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, Signal
 
-from aimation_actor.core.models import FrameImage, JointPose, TimelineState, WorldPose
+from aimation_actor.core.models import (
+    CapturedFrame,
+    FrameImage,
+    JointPose,
+    TimelineState,
+    WorldPose,
+)
 from aimation_actor.core.services import (
     build_production_pose,
     clamp_frame,
@@ -64,7 +70,14 @@ class VideoSource(Protocol):
     timeline. A source must expose these methods and the signals the controller
     connects to: ``media_loaded(float, int)`` (fps, duration in ms; a frame rate
     of ``0`` means the backend does not report one), ``position_changed(int)``
-    (ms), ``playback_changed(bool)`` and ``failed(str)``.
+    (ms), ``frame_shown(int)`` (the index of a delivered frame, when the source
+    can prove it from the frame's own timestamps and the clip's frame rate),
+    ``playback_changed(bool)`` and ``failed(str)``.
+
+    ``frame_shown`` exists because the timeline cannot trust position alone: the
+    backend reports changes far less often than it delivers frames, so a playhead
+    driven by position lags the pane. A source that can index its frames emits
+    this and the controller follows the frames instead.
     """
 
     def open(self, path: str) -> None: ...
@@ -75,14 +88,21 @@ class VideoSource(Protocol):
 
     def seek_frame(self, frame: int, fps: float) -> None: ...
 
-    def grab_frame(self) -> FrameImage | None:
-        """The frame at the playhead, or ``None`` when it is not there yet.
+    def grab_frame(self, fps: float) -> CapturedFrame | None:
+        """The frame on screen with the frame it belongs to, or ``None``.
 
-        A seek is asynchronous, so a source returns the frame only when it really
-        belongs to the playhead: handing over the previous position's frame would
-        extract the pose of a frame the animator is not looking at. ``None`` is
-        therefore expected right after a scrub — the animator retries once the
-        video shows the new frame — and not only when no clip is loaded.
+        A source returns the frame only when it really belongs to the position it
+        was asked for: a seek is asynchronous, and handing over the previous
+        position's frame would extract the pose of a frame the animator is not
+        looking at. ``None`` is therefore expected right after a scrub — the
+        animator retries once the video shows the new frame — and not only when
+        no clip is loaded.
+
+        The returned ``frame_index`` is what makes the key trustworthy: the
+        timeline follows the backend's position events, which are far rarer than
+        frames, so after a playback the playhead can lag the pane. ``None`` means
+        the source cannot establish the index (no timestamps, unknown frame rate)
+        and the caller resolves it from its own playhead.
         """
         ...
 
@@ -131,6 +151,9 @@ class CaptureController(QObject):
         self._video_path: Path | None = None
         self._pending_path: Path | None = None
         self._playing = False
+        # Whether the source has proven it can index the frames it delivers. It
+        # is per clip, because it depends on the clip's own metadata.
+        self._frames_are_indexed = False
         self._extractor = extractor
         # Any in-flight extraction belongs to the clip it was started against, so
         # "which clip" is tracked as a generation that a load bumps.
@@ -139,6 +162,7 @@ class CaptureController(QObject):
 
         source.media_loaded.connect(self._on_media_loaded)
         source.position_changed.connect(self._on_position_changed)
+        source.frame_shown.connect(self._on_frame_shown)
         source.playback_changed.connect(self._on_playback_changed)
         source.failed.connect(self._on_source_failed)
 
@@ -224,6 +248,8 @@ class CaptureController(QObject):
         # A new clip invalidates any extraction still running against the old one.
         self._generation += 1
         self._extraction_generation = None
+        # Indexing depends on this clip's own metadata, so it is re-proved here.
+        self._frames_are_indexed = False
         fps = reported_fps if reported_fps > 0.0 else self._state.fps
         total = max(1, int(math.floor(duration_ms / 1000.0 * fps)))
         # Keys belong to the clip that was loaded when they were marked, so a new
@@ -287,10 +313,36 @@ class CaptureController(QObject):
         self._emit_status()
 
     def _on_position_changed(self, position_ms: int) -> None:
-        """Follow playback: the playhead tracks the player while it plays."""
+        """Follow playback: the playhead tracks the player while it plays.
+
+        Once the source has proven it can index its frames, the frames own the
+        playhead and this is ignored: position events arrive far less often than
+        frames, so following them would walk the timeline back behind the frame
+        on screen — the animator would mark a pose and see a neighbouring frame
+        number. Position stays the fallback for a clip that cannot be indexed.
+        """
         if not self._playing:
             return  # the echo of an explicit seek must not move the playhead
+        if self._frames_are_indexed:
+            return
         target = clamp_frame(self._state, int(math.floor(position_ms / 1000.0 * self._state.fps)))
+        if target == self._frame:
+            return
+        self._frame = target
+        self._emit_frame()
+
+    def _on_frame_shown(self, frame_index: int) -> None:
+        """Follow the frame that was just delivered to the pane (S13).
+
+        This is the only source of truth the timeline can trust while playing:
+        the frame knows which frame it is, and the backend's position events do
+        not. A frame delivered while paused (a seek, or the priming nudge) must
+        not move the playhead — the animator's own navigation owns it then.
+        """
+        self._frames_are_indexed = True
+        if not self._playing:
+            return
+        target = clamp_frame(self._state, frame_index)
         if target == self._frame:
             return
         self._frame = target
@@ -314,11 +366,22 @@ class CaptureController(QObject):
             self._report(_NO_ENGINE)
             return
 
-        target = self._frame
-        image = self._source.grab_frame()
-        if image is None:
+        captured = self._source.grab_frame(self._state.fps)
+        if captured is None:
             self._report(_NO_FRAME)
             return
+
+        # The key belongs to the frame the animator is looking at, not to where
+        # the playhead happens to be: while the player plays, position events
+        # arrive far less often than frames, so the timeline lags the pane by a
+        # frame or three. The source proves the index from the frame's own
+        # timestamps; when it cannot, the playhead is the best answer there is.
+        target = self._frame
+        if captured.frame_index is not None:
+            target = clamp_frame(self._state, captured.frame_index)
+            if target != self._frame:
+                self._frame = target
+                self._emit_frame()
 
         # Claim the extraction *before* handing it over: an extractor is free to
         # answer synchronously, and its result must not look stale when it does.
@@ -326,7 +389,7 @@ class CaptureController(QObject):
         # discard the result that is still in flight.
         previous_claim = self._extraction_generation
         self._extraction_generation = self._generation
-        if not self._extractor.start(target, image):
+        if not self._extractor.start(target, captured.image):
             self._extraction_generation = previous_claim
             self._report(_BUSY)
             return

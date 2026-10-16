@@ -20,8 +20,8 @@ the frame at the new position, even from ``EndOfMedia``.
 
 It is a ``VideoSource`` for the capture controller: it exposes ``open``,
 ``play``, ``pause``, ``seek_frame`` and ``grab_frame``, plus the ``media_loaded``,
-``position_changed``, ``playback_changed`` and ``failed`` signals the controller
-listens to.
+``position_changed``, ``frame_shown``, ``playback_changed`` and ``failed`` signals
+the controller listens to.
 
 Two deliberate choices:
 
@@ -45,9 +45,15 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtMultimedia import QMediaMetaData, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from aimation_actor.core.models import FrameImage
+from aimation_actor.core.models import CapturedFrame, FrameImage
 
-__all__ = ["VideoPlayer", "frame_rate_of", "frame_time_ms", "to_frame_image"]
+__all__ = [
+    "VideoPlayer",
+    "frame_index_of",
+    "frame_rate_of",
+    "frame_time_ms",
+    "to_frame_image",
+]
 
 
 def frame_rate_of(metadata: QMediaMetaData) -> float:
@@ -67,6 +73,20 @@ def frame_time_ms(frame: int, fps: float) -> int:
     5). The middle of the slot has no such ambiguity at any frame rate.
     """
     return round((frame + 0.5) / fps * 1000.0)
+
+
+def frame_index_of(start_us: int, fps: float) -> int | None:
+    """The index of the frame that starts at ``start_us``, or ``None`` if unknown.
+
+    Frame ``n`` occupies the slot starting at ``n * 1e6 / fps`` microseconds, so
+    inverting that gives the frame that is on screen. ``round`` absorbs the
+    decoder's own timebase drift up to half a slot, while a negative timestamp or
+    a frame rate the backend never reported means there is no answer — and no
+    index is invented for it: the caller falls back to its own playhead.
+    """
+    if start_us < 0 or fps <= 0.0:
+        return None
+    return round(start_us * fps / 1_000_000.0)
 
 
 def to_frame_image(image: QImage) -> FrameImage:
@@ -131,6 +151,12 @@ class VideoPlayer(QWidget):
 
     media_loaded = Signal(float, int)
     position_changed = Signal(int)
+    # The frame index of a delivered frame, emitted only when the clip's own
+    # timestamps and frame rate can prove it (see ``frame_index_of``). The
+    # controller follows this instead of ``position_changed`` once it arrives:
+    # position events are far rarer than frames, which is what lets the timeline
+    # lag the pane by a frame or three.
+    frame_shown = Signal(int)
     playback_changed = Signal(bool)
     failed = Signal(str)
 
@@ -138,6 +164,7 @@ class VideoPlayer(QWidget):
         super().__init__(parent)
         self._source_path: Path | None = None
         self._announced = False
+        self._fps = 0.0
         self._image: QImage | None = None
         self._seen_frame = False
         self._priming = False
@@ -187,6 +214,7 @@ class VideoPlayer(QWidget):
             return
         self._source_path = candidate
         self._announced = False
+        self._fps = 0.0
         self._image = None
         self._seen_frame = False
         self._priming = False
@@ -219,8 +247,8 @@ class VideoPlayer(QWidget):
         self._wanted_us = target_ms * 1000
         self._player.setPosition(target_ms)
 
-    def grab_frame(self) -> FrameImage | None:
-        """The frame at the playhead, or ``None`` when it is not there yet.
+    def grab_frame(self, fps: float) -> CapturedFrame | None:
+        """The frame on screen with the frame index it belongs to, or ``None``.
 
         Only this one frame is ever converted, and only when asked, so the engine
         receives a single temporary bitmap (FR-CAP-05).
@@ -231,7 +259,13 @@ class VideoPlayer(QWidget):
         a frame the animator is not looking at, and nothing downstream could tell.
         Every delivered frame carries its own clip timestamps, so it is handed
         over only when it covers the position that was asked for; a frame without
-        usable timestamps is passed through rather than blocked.
+        usable timestamps is passed through rather than blocked, with its index
+        left unknown for the caller to resolve.
+
+        The index comes from the frame's own timestamps, never from the
+        controller's position: while the player plays, position events arrive far
+        less often than frames, so the timeline lags the pane by up to a few
+        frames and the key would land on the neighbour of the pose shown.
         """
         image = self._image
         if image is None or image.isNull():
@@ -240,7 +274,8 @@ class VideoPlayer(QWidget):
         span = self._span
         if wanted is not None and span is not None and not (span[0] <= wanted <= span[1]):
             return None
-        return to_frame_image(image)
+        index = None if span is None else frame_index_of(span[0], fps)
+        return CapturedFrame(image=to_frame_image(image), frame_index=index)
 
     # -- player events ----------------------------------------------------- #
 
@@ -263,6 +298,13 @@ class VideoPlayer(QWidget):
             # No usable timestamps: the attribution check in ``grab_frame`` is
             # skipped rather than refusing every frame.
             self._span = None
+        if self._span is not None:
+            index = frame_index_of(start, self._fps)
+            if index is not None:
+                # The frame just delivered says which frame it is, so the
+                # timeline can follow the pane instead of the backend's much
+                # rarer position events.
+                self.frame_shown.emit(index)
         if self._priming:
             if not self._user_playing:
                 self._player.pause()
@@ -303,7 +345,8 @@ class VideoPlayer(QWidget):
         if self._announced or self._source_path is None or duration <= 0:
             return
         self._announced = True
-        self.media_loaded.emit(frame_rate_of(self._player.metaData()), duration)
+        self._fps = frame_rate_of(self._player.metaData())
+        self.media_loaded.emit(self._fps, duration)
 
     def _on_position(self, position: int) -> None:
         """Re-emit the player's position as a plain ``int``."""

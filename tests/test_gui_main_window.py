@@ -12,7 +12,14 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QKeySequence
 
 from aimation_actor.adapters.gui.main_window import MainWindow
-from aimation_actor.core.models import FrameImage, JointData, Skeleton, Vector3, WorldPose
+from aimation_actor.core.models import (
+    CapturedFrame,
+    FrameImage,
+    JointData,
+    Skeleton,
+    Vector3,
+    WorldPose,
+)
 
 
 class _ConstantEngine:
@@ -27,6 +34,7 @@ class _FakeSource(QObject):
 
     media_loaded = Signal(float, int)
     position_changed = Signal(int)
+    frame_shown = Signal(int)
     playback_changed = Signal(bool)
     failed = Signal(str)
 
@@ -51,9 +59,9 @@ class _FakeSource(QObject):
     def seek_frame(self, frame: int, fps: float) -> None:
         self.seeks.append((frame, fps))
 
-    def grab_frame(self) -> FrameImage | None:
+    def grab_frame(self, fps: float) -> CapturedFrame | None:
         self.grabs += 1
-        return self._frame
+        return CapturedFrame(image=self._frame, frame_index=None)
 
 
 def _skeleton() -> Skeleton:
