@@ -38,9 +38,9 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | -- | --- | ------ | ----------- | ------------------- |
 | FR-CAP-01 | Must | ✅ | Open a reference video (`.mp4`/`.mov`, H.264/ProRes). | Opens the file; corrupt input errors out and leaves the app usable. *(A missing or unreadable file fails immediately with a message, and a clip already loaded is kept.)* |
 | FR-CAP-02 | Must | ✅ | Video streams; never fully decoded into RAM. | No path reads all frames; peak RAM does not scale with clip length. *(Measured through the FFmpeg backend: a 48-frame clip and a 1440-frame clip both peak ≈ 8 MiB above the window-only baseline.)* |
-| FR-CAP-03 | Must | ✅ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). *(Frame 0 is the first frame — the range is 0-based, matching FBX time; a 2 s / 24 fps clip reports 48 frames.)* |
+| FR-CAP-03 | Must | ✅ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). *(Frame 0 is the first frame — the range is 0-based, matching FBX time; a 2 s / 24 fps clip reports 48 frames. While the clip plays, the playhead follows the frame the decoder delivered, not the backend's rarer position events, so the number and the video pane cannot disagree.)* |
 | FR-CAP-04 | Must | ✅ | Shortcuts: `Space` play/pause, `←`/`→` ±1 frame, `K` mark, `Delete` remove, `Shift+←/→` jump between keys. | Each shortcut behaves as described, clamped to the frame range. *(`Ctrl+O` opens a clip; `Delete` removes the key at the playhead, the MVP having no separate selection.)* |
-| FR-CAP-05 | Must | 🟡 | `K` runs GVHMR on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. *(The pipeline landed: batch 1 is enforced by the runner itself, the engine runs off the UI thread, and one `K` sends exactly one frame. The engine behind the port is still a deterministic stand-in — GVHMR needs an external repo, multi-GB weights and `torchvision`, none of which are present — so FP16 and the CUDA-cache release are not exercised yet.)* |
+| FR-CAP-05 | Must | 🟡 | `K` runs GVHMR on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. *(The pipeline landed: batch 1 is enforced by the runner itself, the engine runs off the UI thread, and one `K` sends exactly one frame. The engine behind the port is still a deterministic stand-in — GVHMR needs an external repo, multi-GB weights and `torchvision`, none of which are present — so FP16 and the CUDA-cache release are not exercised yet. The extracted frame is the one the animator is looking at: it carries its own frame index from the clip's timestamps, the key is written there, and the playhead moves onto it — measured on real clips after play → pause → `K`.)* |
 | FR-CAP-06 | Must | ✅ | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. *(`build_production_pose` performs the mapping and every extraction now goes through it, verified end to end on a real clip: a stand-in hip height of 140 with a Pelvis bind of 100 wrote an offset of exactly 40.0, and `Main` came back at `(0, 0, 0)` with identity rotation. The mapping is engine-independent.)* |
 | FR-CAP-07 | Should | ✅ | At most one key per frame; extraction failure is non-fatal. | Re-marking a frame does not duplicate; a failed `K` keeps prior keys and reports. *(Re-marking overwrites by frame; a failure keeps every prior key and writes none; a second `K` while an engine runs is refused instead of queued; a late answer from a clip that is no longer open is discarded. M4's neutral placeholder is retired — it would have passed a failure off as a capture.)* |
 
@@ -123,6 +123,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.3.4   | 2026-10-15 | `Main` reserved for the animator; blocking export ships in place. |
 | 0.4.0   | 2026-10-15 | M4 capture GUI landed (FR-CAP-01..04 ✅, NFR-01/03 ✅); frame range is 0-based. |
 | 0.4.1   | 2026-10-15 | M5 pose-extraction pipeline landed (`AIPort`, frame capture, `QThread` batch 1, remap): FR-CAP-06/07 ✅, FR-CAP-05/NFR-02 🟡 (the engine is a stand-in). |
+| 0.4.2   | 2026-10-16 | M5 verification blocker fixed: the captured frame carries its own index (`K` keys it, the playhead moves there) and the playhead follows the delivered frame while playing (FR-CAP-03/05). |
 
 ## 6. Session state (resume here)
 
@@ -164,6 +165,16 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   never produced a wrong frame; FR-CAP-02 re-measured with the sink in the path
   (272.0 MiB for a 2 s clip vs 275.1 MiB for a 60 s one, 30× the frames scanned).
   150 tests green, `ruff check` clean.
+- M5 fix (2026-10-16, `feat/develop`): the blocker the independent verification of
+  M5 reported — play → pause → `K` keyed the pose of a frame 1-3 positions early,
+  silently — is closed. The captured frame now carries the frame index it belongs
+  to, proved from its own clip timestamps (`CapturedFrame`, `frame_index_of`), so
+  `K` keys the frame the animator is looking at and the playhead moves onto it;
+  and while the clip plays, the playhead follows the delivered frame instead of
+  the backend's rarer position events, so the number and the pane cannot
+  disagree. Measured on real clips through the real window: play → pause → `K`
+  six times per clip, **0 key mismatches, 0 playhead lag**, key == pane and
+  image == pane on all 12 rounds. 161 tests green, `ruff check` clean.
 
 **Next**
 

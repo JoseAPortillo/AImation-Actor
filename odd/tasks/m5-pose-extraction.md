@@ -56,6 +56,28 @@ remap all land here, verified with a deterministic engine.
   a freshly loaded player decodes nothing until playback starts once, so opening
   primes exactly one frame. The nudge is not reported as playback — it must not
   move the playhead or flip the transport (FR-CAP-04, NFR-03).
+- **S12.** The captured frame **carries the frame index it belongs to**, and the
+  key is written there — not at the playhead. S10's guard covers scrubs only;
+  while the player plays, the timeline follows the backend's position events,
+  which arrive far less often than frames, so the playhead can lag the pane by
+  one to three frames. `grab_frame(fps) -> CapturedFrame(image, frame_index)`
+  derives the index from the frame's own clip timestamps
+  (`frame_index_of(start_us, fps)`), and `K` keys that frame and moves the
+  playhead onto it, so the timeline catches up with what the animator sees. A
+  source that cannot establish the index (no timestamps, unknown frame rate)
+  reports `None` and the capture keeps the playhead — degrade, never refuse
+  (M5 L8's rule; S3, S5, FR-CAP-05, FR-CAP-07).
+- **S13.** While the player plays, the playhead follows **the frame that was
+  delivered**, not the backend's position: `frame_shown(int)` carries the index
+  the source proved, and once a source has proved it can index a frame of the
+  current clip, `position_changed` stops moving the playhead. Otherwise the
+  number and the pane can disagree — measured on a real clip, a position event
+  for an older frame still arrived after the pause and walked the timeline back
+  behind the frame on screen, leaving a key at 16 with the playhead at 15 and
+  `Delete` removing nothing. A frame delivered while paused (a seek, or the
+  priming nudge of S11) never moves the playhead: the animator's own navigation
+  owns it then. A clip that cannot be indexed keeps the old
+  position-driven behavior (S3, FR-CAP-03, FR-CAP-04).
 
 ## Tasks
 
@@ -69,6 +91,7 @@ remap all land here, verified with a deterministic engine.
 | T6 | S3 | inline | ✅ done | `engine=` injection + `closeEvent` shutdown (C4) + `tests/test_gui_main_window.py` |
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
+| T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py`; real-clip probe (L16) |
 
 ## Log
 
@@ -195,3 +218,62 @@ remap all land here, verified with a deterministic engine.
   been used from the start, the lost C3 would have been caught immediately. This
   repeats the lesson already recorded as L22 of the M4 document (the `end.y`
   phantom): bytes over console, every time.
+
+- **L14.** Reopened by the user, verbatim: *"vamos a ver el siguiente paso del
+  proyecto"*, and on the choice offered for the next step,
+  *"Arreglar el blocker de M5"*. The blocker was the one recorded by the
+  independent verification of this milestone (Engram #1091 / #1093): play →
+  pause → `K` wrote the pose of a frame **1-3 positions early**, silently. This
+  document had marked T1-T8 done without recording that finding at all, which is
+  the real defect in the record: a milestone whose verification reported a blocker
+  is not finished, and the verification belongs in this log, not only in Engram.
+
+- **L15.** The fix, in two specs rather than one patch, because the probe found
+  two distinct violations of the same invariant (image ↔ frame index):
+
+  1. **S12 — the key belongs to the frame that was captured.** Root cause
+     confirmed at line level: `play()` (`video_player.py:206`) sets
+     `_wanted_us = None` ("live playback means live frames") and `pause()`
+     never re-arms it, so `grab_frame`'s coverage guard — the S10 protection
+     against extracting a neighbouring frame — was **dead after any playback**;
+     `capture_controller.py` then keyed the delivered image at `self._frame`, the
+     position-derived playhead. The frame now carries its own index, proved from
+     its clip timestamps (`CapturedFrame`, `frame_index_of(start_us, fps)` =
+     `round(start_us * fps / 1e6)`), and `K` keys that frame and moves the
+     playhead onto it. A source that cannot prove the index reports `None` and
+     the capture keeps the playhead: degrade, never refuse (L8's rule).
+
+  2. **S13 — the playhead belongs to the frame, not to the position event.** This
+     one was found by this log's own re-run of the real-clip probe, not by the
+     unit tests: with only S12 in place, 2 of 12 rounds left the key at 16 with
+     the playhead at 15. A position event for an older position still arrives
+     after the pause, and while the controller still believed it was playing it
+     walked the timeline back behind the frame on screen — `Delete` would then
+     remove nothing and the number would lie about where the key is. So the
+     player now emits `frame_shown(int)` for a frame it can index, and once a
+     source has proved that for the current clip, `position_changed` stops moving
+     the playhead. A clip that cannot be indexed keeps the old behavior.
+
+  Both were written test-first. RED was observed for the real defect, not only
+  for an import: `tests/test_gui_capture_controller.py::
+  test_a_mark_after_playback_keys_the_frame_on_screen` failed with
+  `assert (40,) == (43,)` — the playhead's frame keyed instead of the pane's —
+  before the controller was touched.
+
+- **L16.** Verification, in the same shape that found the blocker. Gates: **161
+  tests, 0 failures, 0 errors, 0 skipped** (`--junitxml` readback, not the
+  console), `ruff check .` clean. Real backend, real clips, the real window and
+  the real `K` path, driving `play → pause → K` six times per clip
+  (`clip.mp4` 48 frames, `long_clip.mp4` 1440, both 24 fps):
+
+  | clip | key mismatches | playhead lag per round | key == pane | image == pane | playhead on the key |
+  | ---- | -------------- | ---------------------- | ----------- | ------------- | ------------------- |
+  | `clip.mp4` | **0 / 6** | 0,0,0,0,0,0 | 6/6 | 6/6 | 6/6 |
+  | `long_clip.mp4` | **0 / 6** | 0,0,0,0,0,0 | 6/6 | 6/6 | 6/6 |
+
+  Before the fix the same probe measured `key_mismatches` with the playhead
+  behind by 1-3 frames in most rounds (the verifier's independent run: 70
+  captures, 29 agreeing keys). The probe itself is **not committed**: it needs a
+  display, a media backend and a clip, exactly like the Blender read path
+  (NFR-04), so it stays a manual check; the regression coverage that CI can run
+  is the new fake-driven tests for S12 and S13.
