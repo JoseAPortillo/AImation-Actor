@@ -63,10 +63,13 @@ remap all land here, verified with a deterministic engine.
   one to three frames. `grab_frame(fps) -> CapturedFrame(image, frame_index)`
   derives the index from the frame's own clip timestamps
   (`frame_index_of(start_us, fps)`), and `K` keys that frame and moves the
-  playhead onto it, so the timeline catches up with what the animator sees. A
-  source that cannot establish the index (no timestamps, unknown frame rate)
-  reports `None` and the capture keeps the playhead — degrade, never refuse
-  (M5 L8's rule; S3, S5, FR-CAP-05, FR-CAP-07).
+  playhead onto it, so the timeline catches up with what the animator sees. The
+  playhead moves onto the captured frame *before* the request is admitted, so a
+  refused `K` (S4) still leaves the playhead on the frame the pane shows: the
+  playhead follows the pane, and only the *key* depends on the request being
+  served (L17, advisory 1). A source that cannot establish the index (no
+  timestamps, unknown frame rate) reports `None` and the capture keeps the
+  playhead — degrade, never refuse (M5 L8's rule; S3, S5, FR-CAP-05, FR-CAP-07).
 - **S13.** While the player plays, the playhead follows **the frame that was
   delivered**, not the backend's position: `frame_shown(int)` carries the index
   the source proved, and once a source has proved it can index a frame of the
@@ -91,7 +94,7 @@ remap all land here, verified with a deterministic engine.
 | T6 | S3 | inline | ✅ done | `engine=` injection + `closeEvent` shutdown (C4) + `tests/test_gui_main_window.py` |
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
-| T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py`; real-clip probe (L16) |
+| T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17) |
 
 ## Log
 
@@ -277,3 +280,79 @@ remap all land here, verified with a deterministic engine.
   display, a media backend and a clip, exactly like the Blender read path
   (NFR-04), so it stays a manual check; the regression coverage that CI can run
   is the new fake-driven tests for S12 and S13.
+
+- **L17.** The fix was then verified by an **independent verifier** — a fresh
+  agent with no memory of this work, given only this document, the baseline
+  commit `187b822` and the probe command shapes, working in its own scratch copy
+  (`mktemp -d`) so nothing it ran could reach the repository.
+
+  **Verdict: no blockers, S1-S13 all met.** It also reproduced the blocker by
+  itself, which is the part that matters — the finding is not this log agreeing
+  with itself:
+
+  | run | clip | key != pane | key != engine image | rounds |
+  | --- | ---- | ----------- | ------------------- | ------ |
+  | baseline `187b822` | `clip.mp4` | **6 / 6** | 0 | 6 |
+  | baseline `187b822` | `long_clip.mp4` | **6 / 6** | 0 | 6 |
+  | candidate | `clip.mp4` | **0 / 6** | 0 | 6 |
+  | candidate | `long_clip.mp4` | **0 / 6** | 0 | 6 |
+
+  `engine_sha_eq_pane: true` in **every** baseline round, while the key was wrong
+  in all twelve, nails the diagnosis to the index and not the pixels: S10's guard
+  was still handing over the frame the animator saw, and only the *frame number*
+  the key was written at was wrong. So this was never a capture bug — it was an
+  attribution bug, exactly as L15 recorded it.
+
+  Both specs are load-bearing, and the verifier's numbers show it rather than
+  asserting it: in candidate `long_clip.mp4` round 5 the playhead sat at 130 with
+  the pane on 131 (`playhead_at_k: 130`, `pane_frame_ffmpeg: 131`), and `K` wrote
+  `key_frame: 131`. S13 keeps the playhead on the delivered frame while playing,
+  but a frame can still arrive while paused (S13 explicitly does not move the
+  playhead then), and S12 is what keeps the *key* honest at that boundary. Either
+  spec alone would have left a hole.
+
+  The verifier delivered **7 durable regression pins**, which CI can run where
+  the manual probe cannot (it needs a display, a media backend and a clip):
+  four in `tests/test_gui_capture_controller.py` (clamping an out-of-range
+  captured index; indexing re-proved per clip; a proved index owning the
+  playhead; a refused `K` writing no key and issuing no request) and three in
+  `tests/test_gui_video_player.py` (`frame_index_of`'s boundaries and its
+  no-answer cases; the S10 seek targets unchanged from the baseline;
+  a frame without a frame rate degrading to `None`). They were committed in C7
+  **byte-for-byte** as delivered: the verifier's files were checked to be the
+  workspace files plus a tail (2713 B and 1325 B, verified byte-identical after
+  the append), so no part of them was paraphrased, reformatted or "improved" in
+  transit. The last of these pins the previous behavior the fix shares code with
+  — `frame_time_ms` — which the test-first policy requires.
+
+  Gates after C7, read back from `--junitxml`: **168 tests, 0 failures, 0 errors,
+  0 skipped**; `ruff check .` exit 0. That is L16's 161 plus the 7 pins, and the
+  7 are the only thing that changed in the suite.
+
+  **The four advisories, and what was done with each** — all recorded here rather
+  than quietly fixed, because two of them are *deliberate* behavior and the other
+  two are not defects:
+
+  1. **A busy-refused `K` moves the playhead** onto the captured frame, where the
+     baseline left it alone. This is intended, and S12 now says so. The playhead
+     tracks the *pane*; the key is what depends on the request being served. The
+     alternative would leave the playhead lying about what is on screen precisely
+     when the animator is about to retry — and the retry would then key the frame
+     they were not looking at. The verifier rated it an advisory, not a blocker,
+     and `test_a_refused_mark_writes_no_key_and_leaves_the_timeline_intact` now
+     pins the part that must hold: no key is written and no request is issued.
+  2. **L16's `playhead lag 0,0,0,0,0,0` is a post-`K` figure.** The verifier
+     measured a pre-`K` lag of -1 in one candidate round, which S12 then
+     corrected at `K`. L16's table must not be read as "the pre-`K` playhead never
+     lags" — that is false, and this entry is the correction.
+  3. **FR-CAP-02 was not re-measured this pass.** The fix adds one `int | None` to
+     a frozen dataclass and one signal, so it cannot move peak memory; L9's
+     measurement (272.0 MiB vs 275.1 MiB across a 30x clip-length difference) was
+     taken through the same sink path and stands. Not re-running it is a gap in
+     this pass's evidence, not a disagreement with it.
+  4. **`frame_index_of` inherits Python's `round()`** — half-to-even, so a
+     timestamp landing exactly on a half-slot would round to the even frame. The
+     verifier could not reach it: a real slot start never falls exactly on a half
+     slot. Left as documented rather than "fixed" into a third unrequested
+     behavior change; the boundaries that *are* reachable are pinned by the first
+     of the seven tests.

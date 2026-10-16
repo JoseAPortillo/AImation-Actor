@@ -124,6 +124,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.4.0   | 2026-10-15 | M4 capture GUI landed (FR-CAP-01..04 ✅, NFR-01/03 ✅); frame range is 0-based. |
 | 0.4.1   | 2026-10-15 | M5 pose-extraction pipeline landed (`AIPort`, frame capture, `QThread` batch 1, remap): FR-CAP-06/07 ✅, FR-CAP-05/NFR-02 🟡 (the engine is a stand-in). |
 | 0.4.2   | 2026-10-16 | M5 verification blocker fixed: the captured frame carries its own index (`K` keys it, the playhead moves there) and the playhead follows the delivered frame while playing (FR-CAP-03/05). |
+| 0.4.3   | 2026-10-16 | M5 fix independently verified: the blocked case reproduced 6/6 rounds per clip at baseline and 0/6 after; 7 regression pins committed (FR-CAP-03/05). |
 
 ## 6. Session state (resume here)
 
@@ -175,6 +176,13 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   disagree. Measured on real clips through the real window: play → pause → `K`
   six times per clip, **0 key mismatches, 0 playhead lag**, key == pane and
   image == pane on all 12 rounds. 161 tests green, `ruff check` clean.
+  **Independently verified** by a fresh agent against baseline `187b822`: the
+  blocked case reproduced **6/6 rounds on each clip** before the fix and **0/6**
+  after, while the engine's image matched the pane in *every* baseline round —
+  the frame *number* was wrong, never the pixels, so the guard against extracting
+  a neighbouring frame was working and only the attribution was not. The
+  verifier's 7 regression pins are committed, so this coverage no longer depends
+  on the manual probe. 168 tests green, `ruff check` clean.
 
 **Next**
 
