@@ -966,4 +966,6 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   R3-recovery-paths-untested, R3-windows-only-test-unguarded, R4-5.
   M5 has one remaining manual check for FR-CAP-05's UI half: pressing
   `K` in the real window on a real clip and seeing the rig+pose in the
-  pane (the probe exercised the adapter path headlessly).
+  pane (the probe exercised the adapter path headlessly). Native assess on the slice
+  e7960b2..df409be: **under_budget** — the review stays pending in the slice
+  until a later commit reaches the budget; passive tier not claimed.
