@@ -901,3 +901,32 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   window wiring - `build_window` instantiates the real adapter and a real
   production skeleton (SMPL-named body joints + `Main`) so the whole M5
   pipeline can be verified by hand on the box, like M4 was.
+
+- **L25 (2026-10-19) — native review of the T11+T12 slice (55e0994..01fea0a),
+  granted, one bounded correction, approved.** Reviewer lenses (risk,
+  resilience, reliability) corroborated two deterministic candidate-caused
+  blockers, both real: (1) a stale `_ready` blocked the promised respawn
+  after a worker death — the next `K` died on an untyped `AssertionError`
+  forever; (2) a timed-out worker was never terminated — an orphan holding
+  ~2.67 GB of VRAM that `shutdown()` could no longer reach. Correction
+  (commit `e7960b2`, +79/18-, within the 45-line forecast): one
+  `_discard_worker()` helper terminates the process (wait -> terminate ->
+  kill) and clears `_worker`/`_lines`**/**`_ready` on every failure path;
+  `shutdown()` shares it; the death test now proves the second extraction
+  is served by a fresh worker (die-once fake, different pid) and a new pin
+  proves a hung worker is terminated when the request times out. Gates: 183
+  tests green, ruff clean. Targeted validation confirmed the fix; review
+  **approved + acknowledged** (authority burned, lineage
+  `review-e40ba83315e51a38`). All 8 remaining findings are **advisory
+  non-blocking** follow-ups; `R4-3` (worker stderr discarded -> undiagnosable
+  real-engine crashes) folds directly into T13's probe; the rest are
+  deferred: R1 (pin checkpoint sha256 before the `weights_only=False`
+  load), R3-protocol-doc-drift (worker docstring promises `hip_height_cm`
+  the real worker never emits; the fake does), R3-silent-malformed-ok
+  (broken `ok` responses convert to empty poses instead of a typed
+  protocol failure), R3-recovery-paths-untested (no corrupt-`FrameImage`
+  or stray-non-JSON-line test), R3-windows-only-test-unguarded (the
+  `OpenProcess` pin needs a POSIX skipif), R4-4 (template hip computation
+  outside try/except blames the checkpoint on unrelated deaths), R4-5
+  (`empty_cache` skipped on failed requests).
+
