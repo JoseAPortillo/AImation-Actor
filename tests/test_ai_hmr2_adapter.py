@@ -43,13 +43,19 @@ def _adapter(tmp_path: Path, mode: str) -> Hmr2Adapter:
     smpl_dir.mkdir(exist_ok=True)
     (smpl_dir / "SMPL_NEUTRAL.pkl").write_bytes(b"fake")
     pid_file = tmp_path / "worker.pid"
+    died_marker = tmp_path / "died.marker"
     return Hmr2Adapter(
         engine_root=None,
         python_executable=sys.executable,
         worker_script=_FAKE_WORKER,
         checkpoint=checkpoint,
         smpl_dir=smpl_dir,
-        env=dict(os.environ, FAKE_HMR2_WORKER_MODE=mode, FAKE_PID_FILE=str(pid_file)),
+        env=dict(
+            os.environ,
+            FAKE_HMR2_WORKER_MODE=mode,
+            FAKE_PID_FILE=str(pid_file),
+            FAKE_DIED_MARKER=str(died_marker),
+        ),
         pid_file=pid_file,
     )
 
@@ -117,13 +123,38 @@ def test_a_second_extraction_reuses_the_same_worker(tmp_path: Path) -> None:
         adapter.shutdown()
 
 
-def test_a_worker_death_mid_request_is_a_typed_failure(tmp_path: Path) -> None:
-    adapter = _adapter(tmp_path, "die_mid_request")
+def test_a_worker_death_mid_request_is_a_typed_failure_and_then_respawns(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path, "die_once")
     with pytest.raises(Hmr2EngineError):
         adapter.extract_pose(_frame(), frame_index=0)
     # The dead worker is discarded, so the next call starts a fresh one.
     assert adapter._worker is None
-    adapter.shutdown()
+    first_pid = int(adapter.pid_file.read_text())
+    try:
+        pose = adapter.extract_pose(_frame(), frame_index=1)
+        assert pose.translation.z == pytest.approx(_TEMPLATE_HIP_CM)
+        # The serving process is a new one: the respawn is real, not replayed.
+        respawned_pid = int(adapter.pid_file.read_text())
+        assert respawned_pid != first_pid
+    finally:
+        adapter.shutdown()
+
+
+def test_a_timed_out_worker_is_terminated_not_orphaned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # R3/R4-2: a hung engine must not survive the timeout holding its VRAM.
+    monkeypatch.setattr("aimation_actor.adapters.ai.hmr2_adapter._REQUEST_TIMEOUT_S", 0.5)
+    adapter = _adapter(tmp_path, "hang")
+    with pytest.raises(Hmr2EngineError):
+        adapter.extract_pose(_frame(), frame_index=0)
+    adapter.shutdown()  # must be a no-op for cleanup: the process is already gone
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenProcess(0x1000, False, int(adapter.pid_file.read_text()))
+    assert not handle, "the timed-out worker process should be terminated"
 
 
 def test_shutdown_terminates_the_worker(tmp_path: Path) -> None:

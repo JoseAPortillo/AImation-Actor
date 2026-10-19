@@ -17,11 +17,17 @@ Behaviour is selected by the ``FAKE_HMR2_WORKER_MODE`` environment variable:
 - ``ready_error``: the ready line reports a fatal error.
 - ``die_mid_request``: ready succeeds; the first request makes the process
   exit without answering.
+- ``die_once``: like ``die_mid_request`` on the first process only; a marker
+  file (``FAKE_DIED_MARKER``) makes a respawned worker serve ``ok``, so the
+  adapter's respawn promise is testable with one configuration.
+- ``hang``: ready succeeds; the first request takes the process hostage
+  (never answers) so a timeout path can be exercised.
 """
 
 import json
 import os
 import sys
+import time
 
 _MODE = os.environ.get("FAKE_HMR2_WORKER_MODE", "ok")
 _CANNED_ROTATIONS = {
@@ -38,6 +44,22 @@ _TEMPLATE_HIP_CM = 93.85
 def _emit(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+
+def _died_marker() -> str:
+    return os.environ.get("FAKE_DIED_MARKER", "")
+
+
+def _died_marker_exists() -> bool:
+    marker = _died_marker()
+    return bool(marker) and os.path.isfile(marker)
+
+
+def _mark_died() -> None:
+    marker = _died_marker()
+    if marker:
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write("died")
 
 
 def main() -> None:
@@ -57,8 +79,11 @@ def main() -> None:
             handle.write(str(os.getpid()))
     for line in sys.stdin:
         request = json.loads(line)
-        if _MODE == "die_mid_request":
+        if _MODE == "die_mid_request" or (_MODE == "die_once" and not _died_marker_exists()):
+            _mark_died()
             os._exit(9)
+        if _MODE == "hang":
+            time.sleep(600)
         _emit({
             "status": "ok",
             "frame_index": request.get("frame_index"),

@@ -195,8 +195,14 @@ class Hmr2Adapter(AIPort):
 
     # -- lifecycle ------------------------------------------------------------- #
 
-    def shutdown(self) -> None:
-        """Terminate the engine worker; idempotent (safe at app close)."""
+    def _discard_worker(self) -> None:
+        """Tear the worker down: terminate the process, forget all state.
+
+        Every failure path goes through this. Dropping the references without
+        stopping the process would leak an orphan worth 2.67 GB of VRAM
+        (T10's measured footprint) with no way to reach it, and keeping a
+        stale ``ready`` would stop the next extraction from respawning.
+        """
         worker = self._worker
         self._worker = None
         self._lines = None
@@ -214,6 +220,10 @@ class Hmr2Adapter(AIPort):
             except subprocess.TimeoutExpired:
                 worker.kill()
 
+    def shutdown(self) -> None:
+        """Terminate the engine worker; idempotent (safe at app close)."""
+        self._discard_worker()
+
     # -- AIPort ---------------------------------------------------------------- #
 
     def extract_pose(self, image: FrameImage, *, frame_index: int) -> WorldPose:
@@ -225,8 +235,7 @@ class Hmr2Adapter(AIPort):
         if response.get("status") != "ok":
             message = str(response.get("message", "the engine request failed"))
             if response.get("fatal"):
-                self._worker = None
-                self._lines = None
+                self._discard_worker()
             raise Hmr2EngineError(f"the HMR2.0 engine failed on frame {frame_index}: {message}")
         return self._to_world_pose(response)
 
@@ -240,15 +249,14 @@ class Hmr2Adapter(AIPort):
         self._spawn()
         line = self._next_protocol_line(_READY_TIMEOUT_S)
         if line is None:
-            self._worker = None
+            self._discard_worker()
             raise Hmr2EngineError(
                 f"the HMR2.0 engine worker exited before becoming ready "
                 f"(checkpoint: {self.checkpoint}); run the engine probe to diagnose it"
             )
         ready = json.loads(line)
         if ready.get("status") != "ready":
-            self._worker = None
-            self._lines = None
+            self._discard_worker()
             raise Hmr2EngineError(f"the HMR2.0 engine cannot start: {ready.get('message', ready)}")
         self._ready = ready
         return ready
@@ -324,8 +332,7 @@ class Hmr2Adapter(AIPort):
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0.0:
-                self._worker = None
-                self._lines = None
+                self._discard_worker()
                 raise Hmr2EngineError(
                     f"the HMR2.0 engine did not answer within {timeout:.0f} s; check the GPU and "
                     f"the engine environment"
@@ -353,15 +360,13 @@ class Hmr2Adapter(AIPort):
             worker.stdin.write(json.dumps(request) + "\n")
             worker.stdin.flush()
         except OSError:
-            self._worker = None
-            self._lines = None
+            self._discard_worker()
             raise Hmr2EngineError(
                 "the HMR2.0 engine worker stopped responding; the next extraction restarts it"
             ) from None
         line = self._next_protocol_line(_REQUEST_TIMEOUT_S)
         if line is None:
-            self._worker = None
-            self._lines = None
+            self._discard_worker()
             return {
                 "status": "error",
                 "fatal": True,
