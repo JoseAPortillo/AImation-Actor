@@ -623,3 +623,100 @@ def test_a_refused_mark_writes_no_key_and_leaves_the_timeline_intact(
     )
     assert controller.state.keyframes == before
     assert extractor.requests == requests
+
+
+# --------------------------------------------------------------------------- #
+# The rig adoption (T13): the production skeleton is real body-model data,
+# so it arrives with the engine's first successful extraction — never invented.
+# --------------------------------------------------------------------------- #
+
+
+def _engine_rig_skeleton() -> Skeleton:
+    """The rig the wiring under test would build from the engine's bind offsets."""
+    from aimation_actor.core.production_skeleton import (
+        PRODUCTION_BODY_JOINT_NAMES,
+        production_skeleton,
+    )
+
+    offsets = {
+        "Pelvis": Vector3(x=-0.18, y=-2.822, z=93.851),
+        **{
+            name: Vector3(x=1.0, y=0.0, z=-1.0)
+            for name in PRODUCTION_BODY_JOINT_NAMES
+        },
+    }
+    return production_skeleton(offsets)
+
+
+def test_the_first_extraction_adopts_the_engine_template_rig(
+    source: _FakeSource, extractor: _FakeExtractor
+) -> None:
+    state = TimelineState(skeleton=Skeleton(joints=()), fps=24.0, frame_start=0, frame_end=0)
+    calls: list[int] = []
+    controller = CaptureController(
+        source,
+        state,
+        extractor=extractor,
+        skeleton_source=lambda: calls.append(1) or _engine_rig_skeleton(),
+    )
+    controller.open_video("clip.mp4")
+    _load_clip(source)
+    controller.go_to_frame(15)
+    controller.mark_current()
+
+    assert key_frames(controller.state) == (15,)
+    key = next(k for k in controller.state.keyframes if k.frame == 15)
+    # the canned extractor reports a 140 cm hip; the adopted rig binds the
+    # Pelvis at 93.851 cm, so the written offset is 140 - 93.851
+    assert key.pose["Pelvis"].translation.z == pytest.approx(140.0 - 93.851)
+    # the rig persists on the timeline: a second extraction must not re-ask
+    assert calls == [1]
+    controller.go_to_frame(30)
+    controller.mark_current()
+    assert calls == [1]
+    assert key_frames(controller.state) == (15, 30)
+    # every production joint is representable on the adopted rig
+    assert set(_engine_rig_skeleton().names()) <= set(key.pose)
+
+
+def test_an_extraction_without_an_available_rig_marks_nothing(
+    source: _FakeSource, extractor: _FakeExtractor, qtbot  # noqa: ANN001
+) -> None:
+    state = TimelineState(skeleton=Skeleton(joints=()), fps=24.0, frame_start=0, frame_end=0)
+    failures: list[str] = []
+    controller = CaptureController(
+        source, state, extractor=extractor, skeleton_source=lambda: None
+    )
+    controller.failed.connect(failures.append)
+    controller.open_video("clip.mp4")
+    _load_clip(source)
+    controller.go_to_frame(15)
+    controller.mark_current()
+
+    assert key_frames(controller.state) == ()
+    assert failures and "rig" in failures[-1].lower()
+
+
+def test_a_rig_builder_failure_is_a_typed_report(
+    source: _FakeSource, extractor: _FakeExtractor, qtbot  # noqa: ANN001
+) -> None:
+    state = TimelineState(skeleton=Skeleton(joints=()), fps=24.0, frame_start=0, frame_end=0)
+    failures: list[str] = []
+    controller = CaptureController(
+        source,
+        state,
+        extractor=extractor,
+        skeleton_source=_raises_value_error,
+    )
+    controller.failed.connect(failures.append)
+    controller.open_video("clip.mp4")
+    _load_clip(source)
+    controller.go_to_frame(15)
+    controller.mark_current()
+
+    assert key_frames(controller.state) == ()
+    assert failures and "valueerror" in failures[-1].lower()
+
+
+def _raises_value_error() -> Skeleton:
+    raise ValueError("template bind offsets are incomplete (missing: L_Knee)")

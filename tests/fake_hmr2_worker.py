@@ -38,6 +38,34 @@ _CANNED_ROTATIONS = {
         -1.0, 0.0, 0.0,
     ],  # a 90-degree rotation about Y in SMPL space (row-major 3x3)
 }
+_CANNED_BIND_OFFSETS = {
+    # SMPL frame, cm — the real template's values, rounded, as the real
+    # worker reports them (the adapter converts them into the domain frame)
+    "Pelvis": [-0.18, 93.851, 2.822],
+    "L_Hip": [6.952, -9.141, -0.682],
+    "R_Hip": [-6.767, -9.052, -0.432],
+    "Spine_1": [-0.253, 10.896, -2.67],
+    "L_Knee": [3.428, -37.52, -0.45],
+    "R_Knee": [-3.829, -38.257, -0.885],
+    "Spine_2": [0.549, 13.518, 0.109],
+    "L_Ankle": [-1.36, -39.796, -4.369],
+    "R_Ankle": [1.577, -39.841, -4.231],
+    "Spine_3": [0.146, 5.292, 2.542],
+    "L_Foot": [2.636, -5.579, 11.929],
+    "R_Foot": [-2.537, -4.814, 12.335],
+    "Neck": [-0.278, 21.387, -4.286],
+    "L_Collar": [7.884, 12.175, -3.409],
+    "R_Collar": [-8.176, 11.883, -3.862],
+    "Head": [0.515, 6.497, 5.135],
+    "L_Shoulder": [9.098, 3.047, -0.887],
+    "R_Shoulder": [-9.601, 3.255, -0.914],
+    "L_Elbow": [25.961, -1.277, -2.746],
+    "R_Elbow": [-25.374, -1.333, -2.14],
+    "L_Wrist": [24.923, 0.899, -0.117],
+    "R_Wrist": [-25.53, 0.777, -0.556],
+    "L_Hand": [8.404, -0.816, -1.495],
+    "R_Hand": [-8.462, -0.612, -1.032],
+}
 _TEMPLATE_HIP_CM = 93.85
 
 
@@ -72,6 +100,7 @@ def main() -> None:
         "gpu": "fake",
         "vram_total_mib": 1024,
         "template_hip_height_cm": _TEMPLATE_HIP_CM,
+        "bind_offsets_cm": _CANNED_BIND_OFFSETS,
     })
     pid_path = bootstrap.get("fake_pid_file")
     if pid_path:

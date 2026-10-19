@@ -18,7 +18,7 @@ usable (S5, NFR-03), and a modal box would block a session that can continue.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
@@ -54,16 +54,20 @@ class MainWindow(QMainWindow):
         source: VideoSource | None = None,
         skeleton: Skeleton | None = None,
         engine: AIPort | None = None,
+        skeleton_source: Callable[[], Skeleton | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build the window.
 
-        ``source``, ``skeleton`` and ``engine`` exist so a caller can supply the
-        player, the rig and the pose engine; the defaults are the real player, an
-        **empty rig**, and **no engine**, because until M5 supplies the production
-        skeleton and the HMR2.0 adapter there are none to load, and the window will
-        not invent them. Without an engine, ``K`` reports that it cannot extract
-        rather than writing a pose nobody computed.
+        ``source``, ``skeleton``, ``engine`` and ``skeleton_source`` exist so a
+        caller can supply the player, the rig, the pose engine and where a rig
+        comes from when there is not one yet; the defaults are the real player,
+        an **empty rig**, and **no engine**. The composition root (``build_window``)
+        injects the real engine and a ``skeleton_source`` that builds the
+        production rig from the engine's own template report: the skeleton is
+        real body-model data, adopted at the first successful extraction —
+        never invented here. Without an engine or a rig source, ``K`` reports
+        what is missing rather than writing a pose nobody computed.
         """
         super().__init__(parent)
         self.setWindowTitle("AImation Actor")
@@ -79,7 +83,9 @@ class MainWindow(QMainWindow):
         )
 
         self.extractor = None if engine is None else PoseExtractionRunner(engine, self)
-        self.controller = CaptureController(player, state, self, extractor=self.extractor)
+        self.controller = CaptureController(
+            player, state, self, extractor=self.extractor, skeleton_source=skeleton_source
+        )
         self.viewport = SkeletonViewport(self)
         self.timeline = TimelineBar(self)
 

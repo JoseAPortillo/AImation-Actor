@@ -29,6 +29,7 @@ State rules (see ``odd/tasks/m4-capture-gui.md``, ``odd/tasks/m5-pose-extraction
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
@@ -39,6 +40,7 @@ from aimation_actor.core.models import (
     CapturedFrame,
     FrameImage,
     JointPose,
+    Skeleton,
     TimelineState,
     WorldPose,
 )
@@ -143,10 +145,12 @@ class CaptureController(QObject):
         parent: QObject | None = None,
         *,
         extractor: PoseExtractor | None = None,
+        skeleton_source: Callable[[], Skeleton | None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._source = source
         self._state = state
+        self._skeleton_source = skeleton_source
         self._frame = clamp_frame(self._state, self._state.frame_start)
         self._video_path: Path | None = None
         self._pending_path: Path | None = None
@@ -406,12 +410,47 @@ class CaptureController(QObject):
             self._report(_STALE)
             return
         self._extraction_generation = None
+        if not self._ensure_rig(frame_index):
+            return
         built = build_production_pose(pose, self._state.skeleton)
         self._state = mark_pose(self._state, frame_index, built)
         self.timeline_changed.emit()
         if frame_index == self._frame:
             self.pose_changed.emit(self.current_pose())
         self._emit_status(actionable=f"Extracted the pose at frame {frame_index}.")
+
+    def _ensure_rig(self, frame_index: int) -> bool:
+        """Adopt the engine's template rig before the first extraction lands (T13).
+
+        The production skeleton's bind offsets are real body-model data no caller
+        may invent — the engine reports them with its ready line, so the rig is
+        built the first time it is available and stays for the session (loading
+        another clip keeps it; ``TimelineState.replace`` never drops the
+        skeleton). A rig that is still unavailable is a typed, non-fatal
+        failure: nothing is marked on a skeleton the tool does not know.
+        """
+        if self._state.skeleton.joints:
+            return True
+        adopted: Skeleton | None = None
+        problem: Exception | None = None
+        if self._skeleton_source is not None:
+            try:
+                adopted = self._skeleton_source()
+            except Exception as error:  # noqa: BLE001 - the report needs the reason
+                problem = error
+        if adopted is None:
+            reason = (
+                f"the engine's template is unusable: {type(problem).__name__}: {problem}"
+                if problem is not None
+                else "the engine reports no bind offsets yet"
+            )
+            self._report(
+                f"Pose extracted at frame {frame_index}, but no production rig "
+                f"is available ({reason}); nothing was marked."
+            )
+            return False
+        self._state = replace(self._state, skeleton=adopted)
+        return True
 
     def _on_pose_failed(self, frame_index: int, message: str) -> None:
         """Report a failed extraction; the session and prior keys survive (FR-CAP-07)."""

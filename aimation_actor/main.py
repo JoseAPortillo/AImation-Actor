@@ -12,20 +12,35 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from aimation_actor.adapters.ai.hmr2_adapter import Hmr2Adapter
 from aimation_actor.adapters.gui.main_window import MainWindow
+from aimation_actor.core.production_skeleton import production_skeleton
 
 __all__ = ["build_window", "main"]
 
 
 def build_window() -> MainWindow:
-    """The application's window, wired to the real video player.
+    """The application's window: real player, real engine, real production rig.
 
-    The rig is deliberately left empty. The production skeleton arrives with the
-    pose pipeline (M5); inventing one here would put invented joint data behind
-    the production mapping, which is worse than an honest empty pane. Until then
-    the 3D pane names the reason it is blank.
+    The rig is still not invented here (the M4 refusal stands): its bind offsets
+    are real body-model data the engine reports with its ready line, so the
+    window adopts the rig at the first successful extraction through the
+    ``skeleton_source``. Until then the 3D pane names the reason it is blank.
     """
-    return MainWindow()
+    engine = Hmr2Adapter()
+    return MainWindow(engine=engine, skeleton_source=_engine_rig_of(engine))
+
+
+def _engine_rig_of(engine: Hmr2Adapter):
+    """Where the window's rig comes from: the engine's own template report."""
+    def rig():
+        offsets = engine.bind_offsets()
+        if offsets is None:
+            return None
+        return production_skeleton(offsets)
+
+    rig.__doc__ = "Build the production skeleton from the engine's bind offsets."
+    return rig
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -247,3 +247,36 @@ def test_the_fbx_writer_conjugates_back_to_the_smpl_rotation() -> None:
     inverse_axis = (aw, -ax, -ay, -az)  # A's conjugate: A^-1 = R_x(+90)
     q_fbx = _quaternion_multiply(fbx_axis_change, _quaternion_multiply(q_domain, inverse_axis))
     assert tuple(q_fbx) == pytest.approx(tuple(q_smpl))
+
+
+# -- the bind offsets of the production skeleton (T13) -------------------------- #
+
+
+def test_bind_offsets_arrive_with_the_ready_line(tmp_path: Path) -> None:
+    """The template bind offsets are real body-model data, in the domain frame."""
+    adapter = _adapter(tmp_path, "ok")
+    try:
+        adapter.extract_pose(_frame(), frame_index=0)  # spawns, reads the ready line
+        offsets = adapter.bind_offsets()
+        assert offsets is not None
+        assert len(offsets) == 24
+        assert offsets["Pelvis"].x == pytest.approx(-0.18)
+        assert offsets["Pelvis"].y == pytest.approx(-2.822)
+        assert offsets["Pelvis"].z == pytest.approx(93.851)
+        # L_Hip's canned SMPL frame offset converts (x, -z, y): -9.141 -> +y
+        assert offsets["L_Hip"].y == pytest.approx(0.682)
+        assert offsets["L_Hip"].z == pytest.approx(-9.141)
+        assert offsets["Head"].y == pytest.approx(-5.135)
+        assert offsets["Head"].z == pytest.approx(6.497)
+    finally:
+        adapter.shutdown()
+
+
+def test_bind_offsets_are_none_before_and_without_a_ready_line(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path, "ok")
+    try:
+        assert adapter.bind_offsets() is None  # the worker is not even spawned yet
+    finally:
+        adapter.shutdown()
+    adapter._ready = {}  # a ready line without bind data keeps the honest None
+    assert adapter.bind_offsets() is None

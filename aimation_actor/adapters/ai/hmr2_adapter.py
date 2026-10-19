@@ -261,6 +261,25 @@ class Hmr2Adapter(AIPort):
         self._ready = ready
         return ready
 
+    def bind_offsets(self) -> dict[str, Vector3] | None:
+        """The engine's template bind offsets for the production rig (T13).
+
+        Real body-model data (the template T-pose the worker derives at
+        startup), converted here from SMPL's Y-up report (centimetres) to the
+        domain's Z-up frame by the FBX convention ``(x, -z, y)``. ``None``
+        until the worker reports ready — the rig cannot be invented before the
+        engine speaks, so callers adopt it on the first successful extraction.
+        """
+        ready = self._ready
+        raw = (ready or {}).get("bind_offsets_cm")
+        if not isinstance(raw, dict) or not raw:
+            return None
+        offsets: dict[str, Vector3] = {}
+        for name, point in raw.items():
+            x, y, z = (float(value) for value in point)
+            offsets[name] = Vector3(x=x, y=-z, z=y)
+        return offsets
+
     def _validate(self) -> None:
         engine_root = self.engine_root
         if not self.python_executable.is_file():

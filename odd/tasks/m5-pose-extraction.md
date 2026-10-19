@@ -126,14 +126,14 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T10 | S15 | inline | ✅ done | **Measurement gate — shut 2026-10-19** (L23). Python **3.10.20** via `uv`; torch 2.14.1+cu130 sees the GPU; the explicit inference set installed — `detectron2` skipped (it is only an `extras_require`), **`chumpy` IS required** and only the `mattloper/chumpy` git fork works (PyPI 0.70 cannot import under numpy 2), plus `webdataset` added for `hmr2.datasets`; **both** checkpoints fetched and measured on **RTX 3080, 10,240 MiB**: **VRAM 2.67 GB allocated / 2.74 GB reserved at batch 1, identical for `a` and `b`** (26% of the target — FP16 not required for it); **warm per-frame 81.0-94.4 ms end-to-end for `b`** (median 83.9; `a` 83.0-85.8; ≈ 40 ms of it CPU preprocessing, ≈ 44 ms GPU); cold ≈ 330 ms both. **Hip height: the per-frame estimate is NOT keyable raw** (0.59-0.99 m within one person on gymnast footage); **the betas=0 SMPL template pelvis→contact = 0.9385 m is the constant anchor** — anchor decision parked for T12. Measurement note: first pass used the wrong joint indices (the wrapper's joints are OpenPose BODY_25 ordered: 0=Nose, 8=MidHip, 19-24 feet) and was corrected before these numbers were recorded (L23); persisted to `.engine/t10_measurements_{a,b}.json` (untracked, `.engine/` is gitignored) |
 | T11 | S14,S16 | inline | ✅ done | **Landed 2026-10-19** (L24, C12): `adapters/ai/hmr2_worker.py` (engine-side half, runs in `.engine/venv` 3.10) + `adapters/ai/hmr2_adapter.py` (`AIPort` impl, app-side, stdlib only) — line-JSON stdin/stdout protocol, **persistent worker** (2.7 GB checkpoint loads once; ~84 ms/`K` after), FP16 default + `empty_cache()` per request, the four Windows loader fixes baked in (`HOME`=engine root, `torch.load weights_only=False`, `init_renderer=False`, `PYOPENGL_PLATFORM=win32`, plus the `webdataset` import). Typed actionable failures for a missing interpreter/checkpoint/body-model/GPU and worker death; idempotent `shutdown()`, wired into `PoseExtractionRunner.shutdown`. Route: inline (one understood unit, no writer-trigger reason). CI proves the bridge against a faithful fake worker (`tests/fake_hmr2_worker.py`); the real engine stays manual-probe-only (the Blender read path's discipline) |
 | T12 | S5,S14 | inline | ✅ done | **Landed 2026-10-19** (L24, C12, with T11 — one coherent behavior; conversion tests included). Engine result → `WorldPose`: hip height = **template anchor** (the worker computes the betas=0 template's pelvis-to-contact distance at startup; T10 found the per-frame estimate not keyable), per-joint local quaternions = SMPL's `global_orient`→`Pelvis` + the 23 `body_pose` rotations **named with SMPL's canonical names** (the production skeleton mirrors SMPL's chain under `Main`), re-expressed **Y-up→Z-up** by `conjugate_y_up_to_z_up` (`R_x(+90)⊗q⊗R_x(-90)` — the exact inverse of the FBX writer's `q_fbx = A⊗q_domain⊗A⁻¹` with `A = R_x(-90)`, verified numerically incl. the writer round trip); world displacement dropped (`x=y=0`) |
-| T13 | — | TBD after T10 | ⬜ open | docs in sync (done in C12 for T11/T12), gates green (done in C12), evidence recorded: **real-engine end-to-end probe remains** (VRAM stability across keys, FP16 numerics) + window wiring to the real engine + production skeleton |
+| T13 | S14, S16 | inline | done (2026-10-19) | C13: window wiring — `build_window` injects the real `Hmr2Adapter` plus a rig source over its bind offsets; `core/production_skeleton.py` (the SMPL chain mirrored under `Main`: 23 canonical names + kintree parents) builds the rig from bind offsets the worker computes from the body model's template buffers and rides on the ready line; the `CaptureController` adopts it at the first extraction (missing/broken offsets = typed failure, nothing marked; pane stays blank until then). FP16 holds as the default via **autocast** around the backbone, the SMPL recovery and the template anchor call (plain fp16 weights raise dtype mismatches — probe-verified three ways). Real-engine e2e evidence (manual probe): ready ~12 s, VRAM flat 1328.1 MiB across 6 keys (growth 0.0; 2.66 GB fp32), fp16 vs fp32 mean 0.84 mm / max 3.68 mm per joint, bridge round trip ~130 ms per key; the probe caught a double SMPL-to-domain conversion (the worker now reports SMPL-frame offsets; the adapter owns the conversion) and the pre-ready fp16 template crash. 124 tests green, ruff clean. Spec 0.4.8 + open question 10 resolved. (L26) |
 
 > Note (2026-10-19): T11 and T12 shipped as **one work unit** (commit C12) rather
 > than two: the bridge without the conversion could not satisfy
 > `AIPort.extract_pose`'s contract, and the conversion could not be tested
 > against the real result shape without the bridge. The ~400-lines heuristic
-> yields two tasks' worth; the smallest-coherent-behavior rule wins. T13 remains
-> open for the real-engine probe evidence and wiring.
+> yields two tasks' worth; the smallest-coherent-behavior rule wins. T13 has since
+> landed as its own work unit (C13).
 
 ## Log
 
@@ -930,3 +930,40 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   outside try/except blames the checkpoint on unrelated deaths), R4-5
   (`empty_cache` skipped on failed requests).
 
+- **L26 (2026-10-19) — T13: the window runs the real engine and
+  adopts the real rig; the real-engine end-to-end is verified.**
+  `build_window` injects `Hmr2Adapter` (real engine, spawn-free at open —
+  `ready` costs the first `K`, per open question 1's lazy posture) and a
+  `skeleton_source` that builds `core/production_skeleton.py`'s SMPL
+  chain mirrored under `Main` from `Hmr2Adapter.bind_offsets()`;
+  `CaptureController` adopts it at the first successful extraction and
+  keeps it for the session. Bind offsets are real body-model data: the
+  worker derives them at startup from the wrapper's own buffers
+  (`J_regressor @ v_template`; parents/kintree straight from the wrapper
+  — measured identical to the OpenPose pelvis row of the anchor call),
+  and ride the ready line. **Two real defects the fake cannot see,
+  caught by the e2e probe and fixed:** (1) `half()` weights made the
+  template anchor call (and per-request forward) raise dtype mismatches
+  before/instead of ready — the fp16 recipe is now `autocast` around the
+  backbone forward, the SMPL recovery and the template anchor call, with
+  half inputs; FR-CAP-05 keeps FP16 with measured numerics (mean 0.84
+  mm, max 3.68 mm vs fp32; FP16's real win measured too: 1328 MiB vs
+  2.66 GB resident); (2) the offsets were double-converted (worker sent
+  already-domain values and the adapter converted again) — the protocol
+  now carries **SMPL-frame** offsets like the rotations do (engine
+  speaks its frame, the adapter owns the conversion; the fake and CI
+  already encoded that rule). The e2e probe (real adapter, real worker,
+  real frame from `gymnasts.mp4`): ready ~12 s, 6 keys with VRAM flat
+  1328.1 MiB (growth 0.0 — `empty_cache()` contract holds through the
+  bridge), quaternions normal, Pelvis bind (-0.18, -2.82, 93.87) cm in
+  the domain. Also folded in: **R4-4 fixed** (the template section is
+  fatal-typed and does not blame the checkpoint — proven live when probe
+  run one hit it), **R3-protocol-doc-drift fixed** (the response doc no
+  longer promises `hip_height_cm`; it is `per_frame_hip_height_m`).
+  Spec synced (0.4.8): FR-CAP-05 verified end-to-end, FR-CAP-06 the real
+  rig, open question 10 resolved. Gates: 124 tests green, ruff clean.
+  Still-open advisories (unchanged): R1, R3-silent-malformed-ok,
+  R3-recovery-paths-untested, R3-windows-only-test-unguarded, R4-5.
+  M5 has one remaining manual check for FR-CAP-05's UI half: pressing
+  `K` in the real window on a real clip and seeing the rig+pose in the
+  pane (the probe exercised the adapter path headlessly).

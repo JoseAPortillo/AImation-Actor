@@ -6,11 +6,12 @@ speaks a line-JSON protocol over stdin/stdout:
 
     bootstrap (adapter -> worker): {"hmr2_root", "checkpoint", "smpl_dir",
                                     "half_precision"}
-    ready     (worker -> adapter): {"status": "ready", ...} | fatal {"status": "error"}
+    ready     (worker -> adapter): {"status": "ready", "gpu", "vram_total_mib",
+                                    "template_hip_height_cm", "bind_offsets_cm"}
     request   (adapter -> worker): {"image_path", "frame_index"}
-    response: {"status": "ok", "hip_height_cm", "per_frame_hip_height_m",
+    response: {"status": "ok", "per_frame_hip_height_m",
                "rotations": {joint_name: [9 floats, row-major 3x3]}}
-              | {"status": "error", "message", "fatal": false}  (worker stays up)
+               | {"status": "error", "message", "fatal": false}  (worker stays up)
 
 The worker owns every Windows fix the engine stack needs (recorded in
 ``odd/tasks/m5-pose-extraction.md`` L21/L23; no vendored engine line changes):
@@ -24,8 +25,16 @@ The worker owns every Windows fix the engine stack needs (recorded in
   ``OffscreenRenderer`` supports egl/osmesa only, and this tool never renders;
 - ``torch.load`` is overridden to ``weights_only=False``: torch >= 2.6 defaults
   to True and the checkpoint carries omegaconf objects;
+- half precision runs under ``torch.autocast``: the backbone and the SMPL
+  recovery both need mixed-input handling (plain ``half()`` inputs raise
+  ``mat1/mat2`` dtype mismatches — measured, T13 probe);
 - the SMPL body model and the checkpoint are **user-supplied** (S16); their
   existence is validated before anything loads.
+
+The ready line also carries the **bind offsets** of the production skeleton:
+SMPL's T-pose joint positions from the body model (``J_regressor @
+v_template``), parent-relative, named for SMPL's canonical order — real model
+data no caller may invent.
 
 The worker is persistent: the checkpoint (2.7 GB) loads once, then every
 request is a single inference (~84 ms measured). ``empty_cache()`` runs after
@@ -42,6 +51,16 @@ import sys
 def _emit(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+
+class _NullContext:
+    """The no-op stand-in for ``torch.autocast`` on the fp32 path."""
+
+    def __enter__(self) -> _NullContext:
+        return self
+
+    def __exit__(self, *args: object) -> bool:
+        return False
 
 
 #: The 23 body joints after the pelvis, in SMPL's canonical order (joints
@@ -81,24 +100,34 @@ def _prepare_environment(engine_root: str) -> None:
     os.environ.setdefault("PYOPENGL_PLATFORM", "win32")
 
 
-def _template_hip_height_cm(model) -> float:
+def _template_hip_height_cm(model) -> tuple[float, int]:
     """The betas=0 template's pelvis-to-contact distance, in centimetres.
 
     This is the adapter's hip-height anchor: the per-frame weak-perspective
     estimate is not keyable (measured, T10 — 0.59-0.99 m within one person),
     while this constant is exact by construction. The axis is discovered, not
     assumed: SMPL's canonical frame is Y-up, but the discovery keeps the
-    constant honest if that ever changes.
+    constant honest if that ever changes. The axis is returned because the
+    bind-offset conversion needs the same discovery.
     """
     import torch
 
-    identity = torch.eye(3, device=next(model.parameters()).device).reshape(1, 1, 3, 3)
-    output = model.smpl(
-        global_orient=identity,
-        body_pose=identity.reshape(1, 1, 3, 3).repeat(1, 23, 1, 1),
-        betas=torch.zeros(1, 10, device=identity.device),
-        pose2rot=False,
+    # a half-precision model needs the same mixed-input handling as a request:
+    # the identity forward runs under autocast (measured, T13 probe)
+    half = next(model.parameters()).dtype == torch.float16
+    context = (
+        torch.autocast(device_type="cuda", dtype=torch.float16)
+        if half
+        else _NullContext()
     )
+    identity = torch.eye(3, device=next(model.parameters()).device).reshape(1, 1, 3, 3)
+    with torch.no_grad(), context:
+        output = model.smpl(
+            global_orient=identity,
+            body_pose=identity.reshape(1, 1, 3, 3).repeat(1, 23, 1, 1),
+            betas=torch.zeros(1, 10, device=identity.device),
+            pose2rot=False,
+        )
     joints = output.joints[0]  # OpenPose BODY_25 order: 8=MidHip, 19-24 feet
     vertices = output.vertices[0]
     axis = int(torch.tensor([
@@ -106,7 +135,46 @@ def _template_hip_height_cm(model) -> float:
     ]).argmax().item())
     pelvis = joints[8, axis].item()
     contact = vertices[:, axis].min().item()
-    return (pelvis - contact) * 100.0
+    return (pelvis - contact) * 100.0, axis
+
+
+def _template_bind_offsets_cm(model, hip_height_cm: float, up_axis: int) -> dict[str, list[float]]:
+    """The production skeleton's bind offsets, from the body model's template.
+
+    SMPL's T-pose joint positions come from the wrapper's own buffers
+    (``J_regressor @ v_template`` — measured identical to the OpenPose pelvis
+    row of the anchor call): body offsets are parent-relative and the pelvis's
+    vertical is the hip-height anchor, because ``Main`` sits on the ground
+    plane. They are reported in **SMPL's own Y-up frame, in centimetres** — the
+    same engine-speak rule as the rotations: the worker never converts frames,
+    the adapter owns the SMPL -> domain conversion. Real model data; nothing
+    invented.
+    """
+
+    if up_axis != 1:
+        raise RuntimeError(
+            f"the body model's template is not Y-up (discovered vertical axis {up_axis}); "
+            "the hip-height anchor assumes SMPL's canonical frame"
+        )
+
+    wrapper = model.smpl
+    positions = (wrapper.J_regressor.float() @ wrapper.v_template.float()).cpu()
+    parents = [int(p) for p in wrapper.parents.cpu().tolist()]
+    if positions.shape != (len(SMPL_BODY_JOINT_NAMES) + 1, 3):
+        raise RuntimeError(
+            f"the body model's template joints are malformed: {positions.shape}"
+        )
+
+    names = ("Pelvis", *SMPL_BODY_JOINT_NAMES)
+    offsets: dict[str, list[float]] = {}
+    for index, name in enumerate(names):
+        source = positions[index] if index == 0 else positions[index] - positions[parents[index]]
+        x, y, z = (float(value) * 100.0 for value in source)
+        offsets[name] = [x, y, z]
+    # ``Main`` sits on the ground: the pelvis's height above the contact plane
+    # is the anchor the hip heights key against, not the template's raw ordinate.
+    offsets["Pelvis"][1] = hip_height_cm
+    return offsets
 
 
 def _load_model(hmr2_root: str, checkpoint: str, smpl_dir: str, half_precision: bool):
@@ -171,7 +239,19 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     batch = default_collate([dataset[0]])
     batch = {k: v.cuda() if torch.is_tensor(v) else v for k, v in batch.items()}
 
-    with torch.no_grad():
+    # Half precision runs under autocast with half inputs: the backbone and
+    # the SMPL recovery both need mixed-input handling (plain half inputs
+    # raise dtype mismatches through the ViTDet stack — measured, T13 probe).
+    half = next(model.parameters()).dtype == torch.float16
+    if half:
+        batch = {k: (v.half() if v.is_floating_point() else v) for k, v in batch.items()}
+    autocast = (
+        torch.autocast(device_type="cuda", dtype=torch.float16)
+        if half
+        else _NullContext()
+    )
+
+    with torch.no_grad(), autocast:
         output = model(batch)
         params = {k: v.float() for k, v in output["pred_smpl_params"].items()}
         smpl_output = model.smpl(**params, pose2rot=False)
@@ -234,12 +314,29 @@ def main() -> None:
     except Exception:  # noqa: BLE001 - diagnostics only
         gpu_name, total_vram = "unknown", 0.0
 
-    template_hip_cm = _template_hip_height_cm(model)
+    # R4-4 (the review's advisory): the template section runs outside the
+    # model-load guard — a failure here must not blame the checkpoint; it is
+    # a body-model problem, and it is fatal because the hip-height anchor is
+    # the template's.
+    try:
+        hip_height_cm, up_axis = _template_hip_height_cm(model)
+        bind_offsets_cm = _template_bind_offsets_cm(model, hip_height_cm, up_axis)
+    except Exception as error:  # noqa: BLE001 - the protocol needs a message
+        _emit({
+            "status": "error",
+            "fatal": True,
+            "message": f"the body model's template is unusable: {type(error).__name__}: {error}\n"
+                       "this is the hip-height anchor and the production rig's bind; "
+                       "check that the SMPL body model is the one the adapter configures",
+        })
+        return
+
     _emit({
         "status": "ready",
         "gpu": gpu_name,
         "vram_total_mib": total_vram,
-        "template_hip_height_cm": template_hip_cm,
+        "template_hip_height_cm": hip_height_cm,
+        "bind_offsets_cm": bind_offsets_cm,
     })
 
     for line in sys.stdin:
