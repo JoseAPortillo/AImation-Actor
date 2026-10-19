@@ -123,7 +123,7 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T7 | S3,S5 | inline | ✅ done | `tests/test_ai_extraction_pipeline.py` (C4) — real `QThread`, real fade, real remap |
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
 | T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17); native review approved, authority burned (L18) |
-| T10 | S15 | inline | 🔄 in progress | **Measurement gate — nothing downstream is specified in detail until this lands.** Python **3.10.20** via `uv` (no usable 3.10 base existed on the box); torch 2.14.1+cu130 sees the GPU; the explicit inference set installed — `detectron2` skipped (it is only an `extras_require`), **`chumpy` IS required** and only the `mattloper/chumpy` git fork works (PyPI 0.70 cannot import under numpy 2); **both** checkpoints fetched and extracted into `.engine/.cache/4DHumans` (2584 MB each, additive directories — neither clobbers the other); **`b` is the chosen default** — the released checkpoint, and the authors' pick for unusual poses (L22) — with `a` kept on disk for the latency comparison; **blocked on the user-supplied SMPL body model**; then measured on this box (**RTX 3080, 10,240 MiB**): VRAM and per-frame latency for both, and **hip-height stability** (L20, **L21**, **L22**) |
+| T10 | S15 | inline | ✅ done | **Measurement gate — shut 2026-10-19** (L23). Python **3.10.20** via `uv`; torch 2.14.1+cu130 sees the GPU; the explicit inference set installed — `detectron2` skipped (it is only an `extras_require`), **`chumpy` IS required** and only the `mattloper/chumpy` git fork works (PyPI 0.70 cannot import under numpy 2), plus `webdataset` added for `hmr2.datasets`; **both** checkpoints fetched and measured on **RTX 3080, 10,240 MiB**: **VRAM 2.67 GB allocated / 2.74 GB reserved at batch 1, identical for `a` and `b`** (26% of the target — FP16 not required for it); **warm per-frame 81.0-94.4 ms end-to-end for `b`** (median 83.9; `a` 83.0-85.8; ≈ 40 ms of it CPU preprocessing, ≈ 44 ms GPU); cold ≈ 330 ms both. **Hip height: the per-frame estimate is NOT keyable raw** (0.59-0.99 m within one person on gymnast footage); **the betas=0 SMPL template pelvis→contact = 0.9385 m is the constant anchor** — anchor decision parked for T12. Measurement note: first pass used the wrong joint indices (the wrapper's joints are OpenPose BODY_25 ordered: 0=Nose, 8=MidHip, 19-24 feet) and was corrected before these numbers were recorded (L23); persisted to `.engine/t10_measurements_{a,b}.json` (untracked, `.engine/` is gitignored) |
 | T11 | S14,S16 | TBD after T10 | ⬜ open | the adapter module behind `AIPort`, out-of-process; typed actionable failure when the engine, environment or weights are absent (S6, S7) |
 | T12 | S5,S14 | TBD after T10 | ⬜ open | engine output → `WorldPose`: hip height in centimetres plus per-joint local quaternions named for the production skeleton, world displacement dropped; conversion tests |
 | T13 | — | TBD after T10 | ⬜ open | docs in sync, gates green, evidence recorded |
@@ -677,7 +677,6 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   hardcoded to the `b` path, and each checkpoint's own `model_config.yaml` sits
   where `load_hmr2` looks for it (`Path(checkpoint_path).parent.parent /`),
   which is why the `a` variant could not simply be dropped into `hmr2/`.
-
   **Why I checked.** The `a` checkpoint is `epoch=10`, step 25 000, against
   `b`'s step 1 000 000 — a 40× shorter run. A shorter run scoring better is not
   impossible, but it is exactly the kind of claim worth a source. The README has
@@ -741,3 +740,91 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   what cannot be measured here**: accuracy has no ground truth on this box, so
   the paper is the *only* accuracy evidence available and it points at `b`. The
   earlier framing of `a` as the accuracy pick is withdrawn.
+
+- **L23. (2026-10-19) T10 measurements — the measurement gate is shut, T11-T13
+  are unblocked.** The user's SMPL body model arrived at
+  `.engine/.cache/4DHumans/data/smpl/SMPL_NEUTRAL.pkl` (86,955,594 bytes) on
+  2026-10-16 16:25, exactly the path `check_smpl_exists()` expects.
+
+  **What ran.** Two instruments under `.engine/` (untracked, gitignored):
+  `measure_t10.py` (VRAM + latency + hip-height stability per checkpoint, one
+  process per variant so every cold figure is honest) and
+  `t10_template_hip.py` (the betas=0 template's metric geometry). The batch is
+  prepared by the engine's own `ViTDetDataset` given a fixed centre box (the
+  animator already chose the frame), 10 decodable frames from the bundled
+  `gymnasts.mp4`, batch 1. Raw results persisted to
+  `.engine/t10_measurements_{a,b}.json`.
+
+  **Windows loader findings owned by the future adapter (S14, S16) — no vendored
+  engine line modified:**
+  1. `hmr2/configs/__init__.py:5` builds `CACHE_DIR` from `HOME/.cache`, so the
+     adapter process must set `HOME=<repo>/.engine` (recorded in L21).
+  2. torch ≥ 2.6 defaults `torch.load(weights_only=True)` and the checkpoint
+     carries `omegaconf.DictConfig` objects, while `load_hmr2` does not pass the
+     flag: our process overrides `torch.load` to force `weights_only=False`
+     (the models are user-supplied and trusted, S16).
+  3. `pyrender.OffscreenRenderer` supports only `egl`/`osmesa` offscreen —
+     **`win32` satisfies the *import* but not the renderer constructor**, so
+     `HMR2.__init__`'s `MeshRenderer` raises on Windows. `HMR2.__init__
+     supports `init_renderer=False`, and we never render: our entry point
+     replicates `load_hmr2`'s last mile with that flag instead of monkeypatching.
+     (The L21 note "win32 works" was correct for the import and is now
+     corrected: it does not work for the OffscreenRenderer path.)
+  4. `hmr2.datasets` needed `webdataset`; installed (pure Python).
+  5. Launching `HMR2.load_from_checkpoint` upgrades the v1.8.1 checkpoint in
+     memory to lightning 2.6.6 on every process start. Note for latency: the
+     **cold** figure is dominated by first-use kernel/alloc work, not by the
+     engine itself.
+
+  **The joint-index trap — corrected before these numbers count.** The wrapper
+  (`smpl_wrapper.py:19-20`) reorders the SMPL joints into **OpenPose BODY_25
+  order** and appends 19 extra joints: **0=Nose, 8=MidHip (the pelvis),
+  19-24=toes/heels**, vertical axis y. My first pass used joints[0] as pelvis
+  and joints[7..11] as feet — that 0.44 m "hip" was the *nose-to-ankle*
+  distance. All numbers below (and in `t10_measurements_*.json`) were produced
+  **after** the correction; the corrupted first run was discarded, not reported.
+
+  **VRAM — S15(b) answered.** Peak allocated **2,672.1 MiB**, peak reserved
+  **2,736.0 MiB** at batch 1; **identical for `a` and `b`**. 26% of the
+  10 GB target. The 10 GB test never came close; **FP16 stops being required by
+  it** and stays open purely as an optional speedup. Not measured: multi-frame
+  batches and the CondMDI inbetweening engine (FR-GEN-03 measures its own).
+
+  **Latency — S15(b) answered.** Each variant in its own process, GPU-synced,
+  3 warmup + 10 timed iterations:
+  - `b`: cold 334.4 ms; warm end-to-end 81.0–94.4 ms, **median 83.9 ms**.
+  - `a`: cold 330.4 ms; warm 83.0–85.8 ms (earlier contaminated colds — 79.4,
+    538.4 — came from a shared process and are withdrawn).
+  - Preprocessing alone: ≈ **40.5 ms** CPU (the engine's own resize/crop/blur +
+    normalization is nearly half of the end-to-end time); GPU inference ≈
+    **44 ms**. `b` is not slower than `a` — **no cost reason against the L22
+    choice of `b`**.
+
+  **Hip height — S15(a) answered, with a design consequence for T12.** Two
+  distinct quantities, kept apart:
+  - **The betas=0 SMPL neutral template** (checkpoint-independent, deterministic):
+    standing height 1.745 m arm-span / 1.717 m vertical; **pelvis→vertex-floor =
+    0.9385 m**, pelvis→foot-joint = 0.9312 m — *constant by construction*.
+  - **The per-frame estimate** (what `pred_smpl_params`' betas produce under a
+    fixed centre box over the gymnast clip): pelvis→foot magnitudes within one
+    person ranged **0.59–0.99 m** (`a` all-negative sign, `b` sign-mixed — the
+    per-frame axis is chosen per frame and gymnasts invert; the *magnitude* is
+    what varies). Part of that spread is genuine pose (tucked legs shorten
+    pelvis-to-foot), part is per-frame betas noise — that split cannot be
+    separated on this material, so the honest conclusion stands: **the raw
+    per-frame height is not keyable blind**, and the production rig needs a
+    *deliberate* anchor. The template constant 0.9385 m is the obvious
+    candidate, but **the anchor decision belongs to T12 and is parked there**.
+    Material caveat: gymnasts + a fixed box. The real input is a standing
+    full-body Golden Pose frame — precisely the paper's unusual-pose regime,
+    where a per-frame estimate is weakest and where the template anchor
+    protects.
+
+  **Route record (tracking trigger rule):** all inline — one understood task,
+  small per its `Task Size` tests, no product decision needed; the instruments
+  live untracked under `.engine/`, like the manual probes before them. C11 is
+  the docs-only work unit that records it. **Native assessment after C11**
+  (`gentle-ai review assess --base-ref 7e22c5e --committed-only`): risk
+  `medium` (executable_change, `.gitignore`), `review_due: false`,
+  `under_budget` — the review stays pending in the slice until a later commit
+  reaches the budget; the boundary (`7e22c5e`) has not advanced.

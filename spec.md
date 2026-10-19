@@ -131,15 +131,25 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
     regardless.
     `docs/Plan_AImation_Actor_EN.md` names GVHMR throughout and needs the same
     correction when it is next revised; **this entry is the authority until then**.
-13. *(Opened 2026-10-16, M5.)* Two HMR2.0 properties are **unmeasured**, and both
-    can change the adapter's design — so they are measured before the adapter is
-    specified in detail, not after:
+13. *(Opened 2026-10-16, M5; **answered 2026-10-19 by T10** — both measured on
+    the real box, RTX 3080 / 10240 MiB; evidence in
+    `odd/tasks/m5-pose-extraction.md` L23.)* Two HMR2.0 properties were
+    unmeasured, and both could change the adapter's design:
     1. **Monocular scale.** `pred_cam_t` is a weak-perspective estimate, so the
        absolute **hip height** `build_production_pose` consumes is a learned
-       guess, not a measurement. If it is not stable enough to key, the animator
-       needs a way to set the height (or the adapter needs another anchor).
+       guess, not a measurement. *Measured: the per-frame estimate is **not**
+       keyable raw — on uneven footage the pelvis-to-foot estimate ranged
+       ≈ 0.59-0.99 m within one person. There is a rock-stable anchor instead:
+       the betas=0 SMPL neutral template's own pelvis-to-contact distance,
+       **0.9385 m** (constant by construction). The adapter should not consume
+       the per-frame height blindly; T12 decides the anchor.*
     2. **Cost.** No VRAM or per-frame latency figure is published for HMR2.0.
-       The target is ≤ 10 GB, batch 1 — this has to be measured on the real box.
+       The target is ≤ 10 GB, batch 1. *Measured on the real box: **VRAM 2.67 GB**
+       peak allocated (2.74 GB reserved) at batch 1 — 26% of the target, and
+       identical for both checkpoints; **warm per-frame latency 81-94 ms
+       end-to-end** (≈ 40 ms of it CPU-side preprocessing, ≈ 44 ms GPU
+       inference), cold first frame ≈ 330 ms. FP16 is therefore not required to
+       meet the VRAM target; it stays open as an optional speedup.*
 14. *(Opened 2026-10-16, M5.)* **Licensing posture, recorded rather than assumed.**
     The code is MIT, but the runtime needs `smplx` and the **SMPL body model**,
     both non-commercial (research/education/artistic), and the model forbids
@@ -169,6 +179,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.4.3   | 2026-10-16 | M5 fix independently verified: the blocked case reproduced 6/6 rounds per clip at baseline and 0/6 after; 7 regression pins committed (FR-CAP-03/05). |
 | 0.4.4   | 2026-10-16 | M5 fix reviewed (native review, 3 lenses): approved, no blockers, 10 advisories carried as follow-ups (FR-CAP-03/05). |
 | 0.4.5   | 2026-10-16 | Backend decision: the pose engine is **HMR2.0**, not the plan's GVHMR (sequence-native and undefined at one frame; its licence buys no freedom HMR2.0 does not already have). FR-CAP-05 corrected; §4.12-4.14 opened (engine + out-of-process boundary, the two unmeasured properties, the licensing posture). |
+| 0.4.6   | 2026-10-19 | T10 measurement gate shut: VRAM 2.67 GB / warm 81-94 ms at batch 1 on the real box (≤ 10 GB met, FP16 no longer required for the target); per-frame hip height not keyable raw, SMPL template anchor 0.9385 m (§4.13 answered). |
 
 ## 6. Session state (resume here)
 
@@ -249,15 +260,16 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 **Next**
 
-1. **The real HMR2.0 adapter** — the remaining half of M5, in two steps, because
-   two of its properties are still unmeasured (§4.13). **(a) Environment and
-   measurement:** a dedicated Python 3.10 venv (torch cu130, `smplx`,
-   `pytorch-lightning` and `chumpy` — the SMPL body model is chumpy-pickled, so `smplx` must be able to unpickle it, and only the `chumpy` fork 4D-Humans pins imports under numpy 2; `detectron2` is *not* needed, it only produced bounding boxes), the 2.7 GB checkpoint and
-   the SMPL `.pkl`, then measure VRAM, per-frame latency and **hip-height
-   stability** on real footage. **(b) The adapter:** the `AIPort` implementation —
-   SMPL parameters to hip height in centimetres plus per-joint local quaternions
-   named for the production skeleton — plus FP16 and the CUDA-cache release.
-   Weights are user-supplied and never vendored.
+1. **The real HMR2.0 adapter** — the remaining half of M5. **(a) Environment and
+   measurement: done (T10, 2026-10-19)** — the dedicated Python 3.10 venv works
+   on Windows, both checkpoints load and infer on the real GPU, and §4.13's two
+   unmeasured properties are measured (VRAM 2.67 GB at batch 1, warm 81-94 ms,
+   hip height needs an anchor — the template constant 0.9385 m). **(b) The
+   adapter remains:** the `AIPort` implementation — SMPL parameters to hip
+   height in centimetres plus per-joint local quaternions named for the
+   production skeleton — plus FP16 and the CUDA-cache release, out-of-process,
+   with the Windows loader fixes the session recorded. Weights are
+   user-supplied and never vendored.
 2. Then M6 (CondMDI + Model Factory) → M7 (IK) → M8 (generative export).
 
 **Known follow-ups**
