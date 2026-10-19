@@ -25,6 +25,13 @@ from aimation_actor.ports.ai_port import AIPort
 __all__ = ["PoseExtractionRunner"]
 
 
+def _release(engine: object) -> None:
+    """Ask an engine to release its resources, when it offers that hook."""
+    shutdown = getattr(engine, "shutdown", None)
+    if callable(shutdown):
+        shutdown()
+
+
 class _ExtractionJob(QObject):
     """One extraction, living on the worker thread until it finishes."""
 
@@ -108,12 +115,18 @@ class PoseExtractionRunner(QObject):
         Called when the capture window closes: a ``QThread`` destroyed while
         still running would abort the process. Waiting blocks, which is
         acceptable exactly once, on teardown.
+
+        The engine's own lifecycle (an out-of-process worker, its checkpoint
+        loaded once) ends here too: the runner owns it at teardown because the
+        window does not know whether the injected engine keeps processes.
         """
         thread = self._thread
         if thread is None:
+            _release(self._engine)
             return
         thread.quit()
         thread.wait()
+        _release(self._engine)
 
     @Slot()
     def _on_thread_finished(self) -> None:

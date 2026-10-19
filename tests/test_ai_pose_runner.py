@@ -58,6 +58,17 @@ class _SlowEngine(_Engine):
         return self._pose
 
 
+class _DisposableEngine(_Engine):
+    """An engine that owns out-of-process resources: it offers ``shutdown``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.released = False
+
+    def shutdown(self) -> None:
+        self.released = True
+
+
 @pytest.fixture
 def runner_factory(qtbot):  # noqa: ARG001 - pytest-qt owns the QApplication
     created: list[PoseExtractionRunner] = []
@@ -157,3 +168,27 @@ def test_a_bare_exception_is_still_named(runner_factory, qtbot) -> None:
     qtbot.waitUntil(lambda: len(failures) == 1, timeout=5000)
 
     assert failures == ["RuntimeError"]
+
+
+def test_shutdown_releases_the_engine(runner_factory, qtbot) -> None:
+    # FR-CAP-05, teardown: a persistent out-of-process engine (its checkpoint
+    # loaded once) must terminate when the window closes. The runner owns the
+    # engine's lifecycle at teardown: the window knows nothing about processes.
+    engine = _DisposableEngine()
+    runner = runner_factory(engine)
+
+    runner.start(0, _frame())
+    qtbot.waitUntil(lambda: engine.finished.is_set(), timeout=5000)
+    runner.shutdown()
+
+    assert engine.released is True
+    assert runner.busy is False
+
+
+def test_shutdown_releases_the_engine_even_without_work_in_flight(runner_factory, qtbot) -> None:
+    engine = _DisposableEngine()
+    runner = runner_factory(engine)
+
+    runner.shutdown()
+
+    assert engine.released is True

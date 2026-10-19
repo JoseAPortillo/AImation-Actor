@@ -124,9 +124,16 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T8 | — | inline | ✅ done | this document + `spec.md` statuses + the M4 log entry (C5) |
 | T9 | S12,S13 | inline | ✅ done | `CapturedFrame` (`core/models.py`), `frame_index_of`/`frame_shown`/`grab_frame(fps)` (`video_player.py`), the key and playhead fix (`capture_controller.py`) (C6); regression tests in `tests/test_gui_capture_controller.py` and `tests/test_gui_video_player.py` (C7, the 7 independent pins); real-clip probe (L16); independent verification (L17); native review approved, authority burned (L18) |
 | T10 | S15 | inline | ✅ done | **Measurement gate — shut 2026-10-19** (L23). Python **3.10.20** via `uv`; torch 2.14.1+cu130 sees the GPU; the explicit inference set installed — `detectron2` skipped (it is only an `extras_require`), **`chumpy` IS required** and only the `mattloper/chumpy` git fork works (PyPI 0.70 cannot import under numpy 2), plus `webdataset` added for `hmr2.datasets`; **both** checkpoints fetched and measured on **RTX 3080, 10,240 MiB**: **VRAM 2.67 GB allocated / 2.74 GB reserved at batch 1, identical for `a` and `b`** (26% of the target — FP16 not required for it); **warm per-frame 81.0-94.4 ms end-to-end for `b`** (median 83.9; `a` 83.0-85.8; ≈ 40 ms of it CPU preprocessing, ≈ 44 ms GPU); cold ≈ 330 ms both. **Hip height: the per-frame estimate is NOT keyable raw** (0.59-0.99 m within one person on gymnast footage); **the betas=0 SMPL template pelvis→contact = 0.9385 m is the constant anchor** — anchor decision parked for T12. Measurement note: first pass used the wrong joint indices (the wrapper's joints are OpenPose BODY_25 ordered: 0=Nose, 8=MidHip, 19-24 feet) and was corrected before these numbers were recorded (L23); persisted to `.engine/t10_measurements_{a,b}.json` (untracked, `.engine/` is gitignored) |
-| T11 | S14,S16 | TBD after T10 | ⬜ open | the adapter module behind `AIPort`, out-of-process; typed actionable failure when the engine, environment or weights are absent (S6, S7) |
-| T12 | S5,S14 | TBD after T10 | ⬜ open | engine output → `WorldPose`: hip height in centimetres plus per-joint local quaternions named for the production skeleton, world displacement dropped; conversion tests |
-| T13 | — | TBD after T10 | ⬜ open | docs in sync, gates green, evidence recorded |
+| T11 | S14,S16 | inline | ✅ done | **Landed 2026-10-19** (L24, C12): `adapters/ai/hmr2_worker.py` (engine-side half, runs in `.engine/venv` 3.10) + `adapters/ai/hmr2_adapter.py` (`AIPort` impl, app-side, stdlib only) — line-JSON stdin/stdout protocol, **persistent worker** (2.7 GB checkpoint loads once; ~84 ms/`K` after), FP16 default + `empty_cache()` per request, the four Windows loader fixes baked in (`HOME`=engine root, `torch.load weights_only=False`, `init_renderer=False`, `PYOPENGL_PLATFORM=win32`, plus the `webdataset` import). Typed actionable failures for a missing interpreter/checkpoint/body-model/GPU and worker death; idempotent `shutdown()`, wired into `PoseExtractionRunner.shutdown`. Route: inline (one understood unit, no writer-trigger reason). CI proves the bridge against a faithful fake worker (`tests/fake_hmr2_worker.py`); the real engine stays manual-probe-only (the Blender read path's discipline) |
+| T12 | S5,S14 | inline | ✅ done | **Landed 2026-10-19** (L24, C12, with T11 — one coherent behavior; conversion tests included). Engine result → `WorldPose`: hip height = **template anchor** (the worker computes the betas=0 template's pelvis-to-contact distance at startup; T10 found the per-frame estimate not keyable), per-joint local quaternions = SMPL's `global_orient`→`Pelvis` + the 23 `body_pose` rotations **named with SMPL's canonical names** (the production skeleton mirrors SMPL's chain under `Main`), re-expressed **Y-up→Z-up** by `conjugate_y_up_to_z_up` (`R_x(+90)⊗q⊗R_x(-90)` — the exact inverse of the FBX writer's `q_fbx = A⊗q_domain⊗A⁻¹` with `A = R_x(-90)`, verified numerically incl. the writer round trip); world displacement dropped (`x=y=0`) |
+| T13 | — | TBD after T10 | ⬜ open | docs in sync (done in C12 for T11/T12), gates green (done in C12), evidence recorded: **real-engine end-to-end probe remains** (VRAM stability across keys, FP16 numerics) + window wiring to the real engine + production skeleton |
+
+> Note (2026-10-19): T11 and T12 shipped as **one work unit** (commit C12) rather
+> than two: the bridge without the conversion could not satisfy
+> `AIPort.extract_pose`'s contract, and the conversion could not be tested
+> against the real result shape without the bridge. The ~400-lines heuristic
+> yields two tasks' worth; the smallest-coherent-behavior rule wins. T13 remains
+> open for the real-engine probe evidence and wiring.
 
 ## Log
 
@@ -828,3 +835,69 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   `medium` (executable_change, `.gitignore`), `review_due: false`,
   `under_budget` — the review stays pending in the slice until a later commit
   reaches the budget; the boundary (`7e22c5e`) has not advanced.
+
+- **L24. (2026-10-19) T11 + T12 landed as one work unit (commit C12 on
+  `feat/develop`) - the real HMR2.0 adapter now sits behind `AIPort`.**
+
+  **Shape.** `adapters/ai/hmr2_worker.py` = the engine-side half, run by the
+  engine's own interpreter in its own process (S14, the Blender read path's
+  isolation). It owns every Windows fix from L23 as *code, not notes*:
+  `HOME`=<engine root> before any engine import, `PYOPENGL_PLATFORM=win32`
+  (import-only; the model still loads with `init_renderer=False`), a
+  `torch.load` override forcing `weights_only=False`, and the `webdataset`
+  import satisfied by the T10 install. `adapters/ai/hmr2_adapter.py` = the
+  app-side `Hmr2Adapter` - the `AIPort` implementation, **standard library
+  only** (CI never imports torch), talking a line-JSON stdin/stdout protocol.
+
+  **The persistent-worker decision.** One process per `K` would reload the
+  2.7 GB checkpoint every time - unusable next to T10's 84 ms warm inference.
+  The worker instead loads the checkpoint once and answers requests for its
+  whole lifetime; `empty_cache()` runs after every request so VRAM does not
+  grow across keys (FR-CAP-05); `Hmr2Adapter.shutdown()` (idempotent) ends the
+  worker, wired into `PoseExtractionRunner.shutdown()` so the window's close
+  event tears everything down without the window knowing about processes.
+  Failure paths stay typed and non-fatal (S6/S7): a missing interpreter,
+  checkpoint, body model, GPU, or a dead/mid-request worker each raise
+  `Hmr2EngineError` with a message naming the path and the fix, and the next
+  `K` respawns cleanly after a death.
+
+  **The conversion (T12).** Hip height = the `betas=0` template anchor
+  (§4.13, decided here: the worker computes the template's own
+  pelvis-to-contact distance at startup; the per-frame estimate is still
+  computed and returned as diagnostics - the T10 verdict stands). Rotations =
+  `global_orient`?`Pelvis` plus the 23 `body_pose` 3x3 matrices **named
+  with SMPL's canonical joint names** (L_Hip, Spine_1, ...), converted to
+  quaternions and re-expressed **Y-up → Z-up** by `conjugate_y_up_to_z_up`
+  (`R_x(+90) q R_x(-90)`). Verified numerically, not by assertion: an
+  X-rotation passes through unchanged, a 90-degree Y rotation becomes exactly
+  the same 90-degree rotation about the domain's Z, and **the FBX writer's
+  conjugation (`q_fbx = A q_domain A_inv`, `A = R_x(-90)`) returns the
+  engine's own rotation** - the whole domain chain closes. World displacement
+  is dropped (`x = y = 0`; `Main` ships in place).
+
+  **A real bug was caught before any real number relied on it: the first `conjugate_y_up_to_z_up` used the full-angle quaternion
+  (`cos(90)`) instead of the half-angle (`cos(45)`); the numeric tests
+  caught it in RED, and the writer round trip pins it permanently.
+
+  **Evidence.** RED observed (import failure), then 14 new tests green -
+  missing-path typing, ready-failure, worker-reuse (same pid), death typing,
+  shutdown termination, matrix → quat, the two conjugation invariants, the
+  writer round trip, and the full request?`WorldPose` path - plus 2 new
+  runner tests (`shutdown` releases the injected engine, with and without
+  work in flight). 182 tests green, `ruff check` clean, all with
+  `--basetemp` because the user's `%TEMP%\\pytest-of-josea` directory has
+  broken ACLs no tool can repair without elevation (environmental, unrelated
+  to this change; a reboot or `takeown` as admin clears it).
+
+  **Docs in the same change set:** § open question 1 resolved (no start-time
+  VRAM pre-check - the app is usable without the engine, so the first `K`
+  reports one typed actionable failure instead; the worker self-reports GPU +
+  total VRAM on its ready line), §4.13 anchor decision recorded, FR-CAP-05
+  rewritten for the landed adapter (still 🞡 because the **real** engine has
+  not run end-to-end yet), change log 0.4.7, session state updated.
+
+  **Fruit opens into T13 (the last M5 task):** the end-to-end probe on the
+  real engine (VRAM stability across keys, FP16 numerics vs FP32) and the
+  window wiring - `build_window` instantiates the real adapter and a real
+  production skeleton (SMPL-named body joints + `Main`) so the whole M5
+  pipeline can be verified by hand on the box, like M4 was.

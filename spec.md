@@ -40,7 +40,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | FR-CAP-02 | Must | ✅ | Video streams; never fully decoded into RAM. | No path reads all frames; peak RAM does not scale with clip length. *(Measured through the FFmpeg backend: a 48-frame clip and a 1440-frame clip both peak ≈ 8 MiB above the window-only baseline.)* |
 | FR-CAP-03 | Must | ✅ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). *(Frame 0 is the first frame — the range is 0-based, matching FBX time; a 2 s / 24 fps clip reports 48 frames. While the clip plays, the playhead follows the frame the decoder delivered, not the backend's rarer position events, so the number and the video pane cannot disagree.)* |
 | FR-CAP-04 | Must | ✅ | Shortcuts: `Space` play/pause, `←`/`→` ±1 frame, `K` mark, `Delete` remove, `Shift+←/→` jump between keys. | Each shortcut behaves as described, clamped to the frame range. *(`Ctrl+O` opens a clip; `Delete` removes the key at the playhead, the MVP having no separate selection.)* |
-| FR-CAP-05 | Must | 🟡 | `K` runs the pose engine on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. *(The pipeline landed: batch 1 is enforced by the runner itself, the engine runs off the UI thread, and one `K` sends exactly one frame. The engine behind the port is still a deterministic stand-in. **The engine is HMR2.0**, not the plan's GVHMR: GVHMR is sequence-native — its trajectory, its per-frame velocity rollout and its foot-locking are each cumulative over frames, so at one frame they are undefined — and its non-commercial-only licence is one HMR2.0 inherits anyway through the SMPL body model, so GVHMR buys no licensing freedom either. The ~8 mm of per-joint accuracy GVHMR gains with 120 frames of context is therefore not available here, and a heavier pipeline would buy nothing. HMR2.0 also removes `detectron2` from the install (it only produced bounding boxes, and the animator already chooses the frame). HMR2.0 runs in a dedicated Python 3.10 environment **outside this process** (§4.12); FP16 and the CUDA-cache release stay engine internals and are not exercised yet. The extracted frame is the one the animator is looking at: it carries its own frame index from the clip's timestamps, the key is written there, and the playhead moves onto it — measured on real clips after play → pause → `K`.)* |
+| FR-CAP-05 | Must | 🟡 | `K` runs the pose engine on **only** that frame (batch 1) in a `QThread`, FP16, releasing CUDA cache after. | One frame inferred; UI stays responsive; cache does not grow across keys. *(The stand-in is retired: the engine behind the port is now the **real HMR2.0 adapter** (backend decision at §4.12) — an out-of-process, persistent worker (FR-IMP-03 shape) whose 2.7 GB checkpoint loads once, then answers each `K` with one inference (~84 ms measured, §4.13); it runs FP16 and calls `empty_cache()` after every request by construction, and carries every Windows loader fix recorded during T10 (`HOME`, `weights_only=False`, `init_renderer=False`, `PYOPENGL_PLATFORM`, `webdataset`). The bridge, the typed actionable failures (missing interpreter, checkpoint, body model, GPU) and the conversion to `WorldPose` (template anchor 93.85 cm, per-joint quaternions named for the production skeleton, world displacement dropped) are CI-verified against a faithful fake worker on the plain interpreter. **Still open:** the end-to-end run against the real engine — VRAM stability across keys and FP16's numerics are engine internals only the real box can prove (manual probe, like the Blender read path). The extracted frame carries its own frame index from the clip's timestamps, the key is written there, and the playhead moves onto it — measured on real clips after play → pause → `K`.)* |
 | FR-CAP-06 | Must | ✅ | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. *(`build_production_pose` performs the mapping and every extraction now goes through it, verified end to end on a real clip: a stand-in hip height of 140 with a Pelvis bind of 100 wrote an offset of exactly 40.0, and `Main` came back at `(0, 0, 0)` with identity rotation. The mapping is engine-independent.)* |
 | FR-CAP-07 | Should | ✅ | At most one key per frame; extraction failure is non-fatal. | Re-marking a frame does not duplicate; a failed `K` keeps prior keys and reports. *(Re-marking overwrites by frame; a failure keeps every prior key and writes none; a second `K` while an engine runs is refused instead of queued; a late answer from a clip that is no longer open is discarded. M4's neutral placeholder is retired — it would have passed a failure off as a capture.)* |
 
@@ -80,7 +80,15 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 ## 4. Open questions
 
-1. VRAM pre-check (≥ 6 GB): hard block or warning?
+1. VRAM pre-check (≥ 6 GB): hard block or warning? *(Resolved 2026-10-19, M5
+   T11: **no app-start pre-check.** The app stays fully usable without the
+   engine — 100% of FR-CAP-01..04 — so an entry-time modal would gate features
+   the user may not need. Instead the engine is validated lazily on the first
+   `K`: the worker self-reports its GPU and total VRAM on its ready line, and a
+   GPU-less or unconfigured machine gets one typed, actionable failure naming
+   the missing piece and its fix (S6/S7 shape). NFR-03's explicit-error rule
+   carries the "warning" role; the height of the wall does not change the
+   behaviour measured in T10 (2.67 GB at batch 1).)*
 2. Import behavior when Blender is not installed?
 3. `fps` source: clip metadata, user setting, or project setting?
    *(MVP answered in M4: clip metadata, defaulting to 24 when the clip does not
@@ -142,7 +150,14 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
        ≈ 0.59-0.99 m within one person. There is a rock-stable anchor instead:
        the betas=0 SMPL neutral template's own pelvis-to-contact distance,
        **0.9385 m** (constant by construction). The adapter should not consume
-       the per-frame height blindly; T12 decides the anchor.*
+       the per-frame height blindly; T12 decides the anchor. *(Decided in
+       T12, 2026-10-19: the **template constant is the anchor** — the engine
+       worker computes the betas=0 template's own pelvis-to-contact distance
+       at startup and the adapter writes it as `Pelvis` height, so a crouched
+       or elevated pose ships at a stable, body-metric height the animator
+       trims in one cleanup pass. The per-frame distance is still computed,
+       returned as diagnostic information, and available to a future
+       per-frame-height feature.)*
     2. **Cost.** No VRAM or per-frame latency figure is published for HMR2.0.
        The target is ≤ 10 GB, batch 1. *Measured on the real box: **VRAM 2.67 GB**
        peak allocated (2.74 GB reserved) at batch 1 — 26% of the target, and
@@ -180,6 +195,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.4.4   | 2026-10-16 | M5 fix reviewed (native review, 3 lenses): approved, no blockers, 10 advisories carried as follow-ups (FR-CAP-03/05). |
 | 0.4.5   | 2026-10-16 | Backend decision: the pose engine is **HMR2.0**, not the plan's GVHMR (sequence-native and undefined at one frame; its licence buys no freedom HMR2.0 does not already have). FR-CAP-05 corrected; §4.12-4.14 opened (engine + out-of-process boundary, the two unmeasured properties, the licensing posture). |
 | 0.4.6   | 2026-10-19 | T10 measurement gate shut: VRAM 2.67 GB / warm 81-94 ms at batch 1 on the real box (≤ 10 GB met, FP16 no longer required for the target); per-frame hip height not keyable raw, SMPL template anchor 0.9385 m (§4.13 answered). |
+| 0.4.7   | 2026-10-19 | The real HMR2.0 adapter landed behind `AIPort` (FR-CAP-05 stays 🟡): out-of-process persistent worker (checkpoint loads once, FP16 + `empty_cache()` per request), typed actionable failures, template-anchored `WorldPose` conversion (§4.13 anchor decided); open question 1 resolved (no start-time VRAM pre-check, typed per-request failure). Real-engine end-to-end probe remains. |
 
 ## 6. Session state (resume here)
 
@@ -260,16 +276,20 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 **Next**
 
-1. **The real HMR2.0 adapter** — the remaining half of M5. **(a) Environment and
-   measurement: done (T10, 2026-10-19)** — the dedicated Python 3.10 venv works
+1. **The real HMR2.0 adapter** - the remaining half of M5. **(a) Environment and
+   measurement: done (T10, 2026-10-19)** - the dedicated Python 3.10 venv works
    on Windows, both checkpoints load and infer on the real GPU, and §4.13's two
    unmeasured properties are measured (VRAM 2.67 GB at batch 1, warm 81-94 ms,
-   hip height needs an anchor — the template constant 0.9385 m). **(b) The
-   adapter remains:** the `AIPort` implementation — SMPL parameters to hip
+   hip height needs an anchor - the template constant 0.9385 m). **(b) The
+   adapter remains:** the `AIPort` implementation - SMPL parameters to hip
    height in centimetres plus per-joint local quaternions named for the
-   production skeleton — plus FP16 and the CUDA-cache release, out-of-process,
+   production skeleton - plus FP16 and the CUDA-cache release, out-of-process,
    with the Windows loader fixes the session recorded. Weights are
-   user-supplied and never vendored.
+   user-supplied and never vendored. *(Landed T11/T12, 2026-10-19: `hmr2_adapter`
+   + `hmr2_worker` - persistent out-of-process protocol, typed failures,
+   template-anchored conversion. **Remaining:** the end-to-end probe on the real
+   engine (VRAM stability across keys, FP16 numerics) and wiring the window to
+   the real engine + production skeleton for manual verification.)*
 2. Then M6 (CondMDI + Model Factory) → M7 (IK) → M8 (generative export).
 
 **Known follow-ups**
