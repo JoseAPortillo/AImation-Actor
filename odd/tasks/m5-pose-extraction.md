@@ -127,6 +127,7 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T11 | S14,S16 | inline | ✅ done | **Landed 2026-10-19** (L24, C12): `adapters/ai/hmr2_worker.py` (engine-side half, runs in `.engine/venv` 3.10) + `adapters/ai/hmr2_adapter.py` (`AIPort` impl, app-side, stdlib only) — line-JSON stdin/stdout protocol, **persistent worker** (2.7 GB checkpoint loads once; ~84 ms/`K` after), FP16 default + `empty_cache()` per request, the four Windows loader fixes baked in (`HOME`=engine root, `torch.load weights_only=False`, `init_renderer=False`, `PYOPENGL_PLATFORM=win32`, plus the `webdataset` import). Typed actionable failures for a missing interpreter/checkpoint/body-model/GPU and worker death; idempotent `shutdown()`, wired into `PoseExtractionRunner.shutdown`. Route: inline (one understood unit, no writer-trigger reason). CI proves the bridge against a faithful fake worker (`tests/fake_hmr2_worker.py`); the real engine stays manual-probe-only (the Blender read path's discipline) |
 | T12 | S5,S14 | inline | ✅ done | **Landed 2026-10-19** (L24, C12, with T11 — one coherent behavior; conversion tests included). Engine result → `WorldPose`: hip height = **template anchor** (the worker computes the betas=0 template's pelvis-to-contact distance at startup; T10 found the per-frame estimate not keyable), per-joint local quaternions = SMPL's `global_orient`→`Pelvis` + the 23 `body_pose` rotations **named with SMPL's canonical names** (the production skeleton mirrors SMPL's chain under `Main`), re-expressed **Y-up→Z-up** by `conjugate_y_up_to_z_up` (`R_x(+90)⊗q⊗R_x(-90)` — the exact inverse of the FBX writer's `q_fbx = A⊗q_domain⊗A⁻¹` with `A = R_x(-90)`, verified numerically incl. the writer round trip); world displacement dropped (`x=y=0`) |
 | T13 | S14, S16 | inline | done (2026-10-19) | C13: window wiring — `build_window` injects the real `Hmr2Adapter` plus a rig source over its bind offsets; `core/production_skeleton.py` (the SMPL chain mirrored under `Main`: 23 canonical names + kintree parents) builds the rig from bind offsets the worker computes from the body model's template buffers and rides on the ready line; the `CaptureController` adopts it at the first extraction (missing/broken offsets = typed failure, nothing marked; pane stays blank until then). FP16 holds as the default via **autocast** around the backbone, the SMPL recovery and the template anchor call (plain fp16 weights raise dtype mismatches — probe-verified three ways). Real-engine e2e evidence (manual probe): ready ~12 s, VRAM flat 1328.1 MiB across 6 keys (growth 0.0; 2.66 GB fp32), fp16 vs fp32 mean 0.84 mm / max 3.68 mm per joint, bridge round trip ~130 ms per key; the probe caught a double SMPL-to-domain conversion (the worker now reports SMPL-frame offsets; the adapter owns the conversion) and the pre-ready fp16 template crash. 124 tests green, ruff clean. Spec 0.4.8 + open question 10 resolved. (L26) |
+| T14 | S5, S14 | inline | done (2026-10-20) | C14: the manual UI check the user reported on (*"no me aparece el skeleton... 0 golden pose"*), reproduced on the box: extraction + key + rig adoption **succeeded**, but the first extracted pose crashed the viewport — `kinematics._compose` got a plain **tuple** where the contract (`WorldPose.rotations: Mapping[str, Quaternion]`) promises a domain `Quaternion`, because `quaternion_from_matrix` annotated `Quaternion` yet returned tuples in all four branches. The fake-driven test pinned the bug (tuples compare against `approx(tuple)`), so CI stayed green with a pose every renderer would choke on. Fix at the boundary: `_to_world_pose` builds `Quaternion(*conjugate_y_up_to_z_up(quaternion_from_matrix(m)))`; the internal helpers' annotations stopped lying ( documented tuples). RED observed (`isinstance(..., Quaternion)` False), suite **196/0/0/0** from junitxml, ruff clean; the window probe now logs the extraction with **no tracebacks** — 1 golden pose, 25 joints, pane draws. (L27) |
 
 > Note (2026-10-19): T11 and T12 shipped as **one work unit** (commit C12) rather
 > than two: the bridge without the conversion could not satisfy
@@ -969,3 +970,57 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   pane (the probe exercised the adapter path headlessly). Native assess on the slice
   e7960b2..df409be: **under_budget** — the review stays pending in the slice
   until a later commit reaches the budget; passive tier not claimed.
+
+- **L27 (2026-10-20) — the user's manual UI check found a real defect: the first
+  extracted pose could not be drawn.** User report, verbatim: *"he abierto la
+  app y no me aparece el squeleto, cuando pulso K me dice: 0 golden pose,
+  habiendo marcado ya varias. Puede que no este abriendo la app
+  correctamente?"*
+
+  **Reproduction before any verdict — three probes, cheapest first.**
+  1. `measure_t13_e2e.py` (headless, real adapter + real engine): ready 11.75 s,
+     6 keys, VRAM flat 1328.1 MiB, growth 0.0, quaternions normal — the T13
+     engine path still holds on this box.
+  2. `.engine/probe_rig_adoption.py` (headless): the ready line's bind offsets
+     through `production_skeleton()` build a 25-joint rig — rig adoption is not
+     the failure either.
+  3. `.engine/probe_window_k.py` (the real window, the real player, the real
+     engine, the real `K` action): **reproduced with a traceback.**
+
+  **Root cause.** `adapters/ai/hmr2_adapter.py`'s `quaternion_from_matrix` is
+  annotated `-> Quaternion` (the domain type) but returns a plain
+  `(w, x, y, z)` **tuple** in all four branches, and `_to_world_pose` stored
+  those tuples straight into `WorldPose.rotations` — the type AIPort's callers
+  believe (`JointPose.rotation: Quaternion`) was a lie at runtime. The pose
+  lands in the keyframe, the rig is adopted, the key is counted — and the first
+  reader of the pose is `viewport_3d.set_pose() →
+  kinematics.joint_world_positions → _compose(parent, child)`, which reads
+  `parent.w` and dies with `AttributeError: 'tuple' object has no attribute
+  'w'`. Every paint of an extracted pose crashed; the pane stays blank, and the
+  FBX export path (which also reads `Quaternion` attributes) would have died
+  the same way. The user's `0 golden poses` reading was a pre-key status
+  snapshot; the count did increment under the crash — the pane was the lie.
+
+  Why nothing caught it: the fake worker's canned response goes through the
+  same `_to_world_pose`, so the fake-driven test was not guarding the type —
+  and `pose.rotations["Pelvis"] == pytest.approx((1.0, 0.0, 0.0, 0.0))` only
+  passes **because** of the tuple; a real `Quaternion` would fail that
+  comparison. The pin was holding the bug up.
+
+  **The fix (C14), RED first.** `test_a_request_returns_a_world_pose` now pins
+  the contract — `isinstance(pose.rotations["Pelvis"], Quaternion)` plus
+  component checks — observed RED (`False`); then `_to_world_pose` builds
+  `Quaternion(*conjugate_y_up_to_z_up(quaternion_from_matrix(matrix)))`, and
+  the internal helpers' annotations were corrected to the tuples they actually
+  operate on (behavior there untouched). Gates read from `--junitxml`: **196
+  tests, 0 failures, 0 errors, 0 skipped**; ruff clean. The window probe re-run:
+  extraction at t+12.7 s, `key_count: 1`, `skeleton joints: 25`, **no
+  tracebacks** — the extracted pose is drawable, so this L27 entry completes
+  FR-CAP-05's manual UI half as well.
+
+  Probe instrument lesson: placing `--junitxml`/log files inside `--basetemp`
+  makes pytest rmtree them mid-run and every tempfile-holding test errors —
+  artifacts go beside it, never inside.
+
+  Standing note from the user's own wording: their first `K` costs the 2.7 GB
+  checkpoint load (~12 s measured here; the adapter's `READY` budget is 300 s).

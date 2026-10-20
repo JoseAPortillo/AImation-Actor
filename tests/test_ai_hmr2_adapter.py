@@ -25,7 +25,7 @@ from aimation_actor.adapters.ai.hmr2_adapter import (
     quaternion_from_matrix,
     quaternion_rotate,
 )
-from aimation_actor.core.models import FrameImage
+from aimation_actor.core.models import FrameImage, Quaternion
 
 _FAKE_WORKER = Path(__file__).resolve().parent / "fake_hmr2_worker.py"
 _TEMPLATE_HIP_CM = 93.85
@@ -105,8 +105,16 @@ def test_a_request_returns_a_world_pose(tmp_path: Path) -> None:
         assert pose.translation.z == pytest.approx(_TEMPLATE_HIP_CM)
         # The world displacement the engine recovered is deliberately dropped.
         assert (pose.translation.x, pose.translation.y) == (0.0, 0.0)
+        # The pose is a DOMAIN pose: a joint name maps to the domain's
+        # ``Quaternion``, not the adapter's internal ``(w, x, y, z)`` tuples.
+        # A tuple here crashes the pure domain downstream (``kinematics``
+        # reads ``.w``), so the contract of ``WorldPose.rotations`` is the
+        # regression this pins (found by the real-engine UI check, M5 L27).
+        rotation = pose.rotations["Pelvis"]
+        assert isinstance(rotation, Quaternion)
         # The pelvis's rotation is the engine's global orientation.
-        assert pose.rotations["Pelvis"] == pytest.approx((1.0, 0.0, 0.0, 0.0))
+        assert rotation.w == pytest.approx(1.0)
+        assert (rotation.x, rotation.y, rotation.z) == (0.0, 0.0, 0.0)
     finally:
         adapter.shutdown()
 

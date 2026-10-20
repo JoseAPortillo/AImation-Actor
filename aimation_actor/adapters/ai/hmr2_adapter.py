@@ -59,8 +59,13 @@ class Hmr2EngineError(RuntimeError):
 # -- pure rotation helpers (SMPL's Y-up frame -> the domain's Z-up frame) ------ #
 
 
-def quaternion_from_matrix(matrix: Mapping[int, float]) -> Quaternion:
-    """A row-major 3x3 rotation matrix as a unit quaternion ``(w, x, y, z)``."""
+def quaternion_from_matrix(matrix: Mapping[int, float]) -> tuple[float, float, float, float]:
+    """A row-major 3x3 rotation matrix as a unit quaternion ``(w, x, y, z)``.
+
+    The adapter's rotation helpers work on plain tuples as their internal
+    representation; the AIPort boundary (``_to_world_pose``) is where the
+    domain's ``Quaternion`` is built (M5 L27).
+    """
     m00, m01, m02, m10, m11, m12, m20, m21, m22 = (float(matrix[k]) for k in range(9))
     trace = m00 + m11 + m22
     if trace > 0.0:
@@ -97,9 +102,9 @@ def quaternion_from_matrix(matrix: Mapping[int, float]) -> Quaternion:
 
 
 def _quaternion_multiply(
-    left: Quaternion,
-    right: Quaternion,
-) -> Quaternion:
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
     lw, lx, ly, lz = left
     rw, rx, ry, rz = right
     return (
@@ -111,7 +116,7 @@ def _quaternion_multiply(
 
 
 def quaternion_rotate(
-    quaternion: Quaternion,
+    quaternion: tuple[float, float, float, float],
     vector: tuple[float, float, float],
 ) -> tuple[float, float, float]:
     """Rotate a vector by a unit quaternion ``(w, x, y, z)``.
@@ -130,7 +135,9 @@ def quaternion_rotate(
     )
 
 
-def conjugate_y_up_to_z_up(quaternion: Quaternion) -> Quaternion:
+def conjugate_y_up_to_z_up(
+    quaternion: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
     """Re-express a SMPL (Y-up) rotation in the domain's Z-up frame.
 
     ``q_domain = R_x(+90) q_smpl R_x(-90)``, which is exactly the inverse of
@@ -412,7 +419,13 @@ class Hmr2Adapter(AIPort):
         rotations: dict[str, Quaternion] = {}
         response_rotations = response.get("rotations") or {}
         for name, matrix in response_rotations.items():
-            rotations[name] = conjugate_y_up_to_z_up(quaternion_from_matrix(matrix))
+            # The helpers above work on ``(w, x, y, z)`` tuples; the AIPort
+            # boundary returns the domain type: the pure layers read
+            # ``Quaternion``'s attributes (``kinematics._compose``), so a raw
+            # tuple here is a crash in every consumer (M5 L27).
+            rotations[name] = Quaternion(
+                *conjugate_y_up_to_z_up(quaternion_from_matrix(matrix))
+            )
         return WorldPose(translation=Vector3(x=0.0, y=0.0, z=hip_height_cm), rotations=rotations)
 
 
