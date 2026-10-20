@@ -27,6 +27,15 @@ from aimation_actor.adapters.ai.hmr2_adapter import (
 )
 from aimation_actor.core.models import FrameImage, Quaternion
 
+
+def _assert_same_rotation(got: Quaternion, w: float, x: float, y: float, z: float) -> None:
+    """Quaternion identity up to the double cover: same rotated vectors."""
+    got_tuple = (got.w, got.x, got.y, got.z)
+    for vector in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)):
+        rotated = quaternion_rotate(got_tuple, vector)
+        reference = quaternion_rotate((w, x, y, z), vector)
+        assert rotated == pytest.approx(reference)
+
 _FAKE_WORKER = Path(__file__).resolve().parent / "fake_hmr2_worker.py"
 _TEMPLATE_HIP_CM = 93.85
 
@@ -112,9 +121,10 @@ def test_a_request_returns_a_world_pose(tmp_path: Path) -> None:
         # regression this pins (found by the real-engine UI check, M5 L27).
         rotation = pose.rotations["Pelvis"]
         assert isinstance(rotation, Quaternion)
-        # The pelvis's rotation is the engine's global orientation.
-        assert rotation.w == pytest.approx(1.0)
-        assert (rotation.x, rotation.y, rotation.z) == (0.0, 0.0, 0.0)
+        # The pelvis's rotation is the engine's global orientation minus the
+        # camera-frame half-turn the network bakes into it (T15): the canned
+        # upright person lands at the identity in the domain.
+        _assert_same_rotation(rotation, 1.0, 0.0, 0.0, 0.0)
     finally:
         adapter.shutdown()
 
@@ -255,6 +265,82 @@ def test_the_fbx_writer_conjugates_back_to_the_smpl_rotation() -> None:
     inverse_axis = (aw, -ax, -ay, -az)  # A's conjugate: A^-1 = R_x(+90)
     q_fbx = _quaternion_multiply(fbx_axis_change, _quaternion_multiply(q_domain, inverse_axis))
     assert tuple(q_fbx) == pytest.approx(tuple(q_smpl))
+
+
+# -- the global-orient frame convention (T15: the upside-down capture) --------- #
+
+
+def _upright_global_orient_matrix() -> list[float]:
+    """R_x(180) — the global orient the real engine reports for a person
+    standing upright in the image (measured on the bundled clip: 179.2 deg)."""
+    return [
+        1.0, 0.0, 0.0,
+        0.0, -1.0, 0.0,
+        0.0, 0.0, -1.0,
+    ]
+
+
+def _world_pose_adapter(tmp_path: Path) -> Hmr2Adapter:
+    """An adapter without the subprocess, ready-line-only, for conversion tests."""
+    adapter = _adapter(tmp_path, "ok")
+    adapter._ready = {
+        "template_hip_height_cm": _TEMPLATE_HIP_CM,
+        "bind_offsets_cm": {},
+    }
+    adapter._worker = None
+    return adapter
+
+
+def test_an_upright_person_stays_upright(tmp_path: Path) -> None:
+    """The engine's output frame is the camera's (Y down); for an upright
+    person it encodes the vertical flip inside the global orient, so the
+    adapter must undo it on the pelvis only. Measured: global orient
+    ~179-180 deg, Head below Pelvis in the raw axes, demo renderer applies
+    R_x(180) to the mesh (the bundled `adjudicate frame` probes)."""
+    adapter = _world_pose_adapter(tmp_path)
+    try:
+        pose = adapter._to_world_pose(
+            {
+                "rotations": {
+                    "Pelvis": _upright_global_orient_matrix(),
+                    "L_Hip": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                },
+            }
+        )
+        pelvis = pose.rotations["Pelvis"]
+        # ±1 double cover: F @ F is the identity as a rotation
+        _assert_same_rotation(pelvis, 1.0, 0.0, 0.0, 0.0)
+    finally:
+        adapter.shutdown()
+
+
+def test_body_pose_locals_bypass_the_global_frame_flip(tmp_path: Path) -> None:
+    """The camera-frame flip lives in the global orient alone: the body-pose
+    locals are parent-relative and keep the pre-existing conversion."""
+    adapter = _world_pose_adapter(tmp_path)
+    try:
+        angle = math.radians(30.0)
+        cos, sin = math.cos(angle), math.sin(angle)
+        matrix = [
+            1.0, 0.0, 0.0,
+            0.0, cos, -sin,
+            0.0, sin, cos,
+        ]
+        pose = adapter._to_world_pose(
+            {
+                "rotations": {
+                    "Pelvis": _upright_global_orient_matrix(),
+                    "L_Hip": matrix,
+                },
+            }
+        )
+        expected = Quaternion(*conjugate_y_up_to_z_up(quaternion_from_matrix(matrix)))
+        got = pose.rotations["L_Hip"]
+        assert (got.w, got.x, got.y, got.z) == pytest.approx(
+            (expected.w, expected.x, expected.y, expected.z)
+        )
+    finally:
+        adapter.shutdown()
 
 
 # -- the bind offsets of the production skeleton (T13) -------------------------- #

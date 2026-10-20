@@ -31,12 +31,17 @@ import time
 
 _MODE = os.environ.get("FAKE_HMR2_WORKER_MODE", "ok")
 _CANNED_ROTATIONS = {
-    "Pelvis": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+    # The pelvis is the engine's global orient. The engine's output frame is
+    # the camera's (Y pointing down), so for a person standing upright the
+    # network reports R_x(180) here -- measured on the bundled clip (T15).
+    # The adapter undoes that flip; a canned identity would mean an
+    # upside-down-camera person that the real engine does not produce.
+    "Pelvis": [1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, -1.0],
     "L_Hip": [
         0.0, 0.0, 1.0,
         0.0, 1.0, 0.0,
         -1.0, 0.0, 0.0,
-    ],  # a 90-degree rotation about Y in SMPL space (row-major 3x3)
+    ],  # a 90-degree rotation about Y in the engine's output frame
 }
 _CANNED_BIND_OFFSETS = {
     # SMPL frame, cm — the real template's values, rounded, as the real

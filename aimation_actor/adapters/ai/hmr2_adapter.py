@@ -412,7 +412,15 @@ class Hmr2Adapter(AIPort):
           the domain's Z-up frame — the production skeleton mirrors SMPL's
           chain under ``Main``, so the names carry over untouched;
         - the world displacement the engine recovered is deliberately dropped
-          (``Main`` ships in place; see the domain invariants in AGENTS.md).
+          (``Main`` ships in place; see the domain invariants in AGENTS.md);
+        - the engine's output frame is the camera's, with Y pointing down
+          (measured, T15: for people standing upright the engine reports a
+          ~180-rotation global orient, Head below Pelvis in its own axes, and
+          4D-Humans' own demo applies a mesh ``R_x(180)`` flip before
+          rendering). The network bakes that flip inside the global orient
+          alone, so the fix is a half-turn pre-multiplied to the pelvis's
+          local rotation — pre-, not conjugated, and never applied to the
+          body-pose locals (they are parent-relative and frame-correct).
         """
         ready = self._ready or {}
         hip_height_cm = float(ready.get("template_hip_height_cm", 0.0))
@@ -423,13 +431,24 @@ class Hmr2Adapter(AIPort):
             # boundary returns the domain type: the pure layers read
             # ``Quaternion``'s attributes (``kinematics._compose``), so a raw
             # tuple here is a crash in every consumer (M5 L27).
-            rotations[name] = Quaternion(
-                *conjugate_y_up_to_z_up(quaternion_from_matrix(matrix))
-            )
+            quaternion = quaternion_from_matrix(matrix)
+            if name == _GLOBAL_ORIENT_JOINT:
+                quaternion = _quaternion_multiply(_HMR2_CAMERA_FLIP, quaternion)
+            rotations[name] = Quaternion(*conjugate_y_up_to_z_up(quaternion))
         return WorldPose(translation=Vector3(x=0.0, y=0.0, z=hip_height_cm), rotations=rotations)
 
 
 # -- module-level helpers ------------------------------------------------------- #
+
+#: The joint that carries the engine's global orientation. HMR2.0's training
+#: convention stores the camera's Y-down frame flip inside this single local
+#: rotation; the body-pose locals below it are parent-relative and correct.
+_GLOBAL_ORIENT_JOINT = "Pelvis"
+
+#: ``R_x(180)``: the half-turn that undoes the flip above when pre-multiplied
+#: to the global orient's raw quaternion. It matches the mesh flip the
+#: official 4D-Humans demo applies in its renderer.
+_HMR2_CAMERA_FLIP = (0.0, 1.0, 0.0, 0.0)
 
 
 def _default_engine_root() -> Path:

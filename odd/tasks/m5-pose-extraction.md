@@ -109,6 +109,14 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   checkpoint or body model is an **actionable non-fatal failure** through the
   existing typed path (S6, S7) — never a crash and never a silent placeholder.
   The licensing posture this implies is recorded in `spec.md` §4.14, not assumed.
+- **S17.** A captured pose must land **upright** in the domain viewport when the
+  subject is upright in the frame. The user's report (T15), verbatim: *"ahora si
+  ocurre la captura, pero aparece boca abajo, al capturar invierte la pose en
+  'Y' o altura"* — the HMR2.0 output is in the camera's frame (Y pointing
+  down; the network bakes the half-turn inside the `global_orient` value, and
+  4D-Humans' own demo renderer applies a mesh `R_x(180)` flip), so the
+  adapter undoes it on the pelvis only; body-pose locals are parent-relative
+  and pass through the pre-existing conversion unchanged.
 
 ## Tasks
 
@@ -128,6 +136,7 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 | T12 | S5,S14 | inline | ✅ done | **Landed 2026-10-19** (L24, C12, with T11 — one coherent behavior; conversion tests included). Engine result → `WorldPose`: hip height = **template anchor** (the worker computes the betas=0 template's pelvis-to-contact distance at startup; T10 found the per-frame estimate not keyable), per-joint local quaternions = SMPL's `global_orient`→`Pelvis` + the 23 `body_pose` rotations **named with SMPL's canonical names** (the production skeleton mirrors SMPL's chain under `Main`), re-expressed **Y-up→Z-up** by `conjugate_y_up_to_z_up` (`R_x(+90)⊗q⊗R_x(-90)` — the exact inverse of the FBX writer's `q_fbx = A⊗q_domain⊗A⁻¹` with `A = R_x(-90)`, verified numerically incl. the writer round trip); world displacement dropped (`x=y=0`) |
 | T13 | S14, S16 | inline | done (2026-10-19) | C13: window wiring — `build_window` injects the real `Hmr2Adapter` plus a rig source over its bind offsets; `core/production_skeleton.py` (the SMPL chain mirrored under `Main`: 23 canonical names + kintree parents) builds the rig from bind offsets the worker computes from the body model's template buffers and rides on the ready line; the `CaptureController` adopts it at the first extraction (missing/broken offsets = typed failure, nothing marked; pane stays blank until then). FP16 holds as the default via **autocast** around the backbone, the SMPL recovery and the template anchor call (plain fp16 weights raise dtype mismatches — probe-verified three ways). Real-engine e2e evidence (manual probe): ready ~12 s, VRAM flat 1328.1 MiB across 6 keys (growth 0.0; 2.66 GB fp32), fp16 vs fp32 mean 0.84 mm / max 3.68 mm per joint, bridge round trip ~130 ms per key; the probe caught a double SMPL-to-domain conversion (the worker now reports SMPL-frame offsets; the adapter owns the conversion) and the pre-ready fp16 template crash. 124 tests green, ruff clean. Spec 0.4.8 + open question 10 resolved. (L26) |
 | T14 | S5, S14 | inline | done (2026-10-20) | C14: the manual UI check the user reported on (*"no me aparece el skeleton... 0 golden pose"*), reproduced on the box: extraction + key + rig adoption **succeeded**, but the first extracted pose crashed the viewport — `kinematics._compose` got a plain **tuple** where the contract (`WorldPose.rotations: Mapping[str, Quaternion]`) promises a domain `Quaternion`, because `quaternion_from_matrix` annotated `Quaternion` yet returned tuples in all four branches. The fake-driven test pinned the bug (tuples compare against `approx(tuple)`), so CI stayed green with a pose every renderer would choke on. Fix at the boundary: `_to_world_pose` builds `Quaternion(*conjugate_y_up_to_z_up(quaternion_from_matrix(m)))`; the internal helpers' annotations stopped lying ( documented tuples). RED observed (`isinstance(..., Quaternion)` False), suite **196/0/0/0** from junitxml, ruff clean; the window probe now logs the extraction with **no tracebacks** — 1 golden pose, 25 joints, pane draws. (L27) |
+| T15 | S17 | inline | done (2026-10-20) | C15: the upside-down capture the user reported (*"aparece boca abajo, al capturar invierte la pose en Y o altura"*), reproduced on the box: the extraction pipeline is geometrically faithful to the engine's own SMPL joints (~1 cm FK-vs-engine match), but the **engine's output frame is the camera's, Y pointing down** — measured: for people visibly standing upright the engine reports `global_orient` ≈ 179-180°, Head below Pelvis in its own axes, and the official demo's renderer applies a mesh `R_x(180)` flip before rendering. Repair empirically arbitrated across 7 candidates against the upright ground truth: a half-turn **pre-multiplied to the pelvis only** (`F ⊗ q_global`) wins — mean delta **0.96 cm** (frame 0) / **1.78 cm** (frame 40) vs 45-89 cm for all others; body-pose locals untouched. `_to_world_pose` applies `_HMR2_CAMERA_FLIP` to the `_GLOBAL_ORIENT_JOINT`; RED observed (pelvis `(0,1,0,0)` instead of identity), suite **200/0/0/0**, ruff clean; real-engine e2e re-verified: pelvis z 93.9, head z 138.5 (above), ankles 74/58 (below). (L28) |
 
 > Note (2026-10-19): T11 and T12 shipped as **one work unit** (commit C12) rather
 > than two: the bridge without the conversion could not satisfy
@@ -1029,3 +1038,31 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   `medium` (`executable_change`, `hmr2_adapter.py`), `review_due: false`,
   `under_budget` (13 paths / 855 lines since the last acknowledged review) —
   the slice stays pending; the boundary (`e7960b2`) does not advance.
+
+- **L28.** User, verbatim: *"ahora si ocurre la captura, pero aparece boca abajo,
+  al capturar invierte la pose en 'Y' o altura*" (2026-10-20).
+- **L29.** Root cause (T15/C15): the extraction chain is geometrically faithful
+  to the engine (FK reproduces the engine's own SMPL joints to ~1 cm), but the
+  engine's output frame is the OpenCV camera frame (X right, **Y down**, Z
+  into the screen) — proven by three independent measurements: (1) frame 0 and
+  frame 40 of the bundled clip show people standing upright while the engine's
+  canonical joints put Head below Pelvis (raw y: head -0.81 m vs ankle +0.51 m);
+  (2) identical numbers with tight manual detection boxes, so the full-frame
+  box is not the cause; (3) the official 4D-Humans demo renderer applies
+  otation_matrix(180 deg, [1,0,0]) to the mesh before rendering. The
+  network's training convention bakes that flip inside the global_orient
+  value alone; the frame-40 estimate (lean-back dance pose, global 138 deg =
+  180 - 42 compatible with the same rule). Repair candidates arbitrated
+  numerically (.engine/probe_global_fix.py, .engine/probe_global_fix_cross40.py):
+  the winning conversion — a half-turn pre-multiplied to the pelvis local,
+  body locals raw — scores 0.96 cm (frame 0) and 1.78 cm (frame 40) against
+  the upright ground truth; every alternative (full-tree conjugation,
+  conj-only-pelvis, right-multiply, inverse variants) scores 31-89 cm. Betas
+  were ruled out first (template betas=0 vs pred betas: <= 1 cm limb deltas).
+  Also confirmed while hunting: cv2's HOG person detector is gone in OpenCV 5
+  (the engine env), so box probes used manual grid-annotated coordinates.
+  Gates: suite 200/0/0/0 from junitxml, ruff clean; real-engine e2e upright
+  (pelvis 93.9 / head 138.5 / ankles 74+58 cm). Probe-lesson: compare
+  rotations on a pelvis-RELATIVE target (the pred translation and the anchor
+  pin otherwise inject ~44 cm of fake error); quaternions compare as
+  rotations, never components (the double cover turned F@F into (-1,0,0,0)).
