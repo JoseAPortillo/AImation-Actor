@@ -1024,3 +1024,8 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
 
   Standing note from the user's own wording: their first `K` costs the 2.7 GB
   checkpoint load (~12 s measured here; the adapter's `READY` budget is 300 s).
+
+  Native assess after C14 (`--base-ref e7960b2 --committed-only`): risk
+  `medium` (`executable_change`, `hmr2_adapter.py`), `review_due: false`,
+  `under_budget` (13 paths / 855 lines since the last acknowledged review) —
+  the slice stays pending; the boundary (`e7960b2`) does not advance.
