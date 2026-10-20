@@ -57,6 +57,25 @@ def test_the_application_window_runs_the_real_engine_behind_the_real_rig_source(
     window.close()  # the runner's shutdown is an idempotent no-op here
 
 
+def test_the_window_wires_both_factory_engines(qtbot) -> None:
+    """FR-GEN-02: the window asks the Model Factory by name, for both engines.
+
+    Both engines are lazy (a construction spawns nothing), so the window opens
+    without weights, GPU or workers (T1).
+    """
+    from aimation_actor.adapters.ai.condmdi_adapter import CondMDIAdapter
+    from aimation_actor.adapters.ai.hmr2_adapter import Hmr2Adapter
+    from aimation_actor.adapters.ai.inbetween_runner import InbetweeningRunner
+
+    window = build_window()
+    qtbot.addWidget(window)
+
+    assert isinstance(window.extractor._engine, Hmr2Adapter)
+    assert isinstance(window.filler, InbetweeningRunner)
+    assert isinstance(window.filler._engine, CondMDIAdapter)
+    window.close()  # both runners shut down idempotently here
+
+
 def test_the_real_adapter_construction_spawns_nothing(qtbot) -> None:
     """Ready costs a spawn, not construction: the window opens without the engine."""
     import os as _os

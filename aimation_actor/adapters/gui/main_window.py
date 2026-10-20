@@ -31,13 +31,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from aimation_actor.adapters.ai.inbetween_runner import InbetweeningRunner
 from aimation_actor.adapters.ai.pose_runner import PoseExtractionRunner
 from aimation_actor.adapters.gui.capture_controller import CaptureController, VideoSource
 from aimation_actor.adapters.gui.timeline_bar import TimelineBar
 from aimation_actor.adapters.gui.video_player import VideoPlayer
 from aimation_actor.adapters.gui.viewport_3d import SkeletonViewport
 from aimation_actor.core.models import JointPose, Skeleton, TimelineState
-from aimation_actor.ports.ai_port import AIPort
+from aimation_actor.ports.ai_port import AIPort, InbetweeningPort
 
 __all__ = ["MainWindow"]
 
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
         skeleton: Skeleton | None = None,
         engine: AIPort | None = None,
         skeleton_source: Callable[[], Skeleton | None] | None = None,
+        inbetween_engine: InbetweeningPort | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build the window.
@@ -62,12 +64,16 @@ class MainWindow(QMainWindow):
         ``source``, ``skeleton``, ``engine`` and ``skeleton_source`` exist so a
         caller can supply the player, the rig, the pose engine and where a rig
         comes from when there is not one yet; the defaults are the real player,
-        an **empty rig**, and **no engine**. The composition root (``build_window``)
-        injects the real engine and a ``skeleton_source`` that builds the
-        production rig from the engine's own template report: the skeleton is
-        real body-model data, adopted at the first successful extraction —
-        never invented here. Without an engine or a rig source, ``K`` reports
-        what is missing rather than writing a pose nobody computed.
+        an **empty rig**, and **no engine**. ``inbetween_engine`` supplies the
+        generative engines the same way: without one, ``G`` reports what is
+        missing rather than refusing silently. The composition root
+        (``build_window``) injects the real engines — capture and inbetweening
+        by name through the Model Factory (FR-GEN-02) — and a ``skeleton_source``
+        that builds the production rig from the capture engine's own template
+        report: the skeleton is real body-model data, adopted at the first
+        successful extraction — never invented here. Without an engine or a rig
+        source, ``K`` reports what is missing rather than writing a pose nobody
+        computed.
         """
         super().__init__(parent)
         self.setWindowTitle("AImation Actor")
@@ -83,8 +89,16 @@ class MainWindow(QMainWindow):
         )
 
         self.extractor = None if engine is None else PoseExtractionRunner(engine, self)
+        self.filler = (
+            None if inbetween_engine is None else InbetweeningRunner(inbetween_engine, self)
+        )
         self.controller = CaptureController(
-            player, state, self, extractor=self.extractor, skeleton_source=skeleton_source
+            player,
+            state,
+            self,
+            extractor=self.extractor,
+            skeleton_source=skeleton_source,
+            inbetweener=self.filler,
         )
         self.viewport = SkeletonViewport(self)
         self.timeline = TimelineBar(self)
@@ -131,6 +145,9 @@ class MainWindow(QMainWindow):
             "Jump to previous key", "Shift+Left", self._previous_key
         )
         self.action_next_key = self._action("Jump to next key", "Shift+Right", self._next_key)
+        self.action_fill_inbetweens = self._action(
+            "Fill Gaps (Generate Inbetweens)", "G", self.controller.fill_inbetweens
+        )
 
         self._shortcuts = (
             self.action_play_pause,
@@ -140,6 +157,7 @@ class MainWindow(QMainWindow):
             self.action_remove_key,
             self.action_previous_key,
             self.action_next_key,
+            self.action_fill_inbetweens,
         )
         for action in self._shortcuts:
             self.addAction(action)
@@ -152,6 +170,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.action_open)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
+
+        inbetweens_menu = self.menuBar().addMenu("&Inbetweens")
+        inbetweens_menu.addAction(self.action_fill_inbetweens)
 
     def _action(self, text: str, shortcut: str, slot) -> QAction:
         action = QAction(text, self)
@@ -215,5 +236,7 @@ class MainWindow(QMainWindow):
         """
         if self.extractor is not None:
             self.extractor.shutdown()
+        if self.filler is not None:
+            self.filler.shutdown()
         super().closeEvent(event)
 

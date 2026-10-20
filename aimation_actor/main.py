@@ -9,26 +9,38 @@ where behavior can hide.
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QApplication
 
-from aimation_actor.adapters.ai.hmr2_adapter import Hmr2Adapter
+from aimation_actor.adapters.ai.model_factory import capture_engine, inbetweening_engine
 from aimation_actor.adapters.gui.main_window import MainWindow
 from aimation_actor.core.production_skeleton import production_skeleton
+
+if TYPE_CHECKING:
+    from aimation_actor.adapters.ai.hmr2_adapter import Hmr2Adapter
 
 __all__ = ["build_window", "main"]
 
 
 def build_window() -> MainWindow:
-    """The application's window: real player, real engine, real production rig.
+    """The application's window: real player, real engines, real production rig.
 
-    The rig is still not invented here (the M4 refusal stands): its bind offsets
-    are real body-model data the engine reports with its ready line, so the
-    window adopts the rig at the first successful extraction through the
-    ``skeleton_source``. Until then the 3D pane names the reason it is blank.
+    The engines are named, not imported: the Model Factory builds the capture
+    engine (``hmr2``) and the inbetweening engine (its MVP default ``condmdi``,
+    FR-GEN-02), so swapping one is a registry edit. The rig is still not
+    invented here (the M4 refusal stands): its bind offsets are real body-model
+    data the capture engine reports with its ready line, so the window adopts
+    the rig at the first successful extraction through the ``skeleton_source``.
+    Until then the 3D pane names the reason it is blank.
     """
-    engine = Hmr2Adapter()
-    return MainWindow(engine=engine, skeleton_source=_engine_rig_of(engine))
+    engine = capture_engine("hmr2")
+    inbetween_engine = inbetweening_engine()  # MVP: condmdi (FR-GEN-02)
+    return MainWindow(
+        engine=engine,
+        inbetween_engine=inbetween_engine,
+        skeleton_source=_engine_rig_of(engine),
+    )
 
 
 def _engine_rig_of(engine: Hmr2Adapter):

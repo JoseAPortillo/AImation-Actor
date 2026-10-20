@@ -200,6 +200,56 @@ def test_shift_arrows_jump_between_golden_poses(
     assert window.controller.frame == 10
 
 
+def test_a_window_without_an_inbetween_engine_names_the_gap(
+    qtbot, source: _FakeSource
+) -> None:
+    """Without an inbetween engine, ``G`` reports what is missing (NFR-03)."""
+    window_no_filler = MainWindow(
+        source=source, skeleton=_skeleton(), engine=_ConstantEngine()
+    )
+    qtbot.addWidget(window_no_filler)
+    _load_two_seconds(window_no_filler, source)
+    window_no_filler.action_fill_inbetweens.trigger()
+    assert "No inbetweening engine" in window_no_filler.statusBar().currentMessage()
+    assert window_no_filler.filler is None
+    assert window_no_filler.action_fill_inbetweens.shortcut() == QKeySequence("G")
+
+
+def test_g_runs_the_fill_off_the_ui_thread_and_reports_the_outcome(
+    qtbot, source: _FakeSource
+) -> None:
+    class _IdentityFiller:
+        requests: list = []
+
+        def inbetween(self, timeline):
+            _IdentityFiller.requests.append(timeline)
+            return timeline
+
+    window = MainWindow(
+        source=source,
+        skeleton=_skeleton(),
+        engine=_ConstantEngine(),
+        inbetween_engine=_IdentityFiller(),
+    )
+    qtbot.addWidget(window)
+    _load_two_seconds(window, source)
+
+    # Two golden poses: without them the controller refuses before the engine.
+    window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(0), timeout=5000)
+    window.controller.go_to_frame(10)
+    window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(10), timeout=5000)
+
+    window.action_fill_inbetweens.trigger()
+    qtbot.waitUntil(
+        lambda: "Generated" in window.statusBar().currentMessage(), timeout=5000
+    )
+
+    assert _IdentityFiller.requests  # the timeline reached the engine
+    assert "(keys untouched)" in window.statusBar().currentMessage()
+
+
 def test_the_open_action_hands_the_path_to_the_controller(
     window: MainWindow, source: _FakeSource
 ) -> None:

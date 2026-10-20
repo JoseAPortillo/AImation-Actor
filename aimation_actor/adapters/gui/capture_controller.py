@@ -56,13 +56,17 @@ from aimation_actor.core.services import (
     remove_pose,
 )
 
-__all__ = ["CaptureController", "PoseExtractor", "VideoSource"]
+__all__ = ["CaptureController", "Inbetweener", "PoseExtractor", "VideoSource"]
 
 _NO_CLIP = "Open a reference video before marking golden poses."
 _NO_ENGINE = "No pose engine is configured, so no pose can be extracted."
 _NO_FRAME = "Could not read the frame at the playhead."
 _BUSY = "Still extracting the previous frame; try again when it finishes."
 _STALE = "Discarded a pose extracted for the clip that is no longer open."
+_NO_INBETWEENER = "No inbetweening engine is configured, so gaps cannot be filled."
+_NO_KEYS = "Mark at least two golden poses before filling the gaps."
+_INBETWEEN_BUSY = "Inbetweens are already being generated; try again when it finishes."
+_INBETWEENS_STALE = "Discarded generated inbetweens for the clip that is no longer open."
 
 
 class VideoSource(Protocol):
@@ -122,6 +126,19 @@ class PoseExtractor(Protocol):
     def start(self, frame_index: int, image: FrameImage) -> bool: ...
 
 
+class Inbetweener(Protocol):
+    """What the controller needs from an off-thread inbetweening engine.
+
+    The same isolation contract as ``PoseExtractor``, one timeline at a time:
+    ``start`` hands the whole timeline over and returns immediately; the filled
+    timeline arrives later through ``filled`` and a failure through ``failed``
+    (M6 T4). A request that cannot be served is refused by ``start`` returning
+    ``False``.
+    """
+
+    def start(self, timeline: TimelineState) -> bool: ...
+
+
 class CaptureController(QObject):
     """Owns the timeline, the playhead and the capture shortcuts' behavior.
 
@@ -146,6 +163,7 @@ class CaptureController(QObject):
         *,
         extractor: PoseExtractor | None = None,
         skeleton_source: Callable[[], Skeleton | None] | None = None,
+        inbetweener: Inbetweener | None = None,
     ) -> None:
         super().__init__(parent)
         self._source = source
@@ -159,6 +177,8 @@ class CaptureController(QObject):
         # is per clip, because it depends on the clip's own metadata.
         self._frames_are_indexed = False
         self._extractor = extractor
+        self._inbetweener = inbetweener
+        self._inbetween_generation: int | None = None
         # Any in-flight extraction belongs to the clip it was started against, so
         # "which clip" is tracked as a generation that a load bumps.
         self._generation = 0
@@ -173,6 +193,10 @@ class CaptureController(QObject):
         if extractor is not None:
             extractor.extracted.connect(self._on_pose_extracted)
             extractor.failed.connect(self._on_pose_failed)
+
+        if inbetweener is not None:
+            inbetweener.filled.connect(self._on_inbetweens_filled)
+            inbetweener.failed.connect(self._on_inbetweens_failed)
 
     # -- reported state ---------------------------------------------------- #
 
@@ -478,6 +502,68 @@ class CaptureController(QObject):
         self.timeline_changed.emit()
         self.pose_changed.emit(self.current_pose())
         self._emit_status()
+
+    # -- generated inbetweens (M6 T4, FR-GEN-01..03) ------------------------ #
+
+    def fill_inbetweens(self) -> None:
+        """Generate the missing frames between the timeline's golden poses.
+
+        The request is **asynchronous** (the runner owns the isolation): the
+        engine fills off the UI thread and the result is adopted only when it
+        lands, if it still belongs to the open clip. A failure is non-fatal:
+        the keys survive untouched (S1, FR-GEN-01) and so does the session.
+        """
+        if self._inbetweener is None:
+            self._report(_NO_INBETWEENER)
+            return
+        frames = key_frames(self._state)
+        if len(frames) < 2:
+            self._report(_NO_KEYS)
+            return
+
+        # Claim the fill *before* handing it over, exactly like extraction: an
+        # engine may answer synchronously, and its result must not look stale
+        # when it does.
+        previous_claim = self._inbetween_generation
+        self._inbetween_generation = self._generation
+        if not self._inbetweener.start(self._state):
+            self._inbetween_generation = previous_claim
+            self._report(_INBETWEEN_BUSY)
+            return
+
+        self._emit_status(
+            actionable=f"Filling the gaps between {len(frames)} golden poses…"
+        )
+
+    def _on_inbetweens_filled(self, filled: TimelineState) -> None:
+        """Adopt the engine's filled timeline; keys are guaranteed untouched.
+
+        The result is discarded when the clip it was generated for is no longer
+        open: the previous clip's keys must not rewrite a replacement's
+        timeline, for the same reason an extraction result is (M5, S5).
+        """
+        if self._inbetween_generation != self._generation:
+            self._report(_INBETWEENS_STALE)
+            return
+        self._inbetween_generation = None
+        before = len(key_frames(self._state))
+        self._state = filled
+        self.timeline_changed.emit()
+        self.pose_changed.emit(self.current_pose())
+        self._emit_status(
+            actionable=(
+                f"Generated {len(key_frames(filled)) - before} inbetween frames "
+                f"between {before} golden poses (keys untouched)."
+            )
+        )
+
+    def _on_inbetweens_failed(self, message: str) -> None:
+        """Report a failed fill; the keys survive untouched (FR-GEN-03)."""
+        if self._inbetween_generation != self._generation:
+            self._report(_INBETWEENS_STALE)
+            return
+        self._inbetween_generation = None
+        self._report(f"Inbetween generation failed: {message}")
 
     # -- reporting --------------------------------------------------------- #
 
