@@ -168,10 +168,11 @@ def fill_gap_synthetically(
 
     ``start_frame`` and ``end_frame`` must both be keyed frames of
     ``timeline``; the open interval between them gains a key per empty frame,
-    taken from ``poses_by_frame``. Every frame of the interval must be either
-    keyed or supplied — a hole is raised, never left silently — and poses
-    reaching outside the interval are rejected, because ``S1`` also forbids
-    writing beyond the span the caller asked for.
+    taken from ``poses_by_frame``. Poses landing on the keyed endpoints are
+    ignored — the keys are hard constraints and win over anything generated —
+    while poses reaching outside the span are rejected. Every frame of the
+    interval must be either keyed or supplied: a hole is raised, never left
+    silently.
     """
     if end_frame < start_frame:
         raise ValueError(f"the gap runs backwards: {start_frame} -> {end_frame}")
@@ -180,8 +181,11 @@ def fill_gap_synthetically(
             raise ValueError(f"frame {bound} is not a keyed frame of the timeline")
 
     interval = range(start_frame + 1, end_frame)
+    span = range(start_frame, end_frame + 1)
     keyed_frames = {keyframe.frame for keyframe in timeline.keyframes}
-    extra = sorted(frame for frame in poses_by_frame if frame not in interval)
+    # Poses landing on the keyed endpoints are simply never written (keys win,
+    # S1); only motion reaching OUTSIDE the span is a caller error.
+    extra = sorted(frame for frame in poses_by_frame if frame not in span)
     if extra:
         raise ValueError(
             "the generated motion reaches outside the locked span: "
