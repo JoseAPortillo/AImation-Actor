@@ -1066,3 +1066,4 @@ the plan's GVHMR — see S14-S16 and L19 below, and «Pose engine decision» in
   rotations on a pelvis-RELATIVE target (the pred translation and the anchor
   pin otherwise inject ~44 cm of fake error); quaternions compare as
   rotations, never components (the double cover turned F@F into (-1,0,0,0)).
+- L30. Commit C15 = `1025b5d`. Native assess: risk medium (executable_change on the adapter), review_due false (under_budget, base e7960b2) - the boundary stays pending in the slice per the native reason code; next reviewed boundary remains e7960b2.
