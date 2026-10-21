@@ -33,8 +33,7 @@ while each convention was fixed:
   guidance lives in ``model/cfg_sampler.py:25`` and both branches keep the
   keyframe condition, so ``y['text_scale']`` must always be set.
 - sampling: ``diffusion.p_sample_loop`` exactly as ``sample/conditional_synthesis.py:214``
-  calls it.
-- decoding: world positions from ``recover_from_ric(..., abs_3d=True)``
+  calls it.- decoding: world positions from ``recover_from_ric(..., abs_3d=True)``
   (``motion_process.py:474``); per-joint local rotations from the ``rot_data``
   cont6d columns, whose chain convention is ``Skeleton``'s own (
   ``forward_kinematics``/``inverse_kinematics`` restart the accumulated chain
@@ -49,6 +48,10 @@ while each convention was fixed:
 
 Determinism: ``fixseed`` before every sample, so a request line replays to the
 same motion. Frame ``L = span_frames + 1`` covers both keyframe samples.
+Measured on-box (T5): the real checkpoint boots in ~6 s warm (CLIP cached
+after the one-off ~340 MB download) and fills the full 193-sample window in
+~64 s of sampling at a ~1.8 GB VRAM peak on a 10 GB card; see
+``.engine/_probe_condmdi_e2e.py``.
 """
 
 from __future__ import annotations
@@ -361,11 +364,26 @@ class _CondMDIEngine:
         stub = ModuleType("model.rotation2xyz")
         stub.JOINTSTYPES = ["smpl"]
 
+        class _NoopSmplModel:
+            """A device/training shell for the stubbed SMPL layer.
+
+            ``MDM_UNET._apply`` (``mdm_unet.py:853``) and ``.train``
+            (``mdm_unet.py:857``) always delegate to
+            ``self.rot2xyz.smpl_model`` — the no-op keeps those live engine
+            paths working without the SMPL payload.
+            """
+
+            def _apply(self, fn):
+                return self
+
+            def train(self, mode=True):
+                return self
+
         class _StubRotation2xyz:
             def __init__(self, device, dataset="amass"):
                 self.device = device
                 self.dataset = dataset
-                self.smpl_model = None
+                self.smpl_model = _NoopSmplModel()
 
         stub.Rotation2xyz = _StubRotation2xyz
         sys.modules["model.rotation2xyz"] = stub
@@ -432,12 +450,14 @@ class _CondMDIEngine:
         features = self._featurize_abs(retargeted)
 
         # 4. the observation: every joint, only the keyframe samples, the
-        #    engine's own pos+rot feature expansion over the 263 layout
-        obs_x0 = self.torch.from_numpy(features).unsqueeze(0).unsqueeze(2)
-        obs_x0 = (
-            (obs_x0.float() - self.torch.from_numpy(self.mean))
-            / self.torch.from_numpy(self.std)
-        )
+        #    engine's own pos+rot feature expansion over the 263 layout.
+        #    Normalization runs per feature BEFORE shaping: the tensor is
+        #    feature-major [263, L], so torch broadcasting on the trailing
+        #    axis would smear the mean/std across the wrong axis.
+        norm_rows = ((features.T - self.mean) / self.std).T
+        obs_x0 = self.torch.from_numpy(
+            self.np.ascontiguousarray(norm_rows, dtype=self.np.float32)
+        ).unsqueeze(0).unsqueeze(2).float()
         if not self.torch.isfinite(obs_x0).all():
             raise _RequestError("featurizing the keys produced non-finite features")
         obs_x0 = obs_x0.to(self.device)

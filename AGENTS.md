@@ -59,7 +59,7 @@ assets/                         # icons, styles, sample data
 | **3D I/O**     | **Custom pure-Python FBX writer** + **Blender 5.2 for reading** |
 | Pose capture   | **HMR2.0** — single-image SMPL regression, out-of-process      |
 | AI backend     | PyTorch 2.x (CUDA build)                                      |
-| Inbetweening   | CondMDI (MVP); MDM / LAFAN1 on roadmap                        |
+| Inbetweening   | CondMDI (MVP; measured: ~1.8 GB VRAM peak, ~64 s for the full 193-sample window on an RTX 3080 10 GB card); MDM / LAFAN1 on roadmap |
 | Tooling        | `venv` + pip; Ruff (lint/format); pytest (+ pytest-qt)        |
 
 ### FBX backend decision (supersedes the plan)
