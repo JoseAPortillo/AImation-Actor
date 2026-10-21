@@ -160,3 +160,83 @@ def test_maya_threading_of_the_wire_rebuilds_the_engine_pose() -> None:
             list(threaded[name]),
             W._quat_normalize(accs[name]),
         )
+
+
+# ---------------------------------------------------------------------------
+# The canonical facing (the conditioning must start facing +Z)
+# ---------------------------------------------------------------------------
+
+
+def _canonical_engine():
+    import numpy as np  # noqa: PLC0415
+
+    engine = W._CondMDIEngine.__new__(W._CondMDIEngine)
+    engine.np = np
+    return engine, np
+
+
+def _frame_with_across(across: tuple):
+    """A world frame whose engine across-vector equals ``across``.
+
+    ``extract_features`` derives the facing from
+    ``p[r_hip] - p[l_hip] + p[sdr_r] - p[sdr_l]``; setting the hips/shoulders
+    accordingly pins the across the engine's own convention reads. The frame
+    arrives as a numpy ``(22, 3)`` array, as ``fill`` passes it.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    frame = [[0.0, 0.0, 0.0]] * len(W._OBSERVED_JOINTS)
+    r_hip = W._FACE_JOINTS[0]
+    frame[r_hip] = list(across)
+    return np.asarray(frame, dtype=np.float32)
+
+
+def test_canonical_yaw_reads_the_engine_facing_convention() -> None:
+    engine, np = _canonical_engine()
+    # across = -X: the engine's forward (cross(Y, across)) is +Z -> yaw 0.
+    zero_yaw = engine._canonical_yaw(_frame_with_across((-1.0, 0.0, 0.0)))
+    assert zero_yaw == pytest.approx(0.0, abs=1e-9)
+    # across = +Z: forward = +X -> yaw +pi/2.
+    assert engine._canonical_yaw(_frame_with_across((0.0, 0.0, 1.0))) == pytest.approx(
+        np.pi / 2, abs=1e-9
+    )
+    # a degenerate (near-zero) across falls back to 0 instead of exploding.
+    assert engine._canonical_yaw(np.zeros((len(W._OBSERVED_JOINTS), 3), dtype=np.float32)) == 0.0
+
+
+def test_yaw_rotate_dense_preserves_the_world_and_turns_the_facing() -> None:
+    import math  # noqa: PLC0415
+
+    engine, np = _canonical_engine()
+    r_hip = W._FACE_JOINTS[0]
+    frame = [[0.0, 0.3, 0.0]] * len(W._OBSERVED_JOINTS)
+    frame[r_hip] = [-1.0, 0.3, 0.0]  # across = -X: facing +Z, zero yaw
+    dense = np.asarray([frame], dtype=np.float32)
+
+    yaw = engine._canonical_yaw(dense[0])
+    assert yaw == pytest.approx(0.0, abs=1e-9)
+
+    # rotating by +90 deg about the root axis lands the facing at +90 deg...
+    turned = engine._yaw_rotate_dense(dense, math.pi / 2)
+    assert engine._canonical_yaw(turned[0]) == pytest.approx(
+        np.pi / 2, abs=1e-6
+    )
+    # ...the root stays on the axis (its own vertical) and keeps its height...
+    assert turned[0, 0, 1] == pytest.approx(float(dense[0, 0, 1]))
+    # ...and rotating back by the measured yaw restores the input exactly.
+    restored = engine._yaw_rotate_dense(turned, -math.pi / 2)
+    assert float(np.abs(restored - dense).max()) < 1e-5
+
+
+def test_yaw_rotate_dense_leaves_the_height_untouched() -> None:
+    engine, np = _canonical_engine()
+    count = len(W._OBSERVED_JOINTS)
+    dense = np.asarray(
+        [
+            [[0.0, 0.97, -0.5]]
+            + [[0.0, 0.4, i * 0.1] for i in range(1, count)]
+        ],
+        dtype=np.float32,
+    )
+    rotated = engine._yaw_rotate_dense(dense, 1.234)
+    assert rotated[0, :, 1] == pytest.approx(dense[0, :, 1], abs=1e-6)

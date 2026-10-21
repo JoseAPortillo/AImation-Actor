@@ -26,8 +26,11 @@ while each convention was fixed:
   ``HumanML3D.motion_to_abs_data`` (``data_loaders/humanml/data/dataset.py:1253``) —
   cols 0..3 become the absolute root Y-angle and x/z; normalization uses the
   vendored ``dataset/HumanML3D_abs/Mean_abs_3d.npy`` / ``Std_abs_3d.npy``.
-- skeleton retarget onto HumanML3D's standard bone lengths:
-  ``uniform_skeleton`` (``motion_process.py:24``).
+- skeleton retarget onto HumanML3D's standard skeleton:
+  ``uniform_skeleton`` (``motion_process.py:24``) with the METRIC target
+  offsets measured from the vendored reference motion ``dataset/000021.npy``
+  (the engine's own ``process_file`` recipe; the raw ``t2m_raw_offsets`` are
+  unit directions and must never stand in for them).
 - conditioning: the unet plants ``obs_x0`` where ``obs_mask`` is true and
   concatenates the mask channel (``model/mdm_unet.py:767``); classifier-free
   guidance lives in ``model/cfg_sampler.py:25`` and both branches keep the
@@ -273,6 +276,7 @@ class _CondMDIEngine:
         self.motion_process = None
         self.editing_util = None
         self.n_raw_offsets = None
+        self.tgt_offsets = None
         self.kinematic_chain = None
         self.mean = None
         self.std = None
@@ -327,6 +331,22 @@ class _CondMDIEngine:
         self.guidance = float(getattr(args, "guidance_param", 2.5))
         self.n_raw_offsets = self.torch.from_numpy(paramUtil.t2m_raw_offsets)
         self.kinematic_chain = paramUtil.t2m_kinematic_chain
+        # The retarget's target offsets must be METRIC canonical skeleton
+        # lengths, measured from the vendored reference motion exactly as the
+        # engine's own ``process_file`` does. ``paramUtil.t2m_raw_offsets``
+        # are unit direction vectors (legs measure 2.0), not lengths — passing
+        # them as the target inflated every retargeted motion ~2.5x and pushed
+        # the conditioning out of the model's training distribution.
+        reference_path = repo_dir / "dataset" / "000021.npy"
+        if not reference_path.is_file():
+            raise _EngineError(
+                f"the canonical reference motion was not found at {reference_path}; "
+                "it measures the retarget's target skeleton (the vendored repo carries it)"
+            )
+        reference = self.np.load(str(reference_path))
+        from data_loaders.humanml.common.skeleton import Skeleton
+        tgt_skeleton = Skeleton(self.n_raw_offsets, self.kinematic_chain, "cpu")
+        self.tgt_offsets = tgt_skeleton.get_offsets_joints(self.torch.from_numpy(reference[0]))
         self.cpu_device = self.torch.device("cpu")
         if not self.torch.cuda.is_available():
             raise _EngineError(
@@ -440,17 +460,33 @@ class _CondMDIEngine:
                 key_positions[0] * (1.0 - alpha) + key_positions[1] * alpha
             )
 
-        # 3. retarget to HumanML3D's standard bone lengths, then featurize
+        # 3. retarget to HumanML3D's standard skeleton, then featurize.
+        #    The target offsets are the METRIC lengths measured from the
+        #    vendored reference motion (see ``bootstrap``); the template arg
+        #    stays the raw unit directions the engine's own code expects.
         retargeted = self.motion_process.uniform_skeleton(
             dense,
-            self.n_raw_offsets,
+            self.tgt_offsets,
             self.n_raw_offsets,
             self.kinematic_chain,
         )
+
+        # 3b. Canonicalize the facing: the engine's abs-3d convention carries
+        #     the root angle RELATIVE TO THE SAMPLE'S FIRST FRAME, so the
+        #     condition must start facing +Z or the decode loses the keys'
+        #     absolute facing (the pelvis quat would come out relative and the
+        #     body would thread on a rotated chain frame). Rotate the retargeted
+        #     motion about the root's vertical axis, and remember the yaw so
+        #     every wire pose rotates back into the user's world.
+        canonical_yaw = self._canonical_yaw(retargeted[0])
+        if abs(canonical_yaw) > 1e-9:
+            retargeted = self._yaw_rotate_dense(retargeted, -canonical_yaw)
         features = self._featurize_abs(retargeted)
 
-        # 4. the observation: every joint, only the keyframe samples, the
-        #    engine's own pos+rot feature expansion over the 263 layout.
+        # 4. the observation: every joint, only the keyframe samples. The
+        #    engine's own full-feature expansion (``pos_rot_vel``, the same
+        #    default the training loop masks with) — anything else leaves part
+        #    of the keyframe features as noise the model never saw in training.
         #    Normalization runs per feature BEFORE shaping: the tensor is
         #    feature-major [263, L], so torch broadcasting on the trailing
         #    axis would smear the mean/std across the wrong axis.
@@ -465,7 +501,7 @@ class _CondMDIEngine:
         joint_mask = self.torch.zeros((1, 22, 1, length), dtype=self.torch.bool)
         for sample in key_samples:
             joint_mask[0, :, :, sample] = True
-        obs_mask = self._joint_to_full_mask(joint_mask, mode="pos_rot")
+        obs_mask = self._joint_to_full_mask(joint_mask, mode="pos_rot_vel")
         obs_mask = obs_mask.to(self.device)
 
         # 5. sample exactly like sample/conditional_synthesis.py does
@@ -525,6 +561,23 @@ class _CondMDIEngine:
                 float(root_positions[frame_index, 1]),
                 locals_[frame_index],
             )
+            # The sample decodes in the canonical frame (facing +Z at sample
+            # 0); rotate the pelvis back into the user's world. Body locals
+            # are parent-relative and need no change: rotating the root
+            # propagates through the Maya threading unchanged.
+            if abs(canonical_yaw) > 1e-9:
+                back = (math.cos(canonical_yaw * 0.5), 0.0, math.sin(canonical_yaw * 0.5), 0.0)
+                wire_pelvis = pose["Pelvis"]["quat"]
+                pose["Pelvis"]["quat"] = list(
+                    _hml_rotation_to_domain(
+                        _quat_mul(
+                            back,
+                            _hml_local_rotation_from_domain(
+                                tuple(float(v) for v in wire_pelvis)
+                            ),
+                        )
+                    )
+                )
             poses.append({"frame": frame_index, "pose": pose})
 
         return {
@@ -604,6 +657,48 @@ class _CondMDIEngine:
         return self.np.asarray(
             [positions[name] for name in _OBSERVED_JOINTS], dtype=self.np.float32
         )
+
+    def _canonical_yaw(self, frame) -> float:
+        """One frame's facing angle, the engine's own across-vector convention,
+        as a signed yaw in radians.
+
+        ``extract_features`` derives the root facing from
+        ``p[r_hip] - p[l_hip] + p[sdr_r] - p[sdr_l]`` (``face_joint_indx``)
+        crossed with Y; the signed yaw of that forward vector is what a
+        ``-yaw`` rotation about the vertical aligns to +Z — the sample-start
+        convention the abs-3d encode/decode pair assumes.
+        """
+        r_hip, l_hip, sdr_r, sdr_l = _FACE_JOINTS
+        across = (
+            frame[r_hip] - frame[l_hip] + frame[sdr_r] - frame[sdr_l]
+        )
+        norm = float(self.np.linalg.norm(across))
+        if norm < 1e-9:
+            return 0.0
+        forward = self.np.cross(
+            self.np.asarray([0.0, 1.0, 0.0]), across / norm
+        )
+        norm = float(self.np.linalg.norm(forward))
+        if norm < 1e-9:
+            return 0.0
+        forward = forward / norm
+        return math.atan2(float(forward[0]), float(forward[2]))
+
+    def _yaw_rotate_dense(self, positions, yaw):
+        """Rotate a motion's world joints about each frame's root vertical
+        axis by ``yaw`` radians. The root sits on the axis and stays put; the
+        facing turns by ``yaw`` (+yaw maps facing angle ``a`` to ``a + yaw``).
+        A zero-yaw call returns the input array unchanged by identity of the
+        math, so callers may always rotate.
+        """
+        root = positions[:, 0:1, :]
+        rotated = positions - root
+        cos_y, sin_y = math.cos(yaw), math.sin(yaw)
+        rotated_x = rotated[..., 0] * cos_y + rotated[..., 2] * sin_y
+        rotated_z = -rotated[..., 0] * sin_y + rotated[..., 2] * cos_y
+        rotated[..., 0] = rotated_x
+        rotated[..., 2] = rotated_z
+        return rotated + root
 
     def _featurize_abs(self, dense) -> object:
         """Dense world joints -> normalized absolute 263 per frame.
