@@ -240,3 +240,123 @@ def test_yaw_rotate_dense_leaves_the_height_untouched() -> None:
     )
     rotated = engine._yaw_rotate_dense(dense, 1.234)
     assert rotated[0, :, 1] == pytest.approx(dense[0, :, 1], abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# The bind conjugation: the wire must thread the engine's intent onto the
+# USER rig's bones, not the engine skeleton's bones
+# ---------------------------------------------------------------------------
+
+# A user rig whose bind directions differ wildly from the engine template
+# (T-pose arms out to the sides, split legs, wide collars).
+_USER_BIND = {
+    "Pelvis": (0.0, 0.9, 0.0),
+    "L_Hip": (-0.05, -0.4, 0.0),
+    "R_Hip": (0.05, -0.4, 0.0),
+    "Spine_1": (0.0, 0.15, 0.01),
+    "L_Knee": (-0.03, -0.4, 0.0),
+    "R_Knee": (0.03, -0.4, 0.0),
+    "Spine_2": (0.0, 0.15, 0.0),
+    "L_Ankle": (-0.01, -0.4, 0.0),
+    "R_Ankle": (0.01, -0.4, 0.0),
+    "Spine_3": (0.0, 0.06, 0.02),
+    "L_Foot": (-0.02, -0.05, 0.12),
+    "R_Foot": (0.02, -0.05, 0.12),
+    "Neck": (0.0, 0.22, 0.0),
+    "L_Collar": (0.08, 0.12, -0.03),
+    "R_Collar": (-0.08, 0.12, -0.03),
+    "Head": (0.0, 0.07, 0.05),
+    "L_Shoulder": (0.09, 0.03, 0.0),
+    "R_Shoulder": (-0.09, 0.03, 0.0),
+    "L_Elbow": (0.26, -0.01, 0.0),
+    "R_Elbow": (-0.26, -0.01, 0.0),
+    "L_Wrist": (0.25, 0.01, 0.0),
+    "R_Wrist": (-0.25, 0.01, 0.0),
+}
+
+# The engine template the conjugation must aim the user bones at (arms down,
+# legs together, forward feet: deliberately NOT the user's directions).
+_TEMPLATE_UNITS = (
+    (0.0, 0.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.0, 0.0, 1.0),
+    (0.0, 0.0, 1.0),
+    (0.0, 1.0, 0.0),
+    (1.0, 0.0, 0.0),
+    (-1.0, 0.0, 0.0),
+    (0.0, 0.0, 1.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+    (0.0, -1.0, 0.0),
+)
+
+
+def _bone_direction_test_engine():
+    import numpy as np  # noqa: PLC0415
+
+    engine = W._CondMDIEngine.__new__(W._CondMDIEngine)
+    engine.np = np
+    engine.t2m_units = np.asarray(_TEMPLATE_UNITS, dtype=np.float64)
+    rig = {"offsets": dict(_USER_BIND), "pelvis_rest": _USER_BIND["Pelvis"][1]}
+    return engine, np, rig
+
+
+def _maya_bone_dirs(rig: dict, root: tuple, pose: dict):
+    """Thread the wire pose through the Maya parent map onto the rig offsets."""
+    threaded = {"Pelvis": root}
+    dirs = {}
+    for name in W._OBSERVED_JOINTS[1:]:
+        parent = W._JOINT_PARENTS[name]
+        local = W._hml_local_rotation_from_domain(tuple(pose[name]["quat"]))
+        threaded[name] = W._quat_mul(threaded[parent], local)
+        dirs[name] = W._quat_rotate(threaded[name], rig["offsets"][name])
+    return dirs
+
+
+def _unit(v: tuple) -> tuple:
+    norm = sum(component * component for component in v) ** 0.5
+    return tuple(component / norm for component in v)
+
+
+def _angle_deg(a: tuple, b: tuple) -> float:
+    import math  # noqa: PLC0415
+
+    au, bu = _unit(a), _unit(b)
+    dot = max(-1.0, min(1.0, sum(au[i] * bu[i] for i in range(3))))
+    return math.degrees(math.acos(dot))
+
+
+def test_wire_threads_engine_intent_onto_the_user_bones() -> None:
+    """Every user bone threaded from the wire must point where the engine
+    skeleton points (template direction rotated by the engine accumulation),
+    whatever the rig's bind directions are."""
+    engine, _np, rig = _bone_direction_test_engine()
+    root = W._quat_normalize(_yaw(0.35))
+    locals_by_name = _locals_fixture()
+    accs = _engine_accs(root, locals_by_name)
+    pose = engine._frame_to_wire(
+        rig, root, 1.0, [locals_by_name[name] for name in W._OBSERVED_JOINTS[1:]]
+    )
+    dirs = _maya_bone_dirs(rig, root, pose)
+    for name in W._OBSERVED_JOINTS[1:]:
+        index = W._OBSERVED_JOINTS.index(name)
+        template_dir = W._quat_rotate(
+            accs[name],
+            tuple(
+                float(v)
+                for v in _np.asarray(_TEMPLATE_UNITS[index], dtype=_np.float64)
+            ),
+        )
+        error = _angle_deg(dirs[name], template_dir)
+        assert error < 0.5, f"{name}: bone direction off by {error:.1f} deg"

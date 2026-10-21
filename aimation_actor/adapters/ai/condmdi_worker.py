@@ -235,6 +235,42 @@ def _quat_rotate(quat, vec):
 _A_CONJ = (math.cos(math.pi / 4.0), math.sin(math.pi / 4.0), 0.0, 0.0)
 
 
+def _bind_conjugation(user_dir, template_dir) -> tuple:
+    """The minimal unit rotation carrying one bone's bind direction to the
+    engine skeleton's template direction for that joint.
+
+    The wire's Maya locals are the ENGINE skeleton's parent-relative locals,
+    which are only meaningful on the engine skeleton's own bone directions.
+    Conjugating with these swaps (parent-relative both sides —
+    ``constraint-parent rotor inverse, engine local, joint rotor``) is what
+    makes an engine pose readable on a rig whose bind pose differs: without
+    the swaps every bone keeps the raw bind-template direction delta in the
+    Maya timeline (the animator sees raised arms ~20-90 deg, crossed legs,
+    and an extra hip rotation). Degenerate inputs (zero norms) fall back to
+    the identity rotor, so an incomplete offset map conjugates nothing.
+    """
+    user_norm = math.sqrt(sum(float(v) * float(v) for v in user_dir))
+    template_norm = math.sqrt(sum(float(v) * float(v) for v in template_dir))
+    if user_norm < 1e-9 or template_norm < 1e-9:
+        return (1.0, 0.0, 0.0, 0.0)
+    a = tuple(float(v) / user_norm for v in user_dir)
+    b = tuple(float(v) / template_norm for v in template_dir)
+    dot = sum(a[i] * b[i] for i in range(3))
+    cross = (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    if dot > 1.0 - 1e-12:
+        return (1.0, 0.0, 0.0, 0.0)
+    if dot < -1.0 + 1e-12:
+        # antiparallel: pick any axis perpendicular to ``a``
+        axis = (a[1], -a[0], 0.0)
+        if math.sqrt(axis[0] ** 2 + axis[1] ** 2) < 1e-9:
+            axis = (a[2], 0.0, -a[0])
+        norm = math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2)
+        return (0.0, axis[0] / norm, axis[1] / norm, axis[2] / norm)
+    quat = (1.0 + dot,) + cross
+    norm = math.sqrt(sum(v * v for v in quat))
+    return tuple(v / norm for v in quat)
+
+
 def _hml_rotation_to_domain(quat):
     return _quat_mul(
         _A_CONJ, _quat_mul(quat, (_A_CONJ[0], -_A_CONJ[1], -_A_CONJ[2], -_A_CONJ[3]))
@@ -277,6 +313,7 @@ class _CondMDIEngine:
         self.editing_util = None
         self.n_raw_offsets = None
         self.tgt_offsets = None
+        self.t2m_units = None
         self.kinematic_chain = None
         self.mean = None
         self.std = None
@@ -330,6 +367,9 @@ class _CondMDIEngine:
         args = SimpleNamespace(**saved)
         self.guidance = float(getattr(args, "guidance_param", 2.5))
         self.n_raw_offsets = self.torch.from_numpy(paramUtil.t2m_raw_offsets)
+        self.t2m_units = self.np.asarray(
+            paramUtil.t2m_raw_offsets, dtype=self.np.float64
+        )
         self.kinematic_chain = paramUtil.t2m_kinematic_chain
         # The retarget's target offsets must be METRIC canonical skeleton
         # lengths, measured from the vendored reference motion exactly as the
@@ -778,10 +818,26 @@ class _CondMDIEngine:
         the 21 body locals in the engine's chain convention. The body values
         re-express as Maya-style parent-relative locals (the chain restart
         divides every joint by its Maya parent's accumulation — only the L/R
-        collars change) and conjugate into the domain frame; the pelvis writes
-        the height offset from its bind.
+        collars change) and then conjugate through the bind-direction swaps
+        (``_bind_conjugation``) so the ENGINE skeleton's pose threads onto the
+        USER rig's actual bones; the pelvis writes the height offset from its
+        bind. The pelvis bone is vertical in both skeletons, so its swap is
+        the identity and the engine root quat passes through untouched.
         """
         locals_by_name = dict(zip(_OBSERVED_JOINTS[1:], frame_locals, strict=True))
+        # The pre-frame bind swaps: user bind direction -> engine template
+        # direction, per joint. Computed from the rig only, frame-independent.
+        conj = {"Pelvis": (1.0, 0.0, 0.0, 0.0)}
+        units = getattr(self, "t2m_units", None)
+        if units is not None:
+            for name in _OBSERVED_JOINTS[1:]:
+                offset = rig["offsets"].get(name)
+                if offset is not None:
+                    conj[name] = _bind_conjugation(offset, units[_OBSERVED_JOINTS.index(name)])
+        else:
+            for name in _OBSERVED_JOINTS[1:]:
+                conj[name] = (1.0, 0.0, 0.0, 0.0)
+
         base = _quat_normalize(tuple(float(v) for v in root_quat))
         # The engine's accumulated chain rotations, root-restart per chain.
         accs = {"Pelvis": base}
@@ -801,8 +857,14 @@ class _CondMDIEngine:
         # capture tests guided by S1).
         pose["Main"] = main_entry
         for name in _OBSERVED_JOINTS[1:]:
-            # Maya threading: parent-relative = own accumulation / parent's.
-            local = _quat_mul(_quat_inverse(accs[_JOINT_PARENTS[name]]), accs[name])
+            # Maya threading: parent-relative = own accumulation / parent's,
+            # sandwiched by the bind swaps so the user rig carries the engine
+            # skeleton's bone intent instead of the engine's own locals.
+            engine_local = _quat_mul(_quat_inverse(accs[_JOINT_PARENTS[name]]), accs[name])
+            local = _quat_mul(
+                _quat_inverse(conj[_JOINT_PARENTS[name]]),
+                _quat_mul(engine_local, conj[name]),
+            )
             quat = _hml_rotation_to_domain(local)
             pose[name] = {"quat": list(quat), "trans": None}
         return pose
