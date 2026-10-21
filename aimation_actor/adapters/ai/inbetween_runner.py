@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from aimation_actor.core.models import TimelineState
+from aimation_actor.core.models import JointPose, TimelineState
 from aimation_actor.ports.ai_port import InbetweeningPort
 
 __all__ = ["InbetweeningRunner"]
@@ -45,15 +45,21 @@ class _InbetweenJob(QObject):
     filled = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, engine: InbetweeningPort, timeline: TimelineState) -> None:
+    def __init__(
+        self,
+        engine: InbetweeningPort,
+        timeline: TimelineState,
+        guides: dict[int, dict[str, JointPose]] | None = None,
+    ) -> None:
         super().__init__()
         self._engine = engine
         self._timeline = timeline
+        self._guides = guides
 
     @Slot()
     def run(self) -> None:
         try:
-            filled = self._engine.inbetween(self._timeline)
+            filled = self._engine.inbetween(self._timeline, guides=self._guides)
         except Exception as error:  # an engine failure is non-fatal (FR-GEN-03)
             # ``str`` of a bare exception can be empty; the type always names it.
             self.failed.emit(str(error) or type(error).__name__)
@@ -83,16 +89,21 @@ class InbetweeningRunner(QObject):
         """Whether a fill is currently in flight."""
         return self._thread is not None
 
-    def start(self, timeline: TimelineState) -> bool:
+    def start(
+        self,
+        timeline: TimelineState,
+        guides: dict[int, dict[str, JointPose]] | None = None,
+    ) -> bool:
         """Fill ``timeline``'s gaps off the UI thread.
 
-        Returns ``False`` without starting anything when a fill is already
-        running (batch size 1).
+        ``guides`` (S6, optional) rides along: the engine conditions on the
+        captured poses between the keys. Returns ``False`` without starting
+        anything when a fill is already running (batch size 1).
         """
         if self._thread is not None:
             return False
 
-        job = _InbetweenJob(self._engine, timeline)
+        job = _InbetweenJob(self._engine, timeline, guides)
         thread = QThread(self)
         job.moveToThread(thread)
 

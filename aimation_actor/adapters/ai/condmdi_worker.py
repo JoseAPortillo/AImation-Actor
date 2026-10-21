@@ -465,8 +465,44 @@ class _CondMDIEngine:
 
     # -- the request flow --------------------------------------------------- #
 
+    def _guide_samples(self, span: int, keys: list, guides: list) -> list[int]:
+        """Validate the request's guide frames; return the sorted obs plan.
+
+        The plan is the key samples (``0`` and ``span``) plus every guide
+        sample, merged and sorted - the joint mask plants exactly these
+        rows. The contract (S6): a guide must stay inside ``0..span``, must
+        not collide with a keyed sample (keys win, refused explicitly so a
+        mis-mapped guide never silently becomes a key), and must be unique
+        among the guides.
+        """
+        length = span + 1
+        keyed = {int(key.get("sample") or 0) for key in keys}
+        seen: set[int] = set()
+        for guide in guides:
+            sample = int(guide.get("sample") or 0)
+            if not 0 <= sample < length:
+                raise _RequestError(
+                    f"guide sample {sample} outside 0..{length - 1}"
+                )
+            if sample in keyed:
+                raise _RequestError(
+                    f"guide sample {sample} is keyed; keys win, guides must "
+                    "stay between the keys"
+                )
+            if sample in seen:
+                raise _RequestError(
+                    f"duplicate guide at sample {sample}"
+                )
+            seen.add(sample)
+        return sorted({0, span, *seen})
+
     def fill(self, request: dict) -> dict:
-        """One gap-fill request: dense domain poses for the whole span."""
+        """One gap-fill request: dense domain poses for the whole span.
+
+        ``guide_frames`` (optional, M6 S6) carries captured poses between the
+        keys; they enter both the dense prior and the observation mask so the
+        generated motion follows the capture's dynamics (Log L17).
+        """
         span = int(request.get("span_frames") or 0)
         keys = request.get("keys") or []
         if span < 1 or len(keys) != 2:
@@ -491,14 +527,24 @@ class _CondMDIEngine:
                 f"got {key_samples}"
             )
 
-        # 2. the dense prior: keys exact, the span a straight world-space lerp
-        #    (velocities/contacts columns derived from it stay self-consistent)
+        # 2. the dense prior: keys exact, guides stamped at their samples, the
+        #    span a straight world-space lerp underneath (the vel/contact
+        #    columns the featurization derives stay self-consistent with the
+        #    whole prior, capture anchors included)
+        guides = request.get("guide_frames") or []
+        obs_samples = self._guide_samples(span, keys, guides)
+        guide_positions: dict[int, object] = {}
+        for guide in guides:
+            sample = int(guide.get("sample") or 0)
+            guide_positions[sample] = self._fk_positions_hml(rig, guide["pose"])
         dense = self.np.zeros((length, 22, 3), dtype=self.np.float32)
         for sample in range(length):
             alpha = sample / span
             dense[sample] = (
                 key_positions[0] * (1.0 - alpha) + key_positions[1] * alpha
             )
+        for sample, positions in guide_positions.items():
+            dense[sample] = positions
 
         # 3. retarget to HumanML3D's standard skeleton, then featurize.
         #    The target offsets are the METRIC lengths measured from the
@@ -523,7 +569,8 @@ class _CondMDIEngine:
             retargeted = self._yaw_rotate_dense(retargeted, -canonical_yaw)
         features = self._featurize_abs(retargeted)
 
-        # 4. the observation: every joint, only the keyframe samples. The
+        # 4. the observation: every joint, at the key samples AND the guide
+        #    samples. The
         #    engine's own full-feature expansion (``pos_rot_vel``, the same
         #    default the training loop masks with) — anything else leaves part
         #    of the keyframe features as noise the model never saw in training.
@@ -539,7 +586,7 @@ class _CondMDIEngine:
         obs_x0 = obs_x0.to(self.device)
 
         joint_mask = self.torch.zeros((1, 22, 1, length), dtype=self.torch.bool)
-        for sample in key_samples:
+        for sample in obs_samples:
             joint_mask[0, :, :, sample] = True
         obs_mask = self._joint_to_full_mask(joint_mask, mode="pos_rot_vel")
         obs_mask = obs_mask.to(self.device)

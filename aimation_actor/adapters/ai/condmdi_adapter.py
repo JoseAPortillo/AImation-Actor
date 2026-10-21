@@ -12,8 +12,10 @@ Wire contract (tests/test_ai_condmdi_adapter.py pins it):
   "mean_path", "std_path", "half_precision"}
 - ready (worker -> adapter): {"status": "ready", "gpu", "vram_total_mib",
   "motion_fps", "max_frames"}
-- request (adapter -> worker): {"span_frames", "keys", "bind_offsets"} — keys
-  in **domain** form (quaternions + pelvis height); the engine-native
+- request (adapter -> worker): {"span_frames", "keys", "bind_offsets",
+  "guide_frames"?} — keys in **domain** form (quaternions + pelvis height);
+  ``guide_frames`` (S6) carries captured anchors between the keys in the
+  same domain form at engine-sample indices; the engine-native
   HumanML3D-263 conversion is the worker's job, built on the official
   vendored code (M6 L6: engine conventions are never reimplemented here)
 - response: {"status": "ok", "poses": [{"frame", "pose"}]}
@@ -43,7 +45,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from pathlib import Path
 
 from aimation_actor.core.models import JointPose, Quaternion, TimelineState, Vector3
@@ -90,6 +92,40 @@ def _samples_between(
 ) -> int:
     """The gap's span in motion-clock samples (the right key's sample index)."""
     return round((right_frame - left_frame) * motion_fps / timeline_fps)
+
+
+def _guides_for_gap(
+    guides: Mapping[int, Mapping[str, JointPose]],
+    left_frame: int,
+    right_frame: int,
+    timeline_fps: float,
+    motion_fps: float,
+    keyed: Set[int] | None,
+) -> tuple[list[dict], dict[int, Mapping[str, JointPose]]]:
+    """One gap's guides as the request payload plus its timeline anchors.
+
+    A guide survives only strictly inside the gap, never on a keyed frame,
+    and never when its motion-clock sample rounds onto the keyed endpoints
+    (``0``/``span``) — that guide is dropped for this gap instead of
+    poisoning the request, because the worker refuses sample collisions
+    (T6). The payload is sample-sorted; the anchors keep the timeline frame
+    so ``fill_gap_synthetically`` can reassert the capture byte-exact.
+    """
+    span = _samples_between(left_frame, right_frame, timeline_fps, motion_fps)
+    keyed = frozenset(keyed) if keyed else frozenset()
+    payload: list[dict] = []
+    anchors: dict[int, Mapping[str, JointPose]] = {}
+    for frame in sorted(guides):
+        if not left_frame < frame < right_frame:
+            continue
+        if frame in keyed:
+            continue
+        sample = _samples_between(left_frame, frame, timeline_fps, motion_fps)
+        if not 0 < sample < span:
+            continue
+        payload.append({"sample": sample, "pose": _pose_to_wire(guides[frame])})
+        anchors[frame] = guides[frame]
+    return payload, anchors
 
 
 def _pose_to_wire(pose: Mapping[str, JointPose]) -> dict:
@@ -214,8 +250,16 @@ class CondMDIAdapter(InbetweeningPort):
 
     # -- InbetweeningPort ------------------------------------------------------- #
 
-    def inbetween(self, timeline: TimelineState) -> TimelineState:
-        """Fill every gap between consecutive keys; keys stay byte-identical."""
+    def inbetween(
+        self, timeline: TimelineState, guides: Mapping[int, Mapping[str, JointPose]] | None = None
+    ) -> TimelineState:
+        """Fill every gap between consecutive keys; keys stay byte-identical.
+
+        ``guides`` (S6, optional) maps a timeline frame to its captured pose:
+        guides inside each gap enter the engine request as extra observation
+        rows (the capture's dynamics between the keys) and are reasserted
+        byte-exact at their frames by ``fill_gap_synthetically``.
+        """
         frames = key_frames(timeline)
         if len(frames) < 2:
             raise ValueError(
@@ -254,10 +298,15 @@ class CondMDIAdapter(InbetweeningPort):
                 ]
                 for joint in timeline.skeleton.joints
             }
+            guide_payload, guide_anchors = _guides_for_gap(
+                guides or {}, left, right, timeline.fps, motion_fps,
+                keyed={keyframe.frame for keyframe in timeline.keyframes},
+            )
             request = {
                 "span_frames": span,
                 "keys": keys_payload,
                 "bind_offsets": bind_offsets,
+                "guide_frames": guide_payload,
             }
             response = self._request(request)
             if response.get("status") != "ok":
@@ -271,7 +320,9 @@ class CondMDIAdapter(InbetweeningPort):
             generated = resample_dense_poses(
                 dense, motion_fps, timeline.fps, frame_start=left
             )
-            filled = fill_gap_synthetically(filled, left, right, generated)
+            filled = fill_gap_synthetically(
+                filled, left, right, generated, anchors=guide_anchors or None
+            )
         return filled
 
     # -- the bridge (mirrors the HMR2.0 adapter's subprocess lifecycle) --------- #

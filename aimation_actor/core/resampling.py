@@ -163,6 +163,8 @@ def fill_gap_synthetically(
     start_frame: int,
     end_frame: int,
     poses_by_frame: Mapping[int, Mapping[str, JointPose]],
+    *,
+    anchors: Mapping[int, Mapping[str, JointPose]] | None = None,
 ) -> TimelineState:
     """The S1 rule materialized: generated keys fill the gap, keys stay locked.
 
@@ -173,6 +175,11 @@ def fill_gap_synthetically(
     while poses reaching outside the span are rejected. Every frame of the
     interval must be either keyed or supplied: a hole is raised, never left
     silently.
+
+    ``anchors`` (S6, guide track) carries captured poses the generated fill
+    must not rewrite: at an anchored frame the anchor pose is written
+    byte-exact instead of the generated one. An anchor may not sit on a keyed
+    frame (keys win, refused explicitly) nor outside the locked span.
     """
     if end_frame < start_frame:
         raise ValueError(f"the gap runs backwards: {start_frame} -> {end_frame}")
@@ -183,6 +190,16 @@ def fill_gap_synthetically(
     interval = range(start_frame + 1, end_frame)
     span = range(start_frame, end_frame + 1)
     keyed_frames = {keyframe.frame for keyframe in timeline.keyframes}
+    anchors = dict(anchors) if anchors else {}
+    anchored_outside = sorted(
+        frame for frame in anchors if frame not in interval or frame in keyed_frames
+    )
+    if anchored_outside:
+        raise ValueError(
+            "the guide anchors reach outside the locked span or sit on keyed "
+            f"frames outside: {anchored_outside} (locked span "
+            f"{start_frame}..{end_frame})"
+        )
     # Poses landing on the keyed endpoints are simply never written (keys win,
     # S1); only motion reaching OUTSIDE the span is a caller error.
     extra = sorted(frame for frame in poses_by_frame if frame not in span)
@@ -200,11 +217,14 @@ def fill_gap_synthetically(
             f"{missing[0]}..{missing[-1]}"
         )
 
-    generated = [
-        Keyframe(frame=frame, pose=dict(poses_by_frame[frame]))
-        for frame in interval
-        if frame not in keyed_frames
-    ]
+    generated = []
+    for frame in interval:
+        if frame in keyed_frames:
+            continue
+        pose = dict(poses_by_frame[frame])
+        if anchors and frame in anchors:
+            pose = dict(anchors[frame])
+        generated.append(Keyframe(frame=frame, pose=pose))
     if not generated:
         return timeline
     kept = list(timeline.keyframes) + generated

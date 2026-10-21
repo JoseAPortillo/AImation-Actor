@@ -14,7 +14,12 @@ does not have.
 
 from abc import ABC, abstractmethod
 
-from aimation_actor.core.models import FrameImage, TimelineState, WorldPose
+from aimation_actor.core.models import (
+    FrameImage,
+    JointPose,
+    TimelineState,
+    WorldPose,
+)
 
 __all__ = ["AIPort", "InbetweeningPort"]
 
@@ -52,9 +57,16 @@ class InbetweeningPort(ABC):
     """
 
     @abstractmethod
-    def inbetween(self, timeline: TimelineState) -> TimelineState:
+    def inbetween(
+        self,
+        timeline: TimelineState,
+        guides: dict[int, dict[str, JointPose]] | None = None,
+    ) -> TimelineState:
         """Return ``timeline`` with every gap between keys filled.
 
         The returned timeline keeps the original skeleton, fps and key poses;
         generated joint transforms appear only on frames that carried no key.
+        ``guides`` (optional, S6) maps a timeline frame inside a gap to the
+        pose the capture reported there: implementations condition the
+        generation on them and must return them unchanged, like the keys.
         """

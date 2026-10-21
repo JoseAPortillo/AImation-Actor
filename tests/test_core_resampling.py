@@ -204,3 +204,38 @@ def test_filling_a_degenerate_span_is_a_no_op() -> None:
     state = _timeline(10, 11)
     filled = fill_gap_synthetically(state, 10, 11, {})
     assert filled == state
+
+
+# -- guide anchors (S6: the real capture inside the gap wins) ------------------------ #
+
+
+def test_filling_a_gap_honours_anchor_poses_byte_exact() -> None:
+    state = _timeline(10, 20)
+    anchor = {"Pelvis": JointPose(rotation=_qz(1.0))}
+    filled = fill_gap_synthetically(
+        state, 10, 20, _poses_for(range(11, 20)), anchors={15: anchor}
+    )
+    keyed = {keyframe.frame: keyframe for keyframe in filled.keyframes}
+    assert keyed[15].pose == anchor
+    # Everything else is still the generated fill.
+    assert keyed[14].pose == _poses_for([14])[14]
+    assert keyed[16].pose == _poses_for([16])[16]
+    # The human keys come back byte-identical (S1, unchanged).
+    assert keyed[10] == state.keyframes[0]
+    assert keyed[20] == state.keyframes[1]
+
+
+def test_an_anchor_on_a_keyed_frame_is_refused() -> None:
+    state = _timeline(10, 20)
+    with pytest.raises(ValueError, match="keyed"):
+        fill_gap_synthetically(state, 10, 20, _poses_for(range(11, 20)), anchors={10: {}})
+    with pytest.raises(ValueError, match="keyed"):
+        fill_gap_synthetically(state, 10, 20, _poses_for(range(11, 20)), anchors={20: {}})
+
+
+def test_an_anchor_outside_the_gap_is_refused() -> None:
+    state = _timeline(10, 20)
+    with pytest.raises(ValueError, match="outside"):
+        fill_gap_synthetically(state, 10, 20, _poses_for(range(11, 20)), anchors={9: {}})
+    with pytest.raises(ValueError, match="outside"):
+        fill_gap_synthetically(state, 10, 20, _poses_for(range(11, 20)), anchors={21: {}})
