@@ -20,6 +20,7 @@ from aimation_actor.core.models import (
     Vector3,
     WorldPose,
 )
+from aimation_actor.core.services import build_production_pose
 
 
 class _ConstantEngine:
@@ -222,8 +223,9 @@ def test_g_runs_the_fill_off_the_ui_thread_and_reports_the_outcome(
         requests: list = []
 
         def inbetween(self, timeline, guides=None):
-            _IdentityFiller.requests.append(timeline)
-            assert guides is None  # this window flow never passes capture guides
+            # The S6/T9 gather output travels with the timeline (joined keys,
+            # one guide per interior frame); the identity filler ignores it.
+            _IdentityFiller.requests.append((timeline, guides))
             return timeline
 
     window = MainWindow(
@@ -248,6 +250,12 @@ def test_g_runs_the_fill_off_the_ui_thread_and_reports_the_outcome(
     )
 
     assert _IdentityFiller.requests  # the timeline reached the engine
+    requested, guides = _IdentityFiller.requests[-1]
+    assert requested.keyframes == window.controller.state.keyframes
+    guides_at = build_production_pose(
+        WorldPose(translation=Vector3(z=140.0), rotations={}), _skeleton()
+    )
+    assert guides == {frame: guides_at for frame in range(1, 10)}  # 0..10 is dense
     assert "(keys untouched)" in window.statusBar().currentMessage()
 
 

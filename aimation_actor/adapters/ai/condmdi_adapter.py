@@ -258,7 +258,10 @@ class CondMDIAdapter(InbetweeningPort):
         ``guides`` (S6, optional) maps a timeline frame to its captured pose:
         guides inside each gap enter the engine request as extra observation
         rows (the capture's dynamics between the keys) and are reasserted
-        byte-exact at their frames by ``fill_gap_synthetically``.
+        byte-exact at their frames by ``fill_gap_synthetically``. When the
+        guides cover every interior frame of a gap (T9), the capture IS that
+        gap's fill: no engine request is made for it, and a timeline whose
+        gaps are all covered never spawns the engine at all.
         """
         frames = key_frames(timeline)
         if len(frames) < 2:
@@ -266,20 +269,35 @@ class CondMDIAdapter(InbetweeningPort):
                 "inbetweening needs at least two keys: a timeline with fewer "
                 "keys has no gap to fill (S1: nothing outside the keys)"
             )
-        # Before anything spawns: an oversized window is a caller-visible
-        # configuration fact, not an engine event.
-        self._refuse_oversized_gaps(
-            frames, timeline, motion_fps=_MOTION_FPS, max_samples=_MAX_SAMPLES_DEFAULT
-        )
-        ready = self._ensure_worker()
-        motion_fps = float(ready.get("motion_fps") or _MOTION_FPS)
-        max_samples = int(ready.get("max_frames") or _MAX_SAMPLES_DEFAULT)
-        self._refuse_oversized_gaps(
-            frames, timeline, motion_fps=motion_fps, max_samples=max_samples
-        )
 
         filled = timeline
+        motion_fps: float | None = None
+        max_samples: int | None = None
         for left, right in zip(frames, frames[1:], strict=False):
+            guides_map = guides or {}
+            interior = range(left + 1, right)
+            if all(frame in guides_map for frame in interior):
+                # T9: the capture covers the whole interior - the inbetween IS
+                # the capture, reasserted byte-exact frame by frame. No engine
+                # request for this gap (vacuously true for adjacent keys).
+                anchors = {frame: guides_map[frame] for frame in interior}
+                filled = fill_gap_synthetically(filled, left, right, anchors, anchors=anchors)
+                continue
+            if motion_fps is None:
+                # The first gap that actually needs the engine spawns it:
+                # nothing generation-wise is set up for capture-only fills.
+                # An oversized window is a caller-visible configuration fact,
+                # not an engine event, and is still refused before spawning.
+                self._refuse_oversized_gaps(
+                    frames, timeline, motion_fps=_MOTION_FPS, max_samples=_MAX_SAMPLES_DEFAULT
+                )
+                ready = self._ensure_worker()
+                motion_fps = float(ready.get("motion_fps") or _MOTION_FPS)
+                max_samples = int(ready.get("max_frames") or _MAX_SAMPLES_DEFAULT)
+                self._refuse_oversized_gaps(
+                    frames, timeline, motion_fps=motion_fps, max_samples=max_samples
+                )
+            assert motion_fps is not None and max_samples is not None
             span = _samples_between(left, right, timeline.fps, motion_fps)
             keys_payload = []
             for keyed in (left, right):

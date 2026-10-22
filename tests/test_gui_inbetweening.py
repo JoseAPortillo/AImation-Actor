@@ -96,8 +96,11 @@ def _keys(*frames: int) -> tuple[Keyframe, ...]:
 
 
 def _timeline() -> TimelineState:
+    # Adjacent keys: a deliberately guide-free plan, so the T4 contract tests
+    # (hand-off, adoption, refusals) run without the gather machinery; the
+    # spaced and dense guide plans have their own file.
     return TimelineState(
-        skeleton=_skeleton(), keyframes=_keys(1, 4), fps=24.0, frame_end=10
+        skeleton=_skeleton(), keyframes=_keys(1, 2), fps=24.0, frame_end=10
     )
 
 
@@ -147,7 +150,7 @@ def test_filling_hands_the_timeline_to_the_engine_and_adopts_the_result(
     assert len(filler.requests) == 1
     # The timeline at request time — the original sparse one, before adoption.
     requested, _guides = filler.requests[0]
-    assert requested.keyframes == _keys(1, 4)
+    assert requested.keyframes == _keys(1, 2)
     assert len(controller.state.keyframes) == 4  # 1..4: every gap frame now keyed
     assert changed and poses  # both the bar and the 3D pane follow the result
 

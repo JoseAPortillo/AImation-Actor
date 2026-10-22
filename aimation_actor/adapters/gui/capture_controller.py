@@ -71,24 +71,36 @@ _INBETWEENS_STALE = "Discarded generated inbetweens for the clip that is no long
 # S6's guide track: one capture guide every ~12 engine samples. The 20 fps
 # motion clock is the inbetween engine's (HumanML3D); at 24 fps a guide every
 # ~14.4 timeline frames, rounded to 14.
+#
+# T9: a narrow gap is not spaced - every interior frame is captured, because
+# a gap whose guides cover the whole interior is filled straight from the
+# capture and never reaches the engine at all.
 _GUIDE_SPACING_SAMPLES = 12
 _MOTION_FPS = 20.0
+_DENSE_CAPTURE_MAX_FRAMES = 24  # interior frames of a gap captured one by one
 _GUIDE_CAP = 8  # per gap (S6), already small against the ~70 s fill
 _GUIDE_GRAB_TRIES = 30  # post-seek grabs (~1.5 s) before giving up on a frame
 _GUIDE_GRAB_INTERVAL_MS = 50
 
 
 def guide_frames_between(keys: tuple[int, ...], fps: float) -> list[int]:
-    """The timeline frames whose capture conditions the fill (S6).
+    """The timeline frames whose capture conditions the fill (S6, T9).
 
-    Strictly inside each gap between consecutive keys, one frame every
-    ``_GUIDE_SPACING_SAMPLES`` motion-clock samples; a gap yielding more
-    guides than ``_GUIDE_CAP`` is thinned evenly. The keys win by
-    construction: no candidate can land on one.
+    A gap spanning at most ``_DENSE_CAPTURE_MAX_FRAMES + 1`` timeline frames
+    (24 interior frames) is dense: every frame strictly inside it becomes a
+    capture candidate, the spacing and the cap bypassed - that gap's fill is
+    the capture itself. Wider gaps keep the spaced plan: one frame every
+    ``_GUIDE_SPACING_SAMPLES`` motion-clock samples, at most ``_GUIDE_CAP``
+    guides per gap after even thinning. The keys win by construction: no
+    candidate can land on one.
     """
     spacing = max(1, round(_GUIDE_SPACING_SAMPLES * fps / _MOTION_FPS))
     out: list[int] = []
     for left, right in zip(keys, keys[1:], strict=False):
+        interior = range(left + 1, right)
+        if len(interior) <= _DENSE_CAPTURE_MAX_FRAMES:
+            out.extend(interior)
+            continue
         candidates = range(left + spacing, right, spacing)
         if len(candidates) > _GUIDE_CAP:
             stride = -(-len(candidates) // _GUIDE_CAP)  # ceil: at most _GUIDE_CAP
@@ -223,6 +235,7 @@ class CaptureController(QObject):
         self._guide_queue: list[int] = []
         self._guide_pending: int | None = None  # a guide extraction in flight
         self._guide_attempts = 0
+        self._guide_busy_waits = 0  # start refusals of the gather, bounded
         self._guide_timer: QTimer | None = None
         self._fill_active = False
 
@@ -235,6 +248,18 @@ class CaptureController(QObject):
         if extractor is not None:
             extractor.extracted.connect(self._on_pose_extracted)
             extractor.failed.connect(self._on_pose_failed)
+            # T9: a batch-1 runner is still finishing its own thread when the
+            # gathered sequence requests the next guide right away (dense gaps
+            # make this the rule, not the exception). A runner that announces
+            # its freedom lets the gather resume instead of degrading.
+            freed = getattr(extractor, "busy_changed", None)
+            if freed is not None:
+                freed.connect(self._on_extractor_freed)
+                self._extractor_has_free_signal = True
+            else:
+                self._extractor_has_free_signal = False
+        else:
+            self._extractor_has_free_signal = False
 
         if inbetweener is not None:
             inbetweener.filled.connect(self._on_inbetweens_filled)
@@ -621,6 +646,7 @@ class CaptureController(QObject):
             else []
         )
         self._guide_attempts = 0
+        self._guide_busy_waits = 0
         # Claim the fill up front: guide results arriving later must not look
         # stale for the clip that is still open; _hand_off keeps the claim
         # when it finally hands the request over.
@@ -652,11 +678,29 @@ class CaptureController(QObject):
         previous_claim = self._extraction_generation
         self._extraction_generation = self._generation
         self._guide_pending = target
+        self._guide_attempts = 0
         assert self._extractor is not None  # the queue exists only with an engine
         if not self._extractor.start(target, captured.image):
             self._extraction_generation = previous_claim
             self._guide_pending = None
+            if self._extractor_has_free_signal:
+                self._guide_busy_waits += 1
+                if self._guide_busy_waits > _GUIDE_GRAB_TRIES:
+                    self._degrade_to_keys_only("the extractor is busy")
+                # else: the runner keeps announcing state; the gather resumes
+                # in _on_extractor_freed when it frees up.
+                return
             self._degrade_to_keys_only("the extractor is busy")
+        else:
+            self._guide_busy_waits = 0  # the wait paid off: a continuous gather
+
+    def _on_extractor_freed(self, busy: bool) -> None:
+        """Resume a guide gather paused on a busy batch-1 runner (T9)."""
+        if busy or not self._fill_active or self._guide_pending is not None:
+            return
+        if not self._guide_queue or self._inbetween_generation != self._generation:
+            return
+        self._advance_guides()
 
     def _schedule_guide_retry(self, target: int) -> None:
         """The seek is asynchronous: give the pane a moment, then try again."""

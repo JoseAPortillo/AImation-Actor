@@ -205,6 +205,56 @@ def test_guides_travel_on_the_wire_and_come_back_byte_exact(tmp_path) -> None:
     assert keyed[25].pose == {"Pelvis": guide_b}
 
 
+def test_a_fully_covered_gap_is_filled_from_the_capture_without_the_engine(tmp_path) -> None:
+    # T9: when the guides cover every interior frame of a gap, the capture IS
+    # the fill - no engine request, no worker spawn even to check readiness.
+    # The gap above is wide (29 interior frames), so the skip is about
+    # coverage, not width: the width threshold only lives in the plan.
+    state = _timeline(10, 40)
+    guides = {
+        frame: {"Pelvis": JointPose(rotation=_qz(frame * 0.07))}
+        for frame in range(11, 40)
+    }
+    filled = _adapter(tmp_path, missing_python=True).inbetween(state, guides=guides)
+
+    keyed = {keyframe.frame: keyframe for keyframe in filled.keyframes}
+    assert set(keyed) == set(range(10, 41))
+    assert keyed[10] == state.keyframes[0]
+    assert keyed[40] == state.keyframes[1]
+    for frame in range(11, 40):
+        assert keyed[frame].pose == guides[frame]
+
+
+def test_a_partly_covered_gap_still_fills_through_the_engine(tmp_path) -> None:
+    # Partial coverage is NOT a skip: the request carries the guides as
+    # observation rows, the engine fills what they leave free, and the
+    # anchors come back byte-exact at their frames.
+    dump = tmp_path / "requests.jsonl"
+    count_file = tmp_path / "fill-requests.count"
+    state = _timeline(10, 22)
+    guide = JointPose(rotation=_qz(0.3), translation=Vector3(0.0, 0.0, 91.0))
+    guides = {15: {"Pelvis": guide}}
+    filled = _adapter(
+        tmp_path,
+        extra_env={
+            "FAKE_CONDMDI_REQUEST_DUMP": str(dump),
+            "FAKE_CONDMDI_COUNT_FILE": str(count_file),
+        },
+    ).inbetween(state, guides=guides)
+
+    requests = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
+    assert len(requests) == 1
+    assert requests[0]["guide_frames"] == [
+        {"sample": 4, "pose": _wire_guide(guide)}  # frame 15 -> round(5 * 20/24)
+    ]
+
+    keyed = {keyframe.frame: keyframe for keyframe in filled.keyframes}
+    assert keyed[15].pose == {"Pelvis": guide}
+    # The frames the guides leave free still come from the engine's motion.
+    expected = _qz((16 - 10) * 20.0 / 24.0 * _MOTION_STEP)
+    _almost(keyed[16].pose["Pelvis"].rotation, expected, tol=_MOTION_TOL)
+
+
 # -- refusals that never reach the engine ------------------------------------------- #
 
 

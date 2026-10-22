@@ -11,7 +11,7 @@ a new failure class.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from aimation_actor.adapters.gui.capture_controller import (
     CaptureController,
@@ -41,7 +41,8 @@ def test_guides_are_spaced_a_dozen_engine_samples() -> None:
 
 
 def test_guides_span_several_gaps_in_order() -> None:
-    assert guide_frames_between((0, 15, 30), fps=24.0) == [14, 29]
+    # Wide gaps keep the spaced plan, in gap order.
+    assert guide_frames_between((0, 30, 60), fps=24.0) == [14, 28, 44, 58]
 
 
 def test_guides_per_gap_are_capped() -> None:
@@ -50,8 +51,22 @@ def test_guides_per_gap_are_capped() -> None:
     assert guides == [14, 42, 70, 98, 126, 154, 182]  # evenly thinned, in order
 
 
-def test_a_gap_narrower_than_the_spacing_gets_no_guides() -> None:
-    assert guide_frames_between((0, 5), fps=24.0) == []
+def test_a_narrow_gap_is_captured_frame_by_frame() -> None:
+    # T9: a gap with at most 24 interior frames anchors EVERY interior
+    # frame - the inbetween of the gap is the capture itself.
+    assert guide_frames_between((0, 5), fps=24.0) == [1, 2, 3, 4]
+    assert guide_frames_between((46, 71), fps=30.0) == list(range(47, 71))
+
+
+def test_a_narrow_gap_ignores_the_engine_sample_cap() -> None:
+    # 24 interior frames dwarf the 8-guide cap: the cap bounds engine
+    # observation rows, and a dense gap makes no engine request at all.
+    assert guide_frames_between((0, 25), fps=24.0) == list(range(1, 25))
+
+
+def test_a_gap_one_frame_too_wide_goes_back_to_the_spacing() -> None:
+    # 25 interior frames leave the dense regime: the spaced plan again.
+    assert guide_frames_between((0, 26), fps=24.0) == [14]
 
 
 # --------------------------------------------------------------------------- #
@@ -138,6 +153,36 @@ class _GuideExtractor(QObject):
             self.extracted.emit(frame_index, self._world_pose())
 
 
+class _BusyThenFreeExtractor(QObject):
+    """A batch-1 runner that answers busy once, then announces its freedom:
+
+    the window between an extraction finishing and its thread's quit being
+    served - the moment a dense gather requests the very next guide.
+    """
+
+    extracted = Signal(int, object)
+    failed = Signal(int, str)
+    busy_changed = Signal(bool)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[int] = []
+        self.refuse_next_start = True
+        self._hip_height = 140.0
+
+    def _world_pose(self) -> WorldPose:
+        return WorldPose(translation=Vector3(z=self._hip_height), rotations={})
+
+    def start(self, frame_index: int, image) -> bool:  # noqa: ANN001
+        if self.refuse_next_start:
+            self.refuse_next_start = False
+            QTimer.singleShot(0, lambda: self.busy_changed.emit(False))
+            return False
+        self.requests.append(frame_index)
+        self.extracted.emit(frame_index, self._world_pose())
+        return True
+
+
 class _GuideInbetweener(QObject):
     """The inbetweening seam: records the request; the test scripts the outcome."""
 
@@ -212,6 +257,28 @@ def test_a_fill_extracts_guides_and_hands_them_to_the_engine() -> None:
     assert len(controller.state.keyframes) == 2
 
 
+def test_a_dense_gap_gathers_every_interior_frame() -> None:
+    source = _GuideSource()
+    extractor = _GuideExtractor()
+    filler = _GuideInbetweener()
+    keys = (Keyframe(frame=0, pose=_pose()), Keyframe(frame=25, pose=_pose()))
+    timeline = TimelineState(skeleton=_skeleton(), keyframes=keys, fps=24.0, frame_end=40)
+    controller = CaptureController(source, timeline, extractor=extractor, inbetweener=filler)
+
+    controller.fill_inbetweens()
+
+    # T9: every interior frame of the 24-frame gap is a capture candidate.
+    assert [frame for frame, _image in extractor.requests] == list(range(1, 25))
+    expected = build_production_pose(
+        WorldPose(translation=Vector3(z=140.0), rotations={}), _skeleton()
+    )
+    assert len(filler.requests) == 1
+    _filled_timeline, guides = filler.requests[0]
+    assert guides == {frame: expected for frame in range(1, 25)}
+    # Guides are still not keys: the timeline keeps exactly the two keys.
+    assert len(controller.state.keyframes) == 2
+
+
 def test_no_capture_engine_fills_keys_only() -> None:
     source = _GuideSource()
     filler = _GuideInbetweener()
@@ -241,6 +308,25 @@ def test_a_refused_extraction_degrades_to_keys_only() -> None:
     assert len(filler.requests) == 1
     assert filler.requests[0][1] is None
     assert any("golden poses" in report for report in reports)
+
+
+def test_a_busy_runner_that_frees_up_resumes_the_gather(qtbot) -> None:
+    # T9 regression: a real batch-1 runner is still finishing its own thread
+    # when the next guide is requested (the dense plan makes back-to-back
+    # extraction the rule). The gather waits for the runner's freedom signal
+    # instead of degrading the whole fill to keys-only.
+    source = _GuideSource()
+    extractor = _BusyThenFreeExtractor()
+    filler = _GuideInbetweener()
+    controller = _build_controller(source, extractor, filler)
+
+    controller.fill_inbetweens()
+
+    qtbot.waitUntil(lambda: len(filler.requests) == 1, timeout=1000)
+    # Both guides arrived: the gather resumed after the busy start refusal.
+    assert extractor.requests == [14, 28]
+    _request, guides = filler.requests[0]
+    assert guides is not None and set(guides) == {14, 28}
 
 
 def test_a_failed_extraction_degrades_to_keys_only() -> None:
