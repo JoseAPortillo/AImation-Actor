@@ -4,7 +4,7 @@
   (out-of-process), behind an `InbetweeningPort` + Model Factory selectable
   from the GUI; the generated timeline is previewable in the viewport. Export
   of the approved FBX stays in M8, IK foot-pinning in M7 (spec.md roadmap :298).
-- **Branch**: `feat/develop` · **Delivery strategy**: `ask-on-risk` (default).
+- **Branch**: `feat/develop` · **Delivery strategy**: `exception-ok` (user 2026-10-22: no PR slicing — "estamos tu y yo solos, no serán necesarios los PR"; work-unit commits go straight to `feat/develop`, pushed on request).
 - **Test runner**: `pytest` with `--basetemp="$env:TEMP\aim-tmp"`, junitxml
   schema verification; `ruff check .`.
 
