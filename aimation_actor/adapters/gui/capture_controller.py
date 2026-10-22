@@ -34,7 +34,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from aimation_actor.core.models import (
     CapturedFrame,
@@ -67,6 +67,34 @@ _NO_INBETWEENER = "No inbetweening engine is configured, so gaps cannot be fille
 _NO_KEYS = "Mark at least two golden poses before filling the gaps."
 _INBETWEEN_BUSY = "Inbetweens are already being generated; try again when it finishes."
 _INBETWEENS_STALE = "Discarded generated inbetweens for the clip that is no longer open."
+
+# S6's guide track: one capture guide every ~12 engine samples. The 20 fps
+# motion clock is the inbetween engine's (HumanML3D); at 24 fps a guide every
+# ~14.4 timeline frames, rounded to 14.
+_GUIDE_SPACING_SAMPLES = 12
+_MOTION_FPS = 20.0
+_GUIDE_CAP = 8  # per gap (S6), already small against the ~70 s fill
+_GUIDE_GRAB_TRIES = 30  # post-seek grabs (~1.5 s) before giving up on a frame
+_GUIDE_GRAB_INTERVAL_MS = 50
+
+
+def guide_frames_between(keys: tuple[int, ...], fps: float) -> list[int]:
+    """The timeline frames whose capture conditions the fill (S6).
+
+    Strictly inside each gap between consecutive keys, one frame every
+    ``_GUIDE_SPACING_SAMPLES`` motion-clock samples; a gap yielding more
+    guides than ``_GUIDE_CAP`` is thinned evenly. The keys win by
+    construction: no candidate can land on one.
+    """
+    spacing = max(1, round(_GUIDE_SPACING_SAMPLES * fps / _MOTION_FPS))
+    out: list[int] = []
+    for left, right in zip(keys, keys[1:], strict=False):
+        candidates = range(left + spacing, right, spacing)
+        if len(candidates) > _GUIDE_CAP:
+            stride = -(-len(candidates) // _GUIDE_CAP)  # ceil: at most _GUIDE_CAP
+            candidates = candidates[::stride]
+        out.extend(candidates)
+    return out
 
 
 class VideoSource(Protocol):
@@ -134,9 +162,15 @@ class Inbetweener(Protocol):
     timeline arrives later through ``filled`` and a failure through ``failed``
     (M6 T4). A request that cannot be served is refused by ``start`` returning
     ``False``.
+
+    ``guides`` carries the capture poses between the keys (S6), mapped by
+    timeline frame; ``None`` stands for keys-only conditioning — the engine
+    must treat both the same way, the guides never replacing the keys.
     """
 
-    def start(self, timeline: TimelineState) -> bool: ...
+    def start(
+        self, timeline: TimelineState, guides: dict[int, dict[str, JointPose]] | None = None
+    ) -> bool: ...
 
 
 class CaptureController(QObject):
@@ -183,6 +217,14 @@ class CaptureController(QObject):
         # "which clip" is tracked as a generation that a load bumps.
         self._generation = 0
         self._extraction_generation: int | None = None
+        # S6 gathering: guides for the fill in flight, plus the state machine
+        # that extracts them one frame at a time before the fill is handed off.
+        self._guides: dict[int, dict[str, JointPose]] = {}
+        self._guide_queue: list[int] = []
+        self._guide_pending: int | None = None  # a guide extraction in flight
+        self._guide_attempts = 0
+        self._guide_timer: QTimer | None = None
+        self._fill_active = False
 
         source.media_loaded.connect(self._on_media_loaded)
         source.position_changed.connect(self._on_position_changed)
@@ -429,7 +471,31 @@ class CaptureController(QObject):
 
         The playhead may have moved on since the request: the result is attributed
         to its own frame, never to wherever the animator is now looking.
+
+        A result claimed as a guide (S6) never becomes a key: it joins the
+        gather buffer and the sequence continues.
         """
+        if self._guide_pending is not None and self._fill_active:
+            self._extraction_generation = None
+            pending = self._guide_pending
+            self._guide_pending = None
+            self._guide_attempts = 0
+            if self._inbetween_generation != self._generation:
+                self._abandon_fill(_INBETWEENS_STALE)
+                return
+            if frame_index != pending:
+                self._degrade_to_keys_only("the guide extraction answered another frame")
+                return
+            if not self._ensure_rig(pending):
+                self._degrade_to_keys_only("no production rig for the guides")
+                return
+            built = build_production_pose(pose, self._state.skeleton)
+            self._guides[pending] = built
+            if self._guide_queue and self._guide_queue[0] == pending:
+                self._guide_queue.pop(0)
+            self._advance_guides()
+            return
+
         if self._is_stale():
             self._report(_STALE)
             return
@@ -478,11 +544,29 @@ class CaptureController(QObject):
 
     def _on_pose_failed(self, frame_index: int, message: str) -> None:
         """Report a failed extraction; the session and prior keys survive (FR-CAP-07)."""
+        if self._guide_pending is not None and self._fill_active:
+            self._extraction_generation = None
+            self._guide_pending = None
+            self._guide_attempts = 0
+            if self._inbetween_generation != self._generation:
+                self._abandon_fill(_INBETWEENS_STALE)
+                return
+            self._degrade_to_keys_only(f"guide extraction failed: {message}")
+            return
         if self._is_stale():
             self._report(_STALE)
             return
         self._extraction_generation = None
         self._report(f"Pose extraction failed at frame {frame_index}: {message}")
+
+    def _abandon_fill(self, message: str) -> None:
+        """Drop a fill still gathered for a clip that is no longer open (S6)."""
+        self._fill_active = False
+        self._inbetween_generation = None
+        self._guide_queue = []
+        self._guide_pending = None
+        self._guide_attempts = 0
+        self._report(message)
 
     def _is_stale(self) -> bool:
         """Whether the finishing extraction belongs to a clip no longer open."""
@@ -512,6 +596,12 @@ class CaptureController(QObject):
         engine fills off the UI thread and the result is adopted only when it
         lands, if it still belongs to the open clip. A failure is non-fatal:
         the keys survive untouched (S1, FR-GEN-01) and so does the session.
+
+        When a capture engine is available, the capture between the keys first
+        becomes guides (S6): frame by frame, extracted through the same
+        batch-1 machinery, then handed over attached to the request. Guides
+        are never required — any extraction problem degrades to keys-only
+        without a new failure class.
         """
         if self._inbetweener is None:
             self._report(_NO_INBETWEENER)
@@ -520,20 +610,111 @@ class CaptureController(QObject):
         if len(frames) < 2:
             self._report(_NO_KEYS)
             return
+        if self._fill_active:
+            self._report(_INBETWEEN_BUSY)
+            return
 
+        self._guides = {}
+        self._guide_queue = (
+            guide_frames_between(frames, self._state.fps)
+            if self._extractor is not None
+            else []
+        )
+        self._guide_attempts = 0
+        # Claim the fill up front: guide results arriving later must not look
+        # stale for the clip that is still open; _hand_off keeps the claim
+        # when it finally hands the request over.
+        self._inbetween_generation = self._generation
+        self._fill_active = True
+        self._advance_guides()
+
+    def _advance_guides(self) -> None:
+        """Extract the next queued guide, or hand the fill over (S6)."""
+        target = self._guide_queue[0] if self._guide_queue else None
+        if target is None:
+            self._hand_off()
+            return
+        self._guide_attempts = 0
+        self._source.seek_frame(target, self._state.fps)
+        captured = self._source.grab_frame(self._state.fps)
+        self._request_guide_extraction(target, captured)
+
+    def _request_guide_extraction(
+        self, target: int, captured: CapturedFrame | None
+    ) -> None:
+        """Start one guide's extraction, or wait for the frame to arrive."""
+        usable = captured is not None and captured.frame_index in (None, target)
+        if not usable:
+            self._schedule_guide_retry(target)
+            return
+        # Claim the extraction like marking does; a guide's result must not
+        # look stale for the same reason a key's cannot.
+        previous_claim = self._extraction_generation
+        self._extraction_generation = self._generation
+        self._guide_pending = target
+        assert self._extractor is not None  # the queue exists only with an engine
+        if not self._extractor.start(target, captured.image):
+            self._extraction_generation = previous_claim
+            self._guide_pending = None
+            self._degrade_to_keys_only("the extractor is busy")
+
+    def _schedule_guide_retry(self, target: int) -> None:
+        """The seek is asynchronous: give the pane a moment, then try again."""
+        self._guide_attempts += 1
+        if self._guide_attempts > _GUIDE_GRAB_TRIES:
+            self._degrade_to_keys_only("the frame could not be captured")
+            return
+        if self._guide_timer is None:
+            self._guide_timer = QTimer(self)
+            self._guide_timer.setSingleShot(True)
+            self._guide_timer.timeout.connect(self._retry_guide_grab)
+        self._guide_timer.start(_GUIDE_GRAB_INTERVAL_MS)
+
+    def _retry_guide_grab(self) -> None:
+        if not self._guide_queue or self._inbetween_generation != self._generation:
+            return
+        target = self._guide_queue[0]
+        self._request_guide_extraction(target, self._source.grab_frame(self._state.fps))
+
+    def _degrade_to_keys_only(self, reason: str) -> None:
+        """Stop gathering; the fill continues from the keys alone (S6)."""
+        self._guide_queue = []
+        self._guide_pending = None
+        self._hand_off(
+            actionable=(
+                f"Capture guides unavailable ({reason}); "
+                f"generating from the golden poses only…"
+            )
+        )
+
+    def _hand_off(self, actionable: str | None = None) -> None:
+        """Start the inbetweening runner with the gathered guides attached."""
+        if not self._fill_active:
+            return
+        guides = self._guides or None
+        frames = key_frames(self._state)
         # Claim the fill *before* handing it over, exactly like extraction: an
         # engine may answer synchronously, and its result must not look stale
         # when it does.
         previous_claim = self._inbetween_generation
         self._inbetween_generation = self._generation
-        if not self._inbetweener.start(self._state):
+        assert self._inbetweener is not None
+        if not self._inbetweener.start(self._state, guides=guides):
             self._inbetween_generation = previous_claim
+            self._fill_active = False
             self._report(_INBETWEEN_BUSY)
             return
 
-        self._emit_status(
-            actionable=f"Filling the gaps between {len(frames)} golden poses…"
-        )
+        if guides is None:
+            self._emit_status(
+                actionable=actionable
+                or f"Filling the gaps between {len(frames)} golden poses…"
+            )
+        else:
+            self._emit_status(
+                actionable=f"Extracted {len(guides)} capture guides; "
+                f"filling between {len(frames)} golden poses…"
+            )
 
     def _on_inbetweens_filled(self, filled: TimelineState) -> None:
         """Adopt the engine's filled timeline; keys are guaranteed untouched.
@@ -546,6 +727,7 @@ class CaptureController(QObject):
             self._report(_INBETWEENS_STALE)
             return
         self._inbetween_generation = None
+        self._fill_active = False
         before = len(key_frames(self._state))
         self._state = filled
         self.timeline_changed.emit()
@@ -563,6 +745,7 @@ class CaptureController(QObject):
             self._report(_INBETWEENS_STALE)
             return
         self._inbetween_generation = None
+        self._fill_active = False
         self._report(f"Inbetween generation failed: {message}")
 
     # -- reporting --------------------------------------------------------- #

@@ -221,8 +221,9 @@ def test_g_runs_the_fill_off_the_ui_thread_and_reports_the_outcome(
     class _IdentityFiller:
         requests: list = []
 
-        def inbetween(self, timeline):
+        def inbetween(self, timeline, guides=None):
             _IdentityFiller.requests.append(timeline)
+            assert guides is None  # this window flow never passes capture guides
             return timeline
 
     window = MainWindow(

@@ -26,7 +26,9 @@ Behaviour is selected by the ``FAKE_CONDMDI_WORKER_MODE`` environment variable:
 - ``hang``: ready succeeds; the first request takes the process hostage.
 
 A counter file (``FAKE_CONDMDI_COUNT_FILE``) logs one line per request so
-tests can assert exactly how many engine calls a fill makes.
+tests can assert exactly how many engine calls a fill makes; a dump file
+(``FAKE_CONDMDI_REQUEST_DUMP``) logs each full request as JSONL so tests can
+assert exactly what the adapter put on the wire (``guide_frames``, S6).
 """
 
 from __future__ import annotations
@@ -55,6 +57,14 @@ def _count_request() -> None:
         return
     with open(path, "a", encoding="utf-8") as handle:
         handle.write("request\n")
+
+
+def _dump_request(request: dict) -> None:
+    path = os.environ.get("FAKE_CONDMDI_REQUEST_DUMP")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(request) + "\n")
 
 
 def _canned_pose(sample: int) -> dict:
@@ -102,6 +112,7 @@ def main() -> None:
         if _MODE == "hang":
             time.sleep(600)
         _count_request()
+        _dump_request(request)
         if _MODE == "fill_error":
             _emit({"status": "error", "message": "fake: sampling diverged", "fatal": True})
             continue

@@ -96,8 +96,8 @@ def _samples_between(
 
 def _guides_for_gap(
     guides: Mapping[int, Mapping[str, JointPose]],
-    left_frame: int,
-    right_frame: int,
+    left: int,
+    right: int,
     timeline_fps: float,
     motion_fps: float,
     keyed: Set[int] | None,
@@ -111,16 +111,16 @@ def _guides_for_gap(
     (T6). The payload is sample-sorted; the anchors keep the timeline frame
     so ``fill_gap_synthetically`` can reassert the capture byte-exact.
     """
-    span = _samples_between(left_frame, right_frame, timeline_fps, motion_fps)
+    span = _samples_between(left, right, timeline_fps, motion_fps)
     keyed = frozenset(keyed) if keyed else frozenset()
     payload: list[dict] = []
     anchors: dict[int, Mapping[str, JointPose]] = {}
     for frame in sorted(guides):
-        if not left_frame < frame < right_frame:
+        if not left < frame < right:
             continue
         if frame in keyed:
             continue
-        sample = _samples_between(left_frame, frame, timeline_fps, motion_fps)
+        sample = _samples_between(left, frame, timeline_fps, motion_fps)
         if not 0 < sample < span:
             continue
         payload.append({"sample": sample, "pose": _pose_to_wire(guides[frame])})

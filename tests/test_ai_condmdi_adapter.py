@@ -24,6 +24,7 @@ anchored at ``left`` samples the mutex at ``(f - left) * 20 / 24``.
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 from pathlib import Path
@@ -166,6 +167,42 @@ def test_each_key_gap_gets_its_own_model_request(tmp_path) -> None:
     _almost(
         keyed[30].pose["Pelvis"].rotation, _qz(10 * 20.0 / 24.0 * _MOTION_STEP), tol=_MOTION_TOL
     )
+
+
+def _wire_guide(pose: JointPose) -> dict:
+    """The adapter's wire shape for a one-joint pose (``None`` trans when zero)."""
+    quat = [pose.rotation.w, pose.rotation.x, pose.rotation.y, pose.rotation.z]
+    moved = pose.translation != Vector3()
+    trans = [pose.translation.x, pose.translation.y, pose.translation.z] if moved else None
+    return {"Pelvis": {"quat": quat, "trans": trans}}
+
+
+def test_guides_travel_on_the_wire_and_come_back_byte_exact(tmp_path) -> None:
+    # S6 e2e: the adapter maps timeline guides to motion-clock samples in the
+    # request payload, and the filled timeline reasserts them byte-exact at
+    # their original frames (the core anchors, not the engine's output).
+    dump = tmp_path / "requests.jsonl"
+    state = _timeline(10, 40)  # span = round(30 * 20/24) = 25 samples
+    guide_a = JointPose(rotation=_qz(0.3), translation=Vector3(0.0, 0.0, 91.0))
+    guide_b = JointPose(rotation=_qz(0.7))  # zero translation -> wire "trans": null
+    guides = {
+        15: {"Pelvis": guide_a},  # sample round(5*20/24) = 4
+        25: {"Pelvis": guide_b},  # sample round(15*20/24) = 12
+    }
+    filled = _adapter(
+        tmp_path, extra_env={"FAKE_CONDMDI_REQUEST_DUMP": str(dump)}
+    ).inbetween(state, guides=guides)
+
+    requests = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
+    assert len(requests) == 1
+    assert requests[0]["guide_frames"] == [
+        {"sample": 4, "pose": _wire_guide(guide_a)},
+        {"sample": 12, "pose": _wire_guide(guide_b)},
+    ]
+
+    keyed = {keyframe.frame: keyframe for keyframe in filled.keyframes}
+    assert keyed[15].pose == {"Pelvis": guide_a}
+    assert keyed[25].pose == {"Pelvis": guide_b}
 
 
 # -- refusals that never reach the engine ------------------------------------------- #

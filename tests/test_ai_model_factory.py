@@ -17,7 +17,7 @@ from aimation_actor.adapters.ai.model_factory import (
     capture_engine,
     inbetweening_engine,
 )
-from aimation_actor.core.models import TimelineState
+from aimation_actor.core.models import JointPose, TimelineState
 from aimation_actor.core.production_skeleton import production_skeleton
 from aimation_actor.ports.ai_port import AIPort, InbetweeningPort
 from tests.fake_hmr2_worker import _CANNED_BIND_OFFSETS as _FAKE_BIND_OFFSETS
@@ -49,7 +49,10 @@ def test_the_port_cannot_be_instantiated_without_the_method() -> None:
 
 def test_a_fake_engine_can_implement_the_contract() -> None:
     class FakeInbetweening(InbetweeningPort):
-        def inbetween(self, timeline: TimelineState) -> TimelineState:
+        def inbetween(
+            self, timeline: TimelineState, guides: dict[int, JointPose] | object = None
+        ) -> TimelineState:
+            assert guides is None  # the fake exercises the keys-only contract
             return timeline
 
     engine = FakeInbetweening()

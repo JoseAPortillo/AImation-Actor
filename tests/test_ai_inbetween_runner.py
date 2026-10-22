@@ -62,12 +62,16 @@ class _Engine:
         error: Exception | None = None,
     ) -> None:
         self.timelines: list[TimelineState] = []
+        self.guides: list[dict[int, JointPose] | object] = []
         self._filled = _filled() if filled is None else filled
         self._error = error
         self.finished = threading.Event()
 
-    def inbetween(self, timeline: TimelineState) -> TimelineState:
+    def inbetween(
+        self, timeline: TimelineState, guides: dict[int, JointPose] | object = None
+    ) -> TimelineState:
         self.timelines.append(timeline)
+        self.guides.append(guides)
         self.finished.set()
         if self._error is not None:
             raise self._error
@@ -82,8 +86,11 @@ class _SlowEngine(_Engine):
         self.release = threading.Event()
         self.started = threading.Event()
 
-    def inbetween(self, timeline: TimelineState) -> TimelineState:
+    def inbetween(
+        self, timeline: TimelineState, guides: dict[int, JointPose] | object = None
+    ) -> TimelineState:
         self.timelines.append(timeline)
+        self.guides.append(guides)
         self.started.set()
         assert self.release.wait(timeout=5.0), "the test never released the engine"
         self.finished.set()
@@ -144,6 +151,19 @@ def test_a_second_request_while_one_runs_is_refused(runner_factory) -> None:
     assert len(engine.timelines) == 1  # the second timeline was never handed over
     engine.release.set()
     assert engine.finished.wait(timeout=5.0)
+
+
+def test_guides_reach_the_engine_intact(runner_factory, qtbot) -> None:
+    # S6: the controller hands captured poses over as guides; the runner is
+    # only transport, so they must arrive as passed, never re-shaped.
+    engine = _Engine()
+    runner = runner_factory(engine)
+    guides = {5: JointPose(rotation=Quaternion.identity())}
+
+    runner.start(_timeline(), guides=guides)
+    qtbot.waitUntil(lambda: engine.finished.is_set(), timeout=5000)
+
+    assert engine.guides == [guides]
 
 
 def test_a_result_is_the_timeline_the_engine_returned(runner_factory, qtbot) -> None:

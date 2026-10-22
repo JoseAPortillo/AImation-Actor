@@ -55,14 +55,16 @@ class _FakeInbetweener(QObject):
 
     def __init__(self, result: TimelineState | None = None) -> None:
         super().__init__()
-        self.requests: list[TimelineState] = []
+        self.requests: list[tuple[TimelineState, dict[int, dict[str, JointPose]] | None]] = []
         self.refuse = False
         self.result = result
 
-    def start(self, timeline: TimelineState) -> bool:
+    def start(
+        self, timeline: TimelineState, guides: dict[int, dict[str, JointPose]] | None = None
+    ) -> bool:
         if self.refuse:
             return False
-        self.requests.append(timeline)
+        self.requests.append((timeline, guides))
         return True
 
 
@@ -144,7 +146,8 @@ def test_filling_hands_the_timeline_to_the_engine_and_adopts_the_result(
 
     assert len(filler.requests) == 1
     # The timeline at request time — the original sparse one, before adoption.
-    assert filler.requests[0].keyframes == _keys(1, 4)
+    requested, _guides = filler.requests[0]
+    assert requested.keyframes == _keys(1, 4)
     assert len(controller.state.keyframes) == 4  # 1..4: every gap frame now keyed
     assert changed and poses  # both the bar and the 3D pane follow the result
 

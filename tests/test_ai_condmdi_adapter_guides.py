@@ -17,7 +17,7 @@ from aimation_actor.core.models import JointPose, Quaternion
 
 
 def _pose() -> dict[str, JointPose]:
-    return {"Pelvis": JointPose(rotation=Quaternion(w=1.0))}
+    return {"Pelvis": JointPose(rotation=Quaternion.identity())}
 
 
 def test_guides_map_into_the_gap_clock() -> None:
@@ -36,14 +36,15 @@ def test_guides_map_into_the_gap_clock() -> None:
 
 def test_guides_on_keyed_frames_or_endpoints_are_dropped() -> None:
     payload, anchors = C._guides_for_gap(
-        {10: _pose(), 16: _pose(), 20: _pose()},
+        {10: _pose(), 19: _pose(), 20: _pose()},
         left=10,
         right=20,
         timeline_fps=24.0,
-        motion_fps=20.0,
+        motion_fps=10.0,
         keyed={10, 20},
     )
-    # 10/20 are keyed; 16 maps to rounding 5 exactly on the span endpoint.
+    # 10/20 are keyed; at 10 fps the gap spans round(10*10/24) = 4 samples
+    # and frame 19 rounds onto sample 4 — the right key's own sample.
     assert payload == [] and anchors == {}
 
 
