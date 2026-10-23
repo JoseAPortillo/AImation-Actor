@@ -36,6 +36,8 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from aimation_actor.core.foot_contacts import FOOT_JOINTS
+from aimation_actor.core.foot_ik import pin_foot_contacts
 from aimation_actor.core.models import (
     CapturedFrame,
     FrameImage,
@@ -225,6 +227,10 @@ class CaptureController(QObject):
         self._extractor = extractor
         self._inbetweener = inbetweener
         self._inbetween_generation: int | None = None
+        # M7: the pre-fill human keys the pin pass must detect contacts from.
+        # After a fill the generated rows are indistinguishable from keys, so
+        # the frame list is captured at request time and consumed at adoption.
+        self._fill_original_keys: tuple[int, ...] = ()
         # Any in-flight extraction belongs to the clip it was started against, so
         # "which clip" is tracked as a generation that a load bumps.
         self._generation = 0
@@ -588,6 +594,7 @@ class CaptureController(QObject):
         """Drop a fill still gathered for a clip that is no longer open (S6)."""
         self._fill_active = False
         self._inbetween_generation = None
+        self._fill_original_keys = ()
         self._guide_queue = []
         self._guide_pending = None
         self._guide_attempts = 0
@@ -638,6 +645,9 @@ class CaptureController(QObject):
         if self._fill_active:
             self._report(_INBETWEEN_BUSY)
             return
+        # The pin pass detects planted contacts from the pre-fill keys (M7);
+        # remember them now — post-fill they are no longer recoverable.
+        self._fill_original_keys = tuple(frames)
 
         self._guides = {}
         self._guide_queue = (
@@ -766,6 +776,11 @@ class CaptureController(QObject):
         The result is discarded when the clip it was generated for is no longer
         open: the previous clip's keys must not rewrite a replacement's
         timeline, for the same reason an extraction result is (M5, S5).
+
+        Before adopting, the pin pass (M7, FR-IK-01) holds the planted contacts
+        the pre-fill keys agree on — detection needs those keys, which is why
+        pinning runs here, not at export time. Pinning never blocks adoption:
+        a skeleton without complete leg chains degrades it with a note.
         """
         if self._inbetween_generation != self._generation:
             self._report(_INBETWEENS_STALE)
@@ -773,15 +788,47 @@ class CaptureController(QObject):
         self._inbetween_generation = None
         self._fill_active = False
         before = len(key_frames(self._state))
-        self._state = filled
+        corrected, pin_note = self._pin_filled(filled)
+        self._state = corrected
         self.timeline_changed.emit()
         self.pose_changed.emit(self.current_pose())
         self._emit_status(
             actionable=(
                 f"Generated {len(key_frames(filled)) - before} inbetween frames "
-                f"between {before} golden poses (keys untouched)."
+                f"between {before} golden poses (keys untouched).{pin_note}"
             )
         )
+
+    def _pin_filled(self, filled: TimelineState) -> tuple[TimelineState, str]:
+        """Pin planted contacts on the filled timeline; never fail the fill.
+
+        Returns the corrected state and a status-note suffix (possibly empty).
+        A skeleton without the foot joints, or with a broken leg chain, is a
+        typed degradation: the fill is adopted unpinned and the note says why.
+        """
+        keys = self._fill_original_keys
+        self._fill_original_keys = ()
+        if not keys:
+            return filled, ""
+        names = {joint.name for joint in filled.skeleton.joints}
+        required = {name for pair in FOOT_JOINTS for name in pair}
+        missing = sorted(required - names)
+        if missing:
+            return filled, f" Foot pinning skipped (no joints: {', '.join(missing)})."
+        try:
+            pinned, report = pin_foot_contacts(filled, keys)
+        except ValueError as error:
+            # e.g. an incomplete leg chain (a joint's parent is missing).
+            return filled, f" Foot pinning skipped ({error})."
+        if not report.spans_pinned:
+            return pinned, ""
+        note = (
+            f" Pinned {report.frames_corrected} contact frame(s) across "
+            f"{len(report.spans_pinned)} span(s) ({', '.join(report.feet_pinned)})."
+        )
+        if report.clamped:
+            note += f" Reach clamped for {', '.join(report.clamped)}."
+        return pinned, note
 
     def _on_inbetweens_failed(self, message: str) -> None:
         """Report a failed fill; the keys survive untouched (FR-GEN-03)."""
@@ -790,6 +837,7 @@ class CaptureController(QObject):
             return
         self._inbetween_generation = None
         self._fill_active = False
+        self._fill_original_keys = ()
         self._report(f"Inbetween generation failed: {message}")
 
     # -- reporting --------------------------------------------------------- #
