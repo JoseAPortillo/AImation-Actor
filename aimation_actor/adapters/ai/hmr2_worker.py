@@ -222,6 +222,7 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     import cv2
     import numpy as np
     from hmr2.datasets.vitdet_dataset import ViTDetDataset
+    from hmr2.utils.renderer import cam_crop_to_full
 
     image_path = request["image_path"]
     img_bgr = cv2.imread(image_path)
@@ -255,7 +256,6 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     with torch.no_grad(), autocast:
         output = model(batch)
         params = {k: v.float() for k, v in output["pred_smpl_params"].items()}
-        pred_cam_t = output["pred_cam_t"].float()
         smpl_output = model.smpl(**params, pose2rot=False)
     torch.cuda.empty_cache()
 
@@ -269,7 +269,19 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     # The per-frame distance is informational (the anchor is the template's).
     joints = smpl_output.joints[0]
     vertices = smpl_output.vertices[0]
-    root_translation = joints[0] + pred_cam_t[0]
+    # ``pred_cam_t`` is already the translation of the SMPL model used by the
+    # renderer. Adding ``joints[0]`` would apply the pelvis offset twice and
+    # produced impossible multi-metre root jumps on real clips.
+    scaled_focal_length = (
+        model_cfg.EXTRA.FOCAL_LENGTH / model_cfg.MODEL.IMAGE_SIZE * batch["img_size"].max()
+    )
+    root_translation = cam_crop_to_full(
+        output["pred_cam"].float(),
+        batch["box_center"].float(),
+        batch["box_size"].float(),
+        batch["img_size"].float(),
+        scaled_focal_length,
+    )[0]
     axis = int(torch.tensor([
         abs(joints[8, k].item() - joints[19:25, k].min().item()) for k in range(3)
     ]).argmax().item())

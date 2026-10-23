@@ -50,3 +50,11 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
   counting. CondMDI receives the root through `Main.trans` and restores it in
   decoded output. T4 remains pending: real GPU extraction and FBX readback over
   a moving clip must prove scale/axis quality and long-range continuity.
+- **L5.** First real 48-frame probe (2026-10-23) exposed the honest limitation:
+  HMR2's full-frame manual crop produced invalid depth on some rows and noisy
+  horizontal displacement. The adapter now preserves finite axes independently
+  and zero-falls back only invalid components; it never emits NaN. The 40..87
+  probe completed safely but did not meet the existing 4 cm planted-contact
+  threshold after root motion was applied, so it did not claim a pinned span.
+  T4 stays pending until a subject crop/detector or temporal root-motion source
+  makes the trajectory reliable enough for a moving-contact validation.

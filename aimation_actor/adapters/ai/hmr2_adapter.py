@@ -438,8 +438,13 @@ class Hmr2Adapter(AIPort):
             rotations[name] = Quaternion(*conjugate_y_up_to_z_up(quaternion))
         raw_root = response.get("root_translation")
         if isinstance(raw_root, (list, tuple)) and len(raw_root) == 3:
-            x, y, z = (float(value) * 100.0 for value in raw_root)
-            root_translation = Vector3(x=x, y=-z, z=y)
+            values = [float(value) for value in raw_root]
+            # Preserve axes the estimator did produce, but never let one
+            # invalid depth value poison the other root components.
+            x = values[0] * 100.0 if math.isfinite(values[0]) else 0.0
+            y = -values[2] * 100.0 if math.isfinite(values[2]) else 0.0
+            z = values[1] * 100.0 if math.isfinite(values[1]) else 0.0
+            root_translation = Vector3(x=x, y=y, z=z)
         else:
             root_translation = Vector3()
         return WorldPose(
