@@ -117,9 +117,10 @@ undefined, not merely weakened.
 Its own ablation says the temporal machinery serves the **world**, not the
 joints: removing foot-locking leaves local `PA-MPJPE`/`MPJPE` unchanged
 (`39.5`/`66.0`) while only the world metrics degrade (`WA-MPJPE100` `78.8 →
-89.3`). This tool discards world placement anyway (`Main` ships in place), so
-GVHMR's advantage is **unreachable here** — while costing ViTPose (~2.55 GB), a
-detector, and a much heavier pipeline.
+89.3`). M8 now retains HMR2's best-effort single-image root position relative
+to the first captured frame; this does not provide GVHMR's temporal world
+trajectory or foot-locking, so GVHMR's advantage remains **unreachable here** —
+while costing ViTPose (~2.55 GB), a detector, and a much heavier pipeline.
 
 - **Engine: HMR2.0** — single-image by design, MIT code, ~2.7 GB checkpoint.
   Accuracy on 3DPW `PA-MPJPE`: `44.5 mm` for the `a` variant and `54.3 mm` for
@@ -161,12 +162,13 @@ detector, and a much heavier pipeline.
 ## Domain invariants (do not break)
 
 - **SMPL → production hierarchy** is remapped under a ground root bone `Main`.
-- **`Main` is the animator's world control.** The capture never writes it: the
-  blocking export ships **in place**, with `Main` at `(0, 0, 0)` and identity
-  rotation, and the horizontal displacement the engine recovers is deliberately
-  dropped. Moving `Main` never rewrites the captured local coordinates of its
-  children, so world placement stays independent from the captured pose.
-- **Pelvis** stores height only: local X/Y = 0, Z = ground-to-hip distance.
+- **`Main` is the animator's world control.** M8 captures best-effort root
+  displacement on X/Y/Z relative to the first captured frame, keeps `Main`
+  rotation identity, and exports its stepped translation. Moving `Main` never
+  rewrites the captured local coordinates of its children, so world placement
+  stays independent from the captured pose.
+- **Pelvis** stores residual local height after root displacement: local X/Y =
+  0, while its Z offset plus `Main` Z reconstructs the captured hip height.
 - **Pose translations are offsets from each joint's `rest_translation`**, not
   absolute locals: the FBX writer adds the bind back when it emits
   `Lcl Translation` (`adapters/io/fbx/document.py`).

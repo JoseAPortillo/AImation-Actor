@@ -10,6 +10,7 @@ speaks a line-JSON protocol over stdin/stdout:
                                     "template_hip_height_cm", "bind_offsets_cm"}
     request   (adapter -> worker): {"image_path", "frame_index"}
     response: {"status": "ok", "per_frame_hip_height_m",
+               "root_translation": [x, y, z],
                "rotations": {joint_name: [9 floats, row-major 3x3]}}
                | {"status": "error", "message", "fatal": false}  (worker stays up)
 
@@ -254,6 +255,7 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     with torch.no_grad(), autocast:
         output = model(batch)
         params = {k: v.float() for k, v in output["pred_smpl_params"].items()}
+        pred_cam_t = output["pred_cam_t"].float()
         smpl_output = model.smpl(**params, pose2rot=False)
     torch.cuda.empty_cache()
 
@@ -267,6 +269,7 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     # The per-frame distance is informational (the anchor is the template's).
     joints = smpl_output.joints[0]
     vertices = smpl_output.vertices[0]
+    root_translation = joints[0] + pred_cam_t[0]
     axis = int(torch.tensor([
         abs(joints[8, k].item() - joints[19:25, k].min().item()) for k in range(3)
     ]).argmax().item())
@@ -276,6 +279,7 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
         "status": "ok",
         "frame_index": request.get("frame_index"),
         "per_frame_hip_height_m": per_frame,
+        "root_translation": [float(v) for v in root_translation],
         "vram_allocated_mib": torch.cuda.memory_allocated() / 1024**2,
         "rotations": rotations,
     }

@@ -360,3 +360,20 @@ def test_wire_threads_engine_intent_onto_the_user_bones() -> None:
         )
         error = _angle_deg(dirs[name], template_dir)
         assert error < 0.5, f"{name}: bone direction off by {error:.1f} deg"
+
+
+def test_wire_carries_decoded_root_translation() -> None:
+    engine, _np, rig = _bone_direction_test_engine()
+    root = W._quat_normalize(_yaw(0.0))
+    locals_by_name = _locals_fixture()
+
+    pose = engine._frame_to_wire(
+        rig,
+        root,
+        1.05,
+        [locals_by_name[name] for name in W._OBSERVED_JOINTS[1:]],
+        root_position=(0.12, 1.05, -0.34),
+    )
+
+    assert pose["Main"]["trans"] == [12.0, 34.0, 105.0]
+    assert pose["Pelvis"]["trans"][2] == pytest.approx(-90.0)

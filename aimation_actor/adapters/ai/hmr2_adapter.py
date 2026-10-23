@@ -411,8 +411,9 @@ class Hmr2Adapter(AIPort):
         - the per-joint rotations are SMPL's local quaternions re-expressed in
           the domain's Z-up frame — the production skeleton mirrors SMPL's
           chain under ``Main``, so the names carry over untouched;
-        - the world displacement the engine recovered is deliberately dropped
-          (``Main`` ships in place; see the domain invariants in AGENTS.md);
+        - the optional world root translation is converted to domain axes and
+          later made relative to the first captured frame by the controller;
+          missing translation falls back to the historical zero-root behavior;
         - the engine's output frame is the camera's, with Y pointing down
           (measured, T15: for people standing upright the engine reports a
           ~180-rotation global orient, Head below Pelvis in its own axes, and
@@ -435,7 +436,17 @@ class Hmr2Adapter(AIPort):
             if name == _GLOBAL_ORIENT_JOINT:
                 quaternion = _quaternion_multiply(_HMR2_CAMERA_FLIP, quaternion)
             rotations[name] = Quaternion(*conjugate_y_up_to_z_up(quaternion))
-        return WorldPose(translation=Vector3(x=0.0, y=0.0, z=hip_height_cm), rotations=rotations)
+        raw_root = response.get("root_translation")
+        if isinstance(raw_root, (list, tuple)) and len(raw_root) == 3:
+            x, y, z = (float(value) * 100.0 for value in raw_root)
+            root_translation = Vector3(x=x, y=-z, z=y)
+        else:
+            root_translation = Vector3()
+        return WorldPose(
+            translation=Vector3(x=0.0, y=0.0, z=hip_height_cm),
+            rotations=rotations,
+            root_translation=root_translation,
+        )
 
 
 # -- module-level helpers ------------------------------------------------------- #

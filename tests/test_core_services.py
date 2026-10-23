@@ -141,6 +141,19 @@ def test_build_production_pose_keeps_the_ground_root_clean_for_the_animator() ->
     assert built["Main"].rotation == Quaternion.identity()
 
 
+def test_build_production_pose_carries_relative_root_motion_on_main() -> None:
+    pose = WorldPose(
+        translation=Vector3(z=105.0),
+        root_translation=Vector3(x=12.0, y=-4.0, z=5.0),
+        rotations={},
+    )
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert built["Main"].translation == Vector3(x=12.0, y=-4.0, z=5.0)
+    assert built["Pelvis"].translation == Vector3(z=0.0)
+
+
 def test_build_production_pose_turns_the_world_hip_height_into_a_bind_offset() -> None:
     pose = WorldPose(translation=Vector3(x=10.0, y=20.0, z=95.0), rotations={})
 

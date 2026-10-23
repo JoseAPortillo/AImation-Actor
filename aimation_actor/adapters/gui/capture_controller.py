@@ -44,6 +44,7 @@ from aimation_actor.core.models import (
     JointPose,
     Skeleton,
     TimelineState,
+    Vector3,
     WorldPose,
 )
 from aimation_actor.core.services import (
@@ -227,6 +228,7 @@ class CaptureController(QObject):
         self._extractor = extractor
         self._inbetweener = inbetweener
         self._inbetween_generation: int | None = None
+        self._root_origin: Vector3 | None = None
         # M7: the pre-fill human keys the pin pass must detect contacts from.
         # After a fill the generated rows are indistinguishable from keys, so
         # the frame list is captured at request time and consumed at adoption.
@@ -351,6 +353,7 @@ class CaptureController(QObject):
         self._extraction_generation = None
         # Indexing depends on this clip's own metadata, so it is re-proved here.
         self._frames_are_indexed = False
+        self._root_origin = None
         fps = reported_fps if reported_fps > 0.0 else self._state.fps
         total = max(1, int(math.floor(duration_ms / 1000.0 * fps)))
         # Keys belong to the clip that was loaded when they were marked, so a new
@@ -520,7 +523,7 @@ class CaptureController(QObject):
             if not self._ensure_rig(pending):
                 self._degrade_to_keys_only("no production rig for the guides")
                 return
-            built = build_production_pose(pose, self._state.skeleton)
+            built = self._build_production_pose(pose)
             self._guides[pending] = built
             if self._guide_queue and self._guide_queue[0] == pending:
                 self._guide_queue.pop(0)
@@ -533,7 +536,7 @@ class CaptureController(QObject):
         self._extraction_generation = None
         if not self._ensure_rig(frame_index):
             return
-        built = build_production_pose(pose, self._state.skeleton)
+        built = self._build_production_pose(pose)
         self._state = mark_pose(self._state, frame_index, built)
         self.timeline_changed.emit()
         if frame_index == self._frame:
@@ -572,6 +575,20 @@ class CaptureController(QObject):
             return False
         self._state = replace(self._state, skeleton=adopted)
         return True
+
+    def _build_production_pose(self, pose: WorldPose) -> dict[str, JointPose]:
+        """Apply the first captured root position as this clip's origin."""
+        if self._root_origin is None:
+            self._root_origin = pose.root_translation
+        origin = self._root_origin
+        relative = Vector3(
+            x=pose.root_translation.x - origin.x,
+            y=pose.root_translation.y - origin.y,
+            z=pose.root_translation.z - origin.z,
+        )
+        return build_production_pose(
+            replace(pose, root_translation=relative), self._state.skeleton
+        )
 
     def _on_pose_failed(self, frame_index: int, message: str) -> None:
         """Report a failed extraction; the session and prior keys survive (FR-CAP-07)."""

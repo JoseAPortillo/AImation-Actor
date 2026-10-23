@@ -106,15 +106,17 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
    guide hits mean 3.1–6.3 cm); the three numbers live as named constants in
    `core/foot_contacts.py` / `core/foot_ik.py`, adjustable without logic
    changes. Evidence in `odd/tasks/m7-ik-foot-pinning.md` S4/L4.*
-9. *(Resolved 2026-10-15.)* "Offset calculation" in `core/services.py`:
-   `build_production_pose` maps a raw `WorldPose` onto the production
-   hierarchy — `Main` stays **clean** (`(0,0,0)`, identity rotation), because it
-   is the animator's world control and the export ships "in place"; the captured
-   horizontal displacement is deliberately **not** exported. `Pelvis` carries the
-   hip **height** only, with local x/y pinned to `0`; every other joint carries
-   rotation only. Translations are offsets from each joint's `rest_translation`,
-   the convention the FBX writer adds back. This supersedes the plan's §5.B
-   assignment of the AI scene displacement to `Main`.
+9. *(Superseded by M8 root motion, 2026-10-23.)* "Offset calculation" in
+    `core/services.py`: `build_production_pose` maps a raw `WorldPose` onto the
+    production hierarchy — `Main` carries the session-relative root
+    displacement on X/Y/Z and keeps identity rotation; the first captured
+    frame is the origin. `Pelvis` carries the residual local height after the
+    root displacement, with local x/y pinned to `0`; every other joint carries
+    rotation only. Translations are offsets from each joint's
+    `rest_translation`, the convention the FBX writer adds back. This
+    supersedes the former in-place decision and restores the plan's §5.B
+    assignment of AI scene displacement to `Main`, with an honest zero-root
+    fallback when the engine cannot estimate translation.
 10. *(Resolved 2026-10-19, M5 T13.)* The capture GUI has no rig to preview: the rig is neither provisional nor invented - the engine reports the template's real bind offsets (`J_regressor @ v_template` of the user-supplied body model, pelvis = the 93.85 cm anchor) on its ready line, `core/production_skeleton.py` builds the SMPL chain mirrored under `Main` from them, and the `CaptureController` adopts the rig at the first successful extraction (missing offsets = typed failure, no mark). Before that the pane keeps naming the reason it is blank.
 11. *(Opened 2026-10-15, M4.)* A failed **open** is reported in the status bar.
     Non-modal suits a failed mark (the session continues), but a clip the
@@ -350,12 +352,12 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   condition weakly and drift toward a degenerate prior. The prepared remedy is
   a worker-side probe: diffusion init with the capture prior (`init_image` +
   `skip_timesteps`) — revisit when the animator reports it on a real clip.
-- **Root X/Z trajectory is dropped by the in-place wire design** (M6 L17):
-  the capture never writes `Main`, and the fill's root translation is
-  structurally dropped, so a moving clip's world trajectory is not reproduced;
-  perceived only with moving keys. Deliberate MVP scope (the plan ships the
-  blocking export in place); a root-trajectory workstream would start from the
-  capture's per-frame relative root offsets.
+- **Root trajectory quality remains model-limited.** M8 now captures the HMR2
+  pelvis/camera translation where available, makes the first captured frame the
+  origin, carries relative X/Y/Z through `Main`, preserves it through the
+  inbetween wire, and exports it. HMR2 remains a single-image weak-perspective
+  estimator, so absolute scale and camera-motion separation are best-effort;
+  validate long clips against the reference video.
 - **AIPort has both implementations landed** (T11/T12/T13 for capture,
   T3/T5/T9 for inbetweening); the parked refactor from M6 L8/L10 stands: the
   two adapters carry ~120 duplicated subprocess-bridge lines and the two

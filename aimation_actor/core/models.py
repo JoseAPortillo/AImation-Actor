@@ -98,16 +98,17 @@ class WorldPose:
     """A raw, world-space pose as an AI backend reports it, before production mapping.
 
     ``translation`` is the actor's hip position in world space (centimetres,
-    Z-up): its ``z`` is the ground-to-hip height, and it is the only component
-    consumed by ``build_production_pose``. The horizontal components are the
-    scene displacement the backend recovers, but they are deliberately **not**
-    exported — world placement belongs to the animator. ``rotations`` maps a
-    joint name to that joint's local rotation; a joint absent from the mapping
-    keeps its bind rotation.
+    Z-up). ``root_translation`` is an optional absolute root-position estimate
+    in the same frame; the controller subtracts the first captured value before
+    production mapping. ``rotations`` maps a joint name to that joint's local
+    rotation; a joint absent from the mapping keeps its bind rotation.
     """
 
     translation: Vector3
     rotations: Mapping[str, Quaternion]
+    #: Absolute/root-position estimate before the session origin is applied.
+    #: It is optional because older engines may only report hip height.
+    root_translation: Vector3 = Vector3()
 
 
 @dataclass(frozen=True, slots=True)

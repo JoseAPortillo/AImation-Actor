@@ -642,11 +642,20 @@ class _CondMDIEngine:
 
         poses = []
         for frame_index in range(length):
+            root_position = tuple(float(v) for v in root_positions[frame_index])
+            if abs(canonical_yaw) > 1e-9:
+                cos_y, sin_y = math.cos(canonical_yaw), math.sin(canonical_yaw)
+                root_position = (
+                    root_position[0] * cos_y + root_position[2] * sin_y,
+                    root_position[1],
+                    -root_position[0] * sin_y + root_position[2] * cos_y,
+                )
             pose = self._frame_to_wire(
                 rig,
                 tuple(float(v) for v in root_quats[frame_index]),
                 float(root_positions[frame_index, 1]),
                 locals_[frame_index],
+                root_position=root_position,
             )
             # The sample decodes in the canonical frame (facing +Z at sample
             # 0); rotate the pelvis back into the user's world. Body locals
@@ -727,7 +736,21 @@ class _CondMDIEngine:
                 _quat_normalize(tuple(float(v) for v in raw))
             )
 
-        positions = {"Main": (0.0, 0.0, 0.0), "Pelvis": (0.0, hip_height, 0.0)}
+        main = entries.get("Main") or {}
+        main_trans = main.get("trans") or (0.0, 0.0, 0.0)
+        main_hml = (
+            float(main_trans[0]) * 0.01,
+            float(main_trans[2]) * 0.01,
+            -float(main_trans[1]) * 0.01,
+        )
+        positions = {
+            "Main": main_hml,
+            "Pelvis": (
+                main_hml[0],
+                main_hml[1] + hip_height,
+                main_hml[2],
+            ),
+        }
         quats = {"Main": (1.0, 0.0, 0.0, 0.0), "Pelvis": pelvis_quat}
         for name in _OBSERVED_JOINTS[1:]:
             parent = _JOINT_PARENTS[name]
@@ -857,7 +880,9 @@ class _CondMDIEngine:
             frames.append(locals_frame)
         return frames
 
-    def _frame_to_wire(self, rig, root_quat, hip_height, frame_locals) -> dict:
+    def _frame_to_wire(
+        self, rig, root_quat, hip_height, frame_locals, *, root_position=(0.0, 0.0, 0.0)
+    ) -> dict:
         """One frame's decoded state -> the response's domain pose subset.
 
         ``root_quat`` and ``hip_height`` come straight from the engine's own
@@ -894,14 +919,24 @@ class _CondMDIEngine:
                 running = _quat_mul(running, locals_by_name[name])
                 accs[name] = running
         pose = {}
-        main_entry = {"quat": [1.0, 0.0, 0.0, 0.0], "trans": [0.0, 0.0, 0.0]}
+        main_domain = (
+            float(root_position[0]) * 100.0,
+            -float(root_position[2]) * 100.0,
+            float(root_position[1]) * 100.0,
+        )
+        main_entry = {"quat": [1.0, 0.0, 0.0, 0.0], "trans": list(main_domain)}
         pose["Pelvis"] = {
             "quat": list(_hml_rotation_to_domain(base)),
-            "trans": [0.0, 0.0, hip_height * 100.0 - rig["offsets"]["Pelvis"][1] * 100.0],
+            "trans": [
+                0.0,
+                0.0,
+                hip_height * 100.0
+                - rig["offsets"]["Pelvis"][1] * 100.0
+                - main_domain[2],
+            ],
         }
-        # Main belongs to the wire's pose map as the ground root it is; the
-        # rig cannot rotate it and this worker never writes it (proven by the
-        # capture tests guided by S1).
+        # Main belongs to the wire's pose map as the ground root and carries
+        # the decoded session-relative trajectory.
         pose["Main"] = main_entry
         for name in _OBSERVED_JOINTS[1:]:
             # Maya threading: parent-relative = own accumulation / parent's,

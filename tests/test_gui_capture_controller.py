@@ -86,6 +86,7 @@ class _FakeExtractor(QObject):
         self.refuse = False
         self.failure: str | None = None
         self._hip_height = hip_height
+        self.root_positions: dict[int, Vector3] = {}
 
     def start(self, frame_index: int, image: FrameImage) -> bool:
         if self.refuse:
@@ -96,7 +97,11 @@ class _FakeExtractor(QObject):
             return True
         self.extracted.emit(
             frame_index,
-            WorldPose(translation=Vector3(z=self._hip_height), rotations={}),
+            WorldPose(
+                translation=Vector3(z=self._hip_height),
+                rotations={},
+                root_translation=self.root_positions.get(frame_index, Vector3()),
+            ),
         )
         return True
 
@@ -129,6 +134,27 @@ def controller(source: _FakeSource, extractor: _FakeExtractor) -> CaptureControl
 def _load_clip(source: _FakeSource, fps: float = 24.0, duration_ms: int = 5000) -> None:
     """Open a clip and let the source answer, as the real player would."""
     source.media_loaded.emit(fps, duration_ms)
+
+
+def test_extracted_root_motion_is_relative_to_the_first_captured_frame(
+    controller: CaptureController, source: _FakeSource, extractor: _FakeExtractor
+) -> None:
+    extractor.root_positions = {
+        0: Vector3(x=10.0, y=2.0, z=100.0),
+        1: Vector3(x=15.0, y=4.0, z=102.0),
+    }
+    controller.open_video("root-motion.mp4")
+    _load_clip(source)
+
+    source.frame_index = 0
+    controller.mark_current()
+    source.frame_index = 1
+    controller.go_to_frame(1)
+    controller.mark_current()
+
+    keys = {key.frame: key.pose for key in controller.state.keyframes}
+    assert keys[0]["Main"].translation == Vector3()
+    assert keys[1]["Main"].translation == Vector3(x=5.0, y=2.0, z=2.0)
 
 
 # --------------------------------------------------------------------------- #

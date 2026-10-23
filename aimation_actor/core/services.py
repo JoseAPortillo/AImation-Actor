@@ -111,11 +111,10 @@ def build_production_pose(pose: WorldPose, skeleton: Skeleton) -> dict[str, Join
 
     The split follows the domain invariants:
 
-    - the ground root is the **animator's world control**: the capture never
-      writes it, so the blocking export ships "in place" and the horizontal
-      displacement the AI recovered is deliberately dropped;
-    - ``Pelvis`` carries the hip **height** only, with local ``x``/``y`` pinned
-      to ``0``;
+    - the ground root is the **animator's world control** and carries the
+      session-relative root displacement on all three axes;
+    - ``Pelvis`` carries the residual local height after root displacement,
+      with local ``x``/``y`` pinned to ``0``;
     - every other joint carries rotation only.
 
     Translations are offsets from each joint's ``rest_translation`` — the
@@ -127,13 +126,21 @@ def build_production_pose(pose: WorldPose, skeleton: Skeleton) -> dict[str, Join
     """
     root = skeleton.root().name
     hip_height = pose.translation.z
+    root_translation = pose.root_translation
 
     built: dict[str, JointPose] = {}
     for joint in skeleton.joints:
         rest = joint.rest_translation
         if joint.name == _PELVIS:
-            translation = Vector3(x=-rest.x, y=-rest.y, z=hip_height - rest.z)
+            translation = Vector3(
+                x=-rest.x,
+                y=-rest.y,
+                z=hip_height - rest.z - root_translation.z,
+            )
             rotation = pose.rotations.get(joint.name, Quaternion.identity())
+        elif joint.name == root:
+            translation = root_translation
+            rotation = Quaternion.identity()
         else:
             translation = Vector3()
             rotation = (

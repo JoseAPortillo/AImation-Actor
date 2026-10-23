@@ -343,6 +343,27 @@ def test_body_pose_locals_bypass_the_global_frame_flip(tmp_path: Path) -> None:
         adapter.shutdown()
 
 
+def test_root_translation_is_converted_to_domain_axes(tmp_path: Path) -> None:
+    adapter = _world_pose_adapter(tmp_path)
+    try:
+        pose = adapter._to_world_pose(
+            {
+                "root_translation": [0.12, 0.34, -0.56],
+                "rotations": {},
+            }
+        )
+        actual = (
+            pose.root_translation.x,
+            pose.root_translation.y,
+            pose.root_translation.z,
+        )
+        assert actual == pytest.approx(
+            (12.0, 56.0, 34.0)
+        )
+    finally:
+        adapter.shutdown()
+
+
 # -- the bind offsets of the production skeleton (T13) -------------------------- #
 
 
