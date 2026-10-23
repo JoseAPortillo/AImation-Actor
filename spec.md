@@ -63,9 +63,9 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 | ID | Pri | Status | Requirement | Acceptance criteria |
 | -- | --- | ------ | ----------- | ------------------- |
-| FR-GEN-01 | Must | ⬜ | Human keys are locked as hard constraints; only gaps are filled. | Output equals input at every human key (within tolerance); nothing outside the first/last key. |
-| FR-GEN-02 | Must | ⬜ | Engine behind a Model Factory selectable from the GUI; MVP = CondMDI. | Swapping the engine needs no `core/` edits; CondMDI is the default. |
-| FR-GEN-03 | Must | ⬜ | Generation runs in a `QThread`, batch 1, FP16, cache released; stays ≤ 10 GB VRAM. | Same constraints as FR-CAP-05; long spans complete on target hardware. |
+| FR-GEN-01 | Must | ✅ | Human keys are locked as hard constraints; only gaps are filled. | Output equals input at every human key (within tolerance); nothing outside the first/last key. *(Landed in M6: `core/resampling.py`'s `fill_gap_synthetically` leaves keys byte-untouched by construction and refuses to write outside the locked span; guide frames are reasserted byte-exact at their video frames (T7/T8), and a gap whose capture covers every interior frame is filled straight from the capture with no engine request (T9). End-to-end on real capture keys 46/71: reassertion 0 mismatches across 26 captured frames.)* |
+| FR-GEN-02 | Must | 🟡 | Engine behind a Model Factory selectable from the GUI; MVP = CondMDI. | Swapping the engine needs no `core/` edits; CondMDI is the default. *(Landed in M6 T1/T4: `InbetweeningPort` + `model_factory.py` with typed `UnknownEngineError`; `main.py` builds BOTH engines through the factory (`capture_engine("hmr2")`, `inbetweening_engine()` → CondMDI default), so a swap needs no `core/` edit. 🟡 honest split: the factory + default are done; the factory call site still names the engine in code — no in-app picker yet, deferred while the MVP has exactly one inbetweening engine.)* |
+| FR-GEN-03 | Must | ✅ | Generation runs in a `QThread`, batch 1, FP16, cache released; stays ≤ 10 GB VRAM. | Same constraints as FR-CAP-05; long spans complete on target hardware. *(M6 T4/T5: `InbetweeningRunner` on a `QThread` with batch-1 refusals; the CondMDI bootstrap carries `half_precision`; measured on the real RTX 3080 with the real checkpoint: VRAM peak **1831–1832 MiB** per fill (10 GB budget met with ~5× headroom), **~64 s warm per fill** (~78 s first call incl. kernel warmup) at both span 64 and the near-full 193-sample window; typed non-fatal failures à la `PoseExtractionRunner`. The engine is out-of-process, isolated like the capture engine.)* |
 | FR-IK-01 | Must | ⬜ | Detect planted feet in the original keys; IK pins contacts (no sliding/penetration) before final export. | Foot position stays constant across a contact span within tolerance. |
 | FR-GEN-04 | Must | ⬜ | Export the approved final FBX (same conventions as blocking), preserving the frame range. | Output is a valid FBX; `frame_start`/`frame_end` match the import. |
 
@@ -74,7 +74,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | ID | Pri | Status | Requirement | Acceptance criteria |
 | -- | --- | ------ | ----------- | ------------------- |
 | NFR-01 | Must | ✅ | `core/` and `ports/` stay free of third-party imports. | Enforced by a test/lint check on import surfaces. *(`tests/test_layering.py` reads the imports of every domain module and also rejects an adapter import.)* |
-| NFR-02 | Must | 🟡 | No blocking of the UI on AI/IO work. | No frozen window during extraction/generation. *(Extraction runs on a worker thread, and a test asserts the UI is not waiting on the engine. Inbetweening (FR-GEN-03) has no implementation yet, so its half of the requirement is unverified.)* |
+| NFR-02 | Must | ✅ | No blocking of the UI on AI/IO work. | No frozen window during extraction/generation. *(Both halves landed: extraction through `PoseExtractionRunner` and generation through `InbetweeningRunner` each run on their own `QThread` worker — the same pattern — and tests assert the UI does not wait on either engine.)* |
 | NFR-03 | Must | ✅ | Errors are explicit and actionable; state stays recoverable. | Failures report a message; no silent failures. *(A damaged clip, a mark with nothing loaded, a missing rig and an unusable GL driver each name what happened; the loaded clip and its keys survive a failure.)* |
 | NFR-04 | Should | ✅ | Blender read path is manual-test-only (needs a Blender install). | Documented as manual; not required in CI. |
 
@@ -192,6 +192,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.4.6   | 2026-10-19 | T10 measurement gate shut: VRAM 2.67 GB / warm 81-94 ms at batch 1 on the real box (≤ 10 GB met, FP16 no longer required for the target); per-frame hip height not keyable raw, SMPL template anchor 0.9385 m (§4.13 answered). |
 | 0.4.7   | 2026-10-19 | The real HMR2.0 adapter landed behind `AIPort` (FR-CAP-05 stays 🟡): out-of-process persistent worker (checkpoint loads once, FP16 + `empty_cache()` per request), typed actionable failures, template-anchored `WorldPose` conversion (§4.13 anchor decided); open question 1 resolved (no start-time VRAM pre-check, typed per-request failure). Real-engine end-to-end probe remains. |
 | 0.4.8   | 2026-10-19 | T13 closed M5: `build_window` injects the real `Hmr2Adapter` and a rig source over its bind offsets; the production skeleton is real body-model data the controller adopts at the first extraction (FR-CAP-06, open question 10 resolved). The real-engine end-to-end probe verified FR-CAP-05: VRAM flat across keys (1328.1 MiB fp16-autocast, growth 0.0; 2.66 GB fp32), fp16 numerics mean 0.84 mm / max 3.68 mm vs fp32; the fp16 recipe is autocast around the whole pipeline (plain fp16 weights fail; a double frame conversion between worker and adapter was caught and fixed by the probe). |
+| 0.5.0   | 2026-10-23 | **M6 generative inbetweening landed (T1-T9, 2026-10-20..22)**: `InbetweeningPort` + Model Factory (T1), engine-agnostic sampling clock in `core/resampling.py` (T2), fake-tested `CondMDIAdapter` wire bridge (T3), `InbetweeningRunner` + `CaptureController.fill_inbetweens` + `G` action (T4), real out-of-process CondMDI worker on the vendored stack with measured VRAM/latency (T5), guide track S6 through worker/port/adapter/core/controller (T6-T8), and anchor-dense capture for narrow gaps (T9). FR-GEN-01 ✅, FR-GEN-02 🟡 (no in-app engine picker yet), FR-GEN-03 ✅ (1831 MiB / ~64 s per fill, real RTX 3080), NFR-02 ✅. Roadmap: **M7 (IK foot pinning) → M8 (final generative export)**. |
 
 ## 6. Session state (resume here)
 
@@ -283,25 +284,75 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   fp16 weights before ready, and a double SMPL-to-domain conversion of the
   offsets. 124 tests green, `ruff check` clean.
 
+- **M6 generative inbetweening (2026-10-20..22, `feat/develop`, T1-T9 done;
+  evidence in `odd/tasks/m6-inbetweening.md`):**
+  - Factory + port (T1): `InbetweeningPort` (timeline in, timeline out, keys
+    untouched) and `model_factory.py` with typed `UnknownEngineError`;
+    `main.py` builds both engines through the factory.
+  - Engine-agnostic sampling clock (T2): `core/resampling.py` — slerp,
+    `interpolate_pose`, `resample_dense_poses`, and `fill_gap_synthetically`
+    (the S1 rule materialized: keys byte-untouched, every gap frame filled or
+    raised, no writes outside the locked span).
+  - Adapter + worker (T3/T5): `CondMDIAdapter` subprocess bridge over the
+    official vendored stack in its own venv (`.engine/condmdi-venv`); the real
+    checkpoint validated on the RTX 3080 — VRAM peak 1831-1832 MiB, ~64 s warm
+    per fill, span up to the 193-sample window. Two runtime conditioning bugs
+    and a bind-conjugation bug were found by animator reports and fixed
+    worker-side (vendored code never patched): metric retarget offsets,
+    abs-3d canonical yaw, and per-joint minimal-rotation bind conjugation
+    (worst wrist error 98.8 cm → 5.1 cm).
+  - GUI path (T4): `InbetweeningRunner` (`QThread`, batch-1) +
+    `CaptureController.fill_inbetweens` + `G` in the Inbetweens menu; the fill
+    adopts through the existing `timeline_changed` wiring.
+  - Guide track S6 (T6-T8): captured video frames between the gap's keys enter
+    the engine as observation rows (HMR2 per-frame extraction every ~12 engine
+    samples, cap 8/gap), reasserted byte-exact through core anchors; the
+    controller gathers them through the same batch-1 extraction machinery,
+    degrading to keys-only on any capture problem. GPU-validated (probe 8:
+    the fill follows the capture's phase where keys-only stood flat).
+  - Anchor-dense narrow gaps (T9, user decision L24): a gap spanning ≤ 25
+    timeline frames anchors EVERY interior frame via HMR2 and is filled
+    straight from the capture — no engine request, lazy worker spawn. Real
+    e2e (JACE_REF_04, keys 46/71): 26 frames captured, coverage complete,
+    byte-exact reassertion 0 mismatches; the arm columns follow the capture
+    where every keys-only/guided control splayed. A latent batch-1 race in the
+    dense gather was found and fixed (busy start now waits for the runner's
+    `busy_changed(False)`).
+  - Suite 282/0/0/0, ruff clean. Delivery: work-unit commits straight to
+    `feat/develop` (user 2026-10-22, no PR slices), pushed on request.
+
 **Next**
 
-1. **The real HMR2.0 adapter** - the remaining half of M5. **(a) Environment and
-   measurement: done (T10, 2026-10-19)** - the dedicated Python 3.10 venv works
-   on Windows, both checkpoints load and infer on the real GPU, and §4.13's two
-   unmeasured properties are measured (VRAM 2.67 GB at batch 1, warm 81-94 ms,
-   hip height needs an anchor - the template constant 0.9385 m). **(b) The
-   adapter remains:** the `AIPort` implementation - SMPL parameters to hip
-   height in centimetres plus per-joint local quaternions named for the
-   production skeleton - plus FP16 and the CUDA-cache release, out-of-process,
-   with the Windows loader fixes the session recorded. Weights are
-   user-supplied and never vendored. *(Landed T11/T12 + T13, 2026-10-19: `hmr2_adapter` + `hmr2_worker` - persistent out-of-process protocol, typed failures, template-anchored conversion; the window is wired to the real engine and adopts the real rig; the end-to-end probe verified VRAM stability and fp16 numerics on the real box. Evidence: the task doc's L26.)*
-2. Then M6 (CondMDI + Model Factory) → M7 (IK) → M8 (generative export).
+1. **M7 — IK foot pinning (FR-IK-01).** Detect planted feet in the original
+   keys and pin contacts (no sliding/penetration) before the final export.
+   Open question 8 (the numeric threshold for "no foot sliding") resolves here.
+   Feature doc: `odd/tasks/m7-ik-foot-pinning.md`.
+2. Then **M8 — final generative export (FR-GEN-04)**: the approved timeline
+   (keys + fills) exported with the blocking FBX conventions, frame range
+   preserved.
+3. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
+   while the MVP has exactly one inbetweening engine; revisit with the second
+   engine.
 
 **Known follow-ups**
 
-- `AIPort` has one implementation to write: the real HMR2.0 adapter (§4.12). The
-  contract and the whole pipeline around it are in place, so the adapter lands as
-  one file with no caller changes.
+- **Wide-gap fill quality (M6 carry-forward).** Gaps WIDER than ~24 interior
+  frames still go through the model and keep the free-row splay diagnosed in
+  L23 (`odd/tasks/m6-inbetweening.md`): rows not covered by an observation
+  condition weakly and drift toward a degenerate prior. The prepared remedy is
+  a worker-side probe: diffusion init with the capture prior (`init_image` +
+  `skip_timesteps`) — revisit when the animator reports it on a real clip.
+- **Root X/Z trajectory is dropped by the in-place wire design** (M6 L17):
+  the capture never writes `Main`, and the fill's root translation is
+  structurally dropped, so a moving clip's world trajectory is not reproduced;
+  perceived only with moving keys. Deliberate MVP scope (the plan ships the
+  blocking export in place); a root-trajectory workstream would start from the
+  capture's per-frame relative root offsets.
+- **AIPort has both implementations landed** (T11/T12/T13 for capture,
+  T3/T5/T9 for inbetweening); the parked refactor from M6 L8/L10 stands: the
+  two adapters carry ~120 duplicated subprocess-bridge lines and the two
+  runners are near-mirrors — one shared worker-bridge/runner extraction after
+  both engine lifecycles stabilize.
 - **ProRes (FR-CAP-01) was never exercised** — only H.264 has been played. The
   requirement says `.mp4`/`.mov` with H.264/ProRes, and ProRes is common on real
   workstations, so this needs a real ProRes clip before FR-CAP-01 can be called
@@ -311,12 +362,9 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   extracting a neighbouring frame silently), but the capture could instead wait
   for the pending frame and then proceed. Add that only if real use shows the
   refusal is common.
-- M4 has no production rig to preview: the joint hierarchy and proportions come
-  from the pose engine (M5), so the 3D pane reports "no rig loaded yet" instead
-  of inventing one (§4.10).
 - Failure reporting is non-modal (status bar). Worth revisiting for a failed
   *open*, where the animator picked the bad file and a line of text is easy to
-  miss.
+  miss. *(Opened as open question 11.)*
 - **Native-review advisories from the M5 fix** (L18 in
   `odd/tasks/m5-pose-extraction.md`). None is a defect in the behavior that was
   specified or delivered; all were left out of the reviewed candidate on purpose:
