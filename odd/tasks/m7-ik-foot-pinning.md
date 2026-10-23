@@ -176,3 +176,13 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
   fix: every consecutive span target step is 0.000 cm, every within-span hold
   remains 0.000 cm, and the full suite plus ruff are green. Regression test:
   `test_pin_uses_one_stable_target_across_a_noisy_contact_run`.
+- **L10.** Follow-up measurement after L9 (2026-10-23): target stabilization
+  fixed positional jitter, but visual vibration remained because the generated
+  rows carried noisy local ankle roll. The solve now also uses one median knee
+  pole per continuous contact run; regression coverage proves noisy generated
+  knee rows produce identical hip/knee rotations. Real-cache measurement after
+  this change: planted toe displacement remains 0.000 cm, but local ankle
+  rotation still varies about 0.75 degrees per row (maximum 1.38 degrees).
+  The remaining product decision is whether to smooth captured ankle roll for
+  planted contacts, which would reduce vibration but could erase intentional
+  foot-roll animation; the current S3 contract preserves that roll exactly.

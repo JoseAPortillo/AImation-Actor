@@ -114,6 +114,7 @@ def pin_foot_contacts(
     targets_by_span = _stable_targets(
         skeleton, poses, active, ground_z=ground_z
     )
+    poles_by_span = _stable_poles(skeleton, poses, active)
     for (left, right), feet in active:
         targets = {foot: targets_by_span[((left, right), foot)] for foot in sorted(feet)}
         spans_pinned.append((left, right))
@@ -127,7 +128,9 @@ def pin_foot_contacts(
                 # for reach; a single planted foot never moves the pelvis.
                 _lower_pelvis_to_reach(skeleton, pose, targets)
             for foot, target in targets.items():
-                if _pin_toe_of(pose, skeleton, foot, target):
+                if _pin_toe_of(
+                    pose, skeleton, foot, target, pole=poles_by_span[((left, right), foot)]
+                ):
                     clamped.add(foot)
             if pose != before:
                 frames_corrected += 1
@@ -191,6 +194,60 @@ def _stable_targets(
             for span in run:
                 result[(span, foot)] = target
     return result
+
+
+def _stable_poles(
+    skeleton: Skeleton,
+    poses: dict[int, dict[str, JointPose]],
+    active: list[tuple[tuple[int, int], set[str]]],
+) -> dict[tuple[tuple[int, int], str], Vector3]:
+    """Use one knee-pole direction across each continuous planted run.
+
+    Recomputing the pole from every noisy generated row changes which side of
+    the two-bone solution is selected and makes the foot orientation vibrate
+    even when the toe target is fixed. Original key knee directions are the
+    animator's stable reference for the run; their component-wise median gives
+    the same noise resistance as the contact target.
+    """
+    transforms = {
+        frame: joint_transforms(skeleton, poses[frame])
+        for span, _feet in active
+        for frame in span
+    }
+    result: dict[tuple[tuple[int, int], str], Vector3] = {}
+    for foot, runs in _contact_runs(active).items():
+        _foot, _ankle, knee, hip = _chain(skeleton, foot)
+        for run in runs:
+            directions = []
+            for frame in [run[0][0], *[right for _left, right in run]]:
+                positions, _rotations = transforms[frame]
+                direction = _sub(positions[knee.name], positions[hip.name])
+                directions.append(_unit(direction))
+            pole = _unit(
+                Vector3(
+                    x=median(direction.x for direction in directions),
+                    y=median(direction.y for direction in directions),
+                    z=median(direction.z for direction in directions),
+                )
+            )
+            for span in run:
+                result[(span, foot)] = pole
+    return result
+
+
+def _contact_runs(
+    active: list[tuple[tuple[int, int], set[str]]],
+) -> dict[str, list[list[tuple[int, int]]]]:
+    """Group active spans into contiguous planted runs, per foot."""
+    grouped: dict[str, list[list[tuple[int, int]]]] = {}
+    for (left, right), feet in active:
+        for foot in feet:
+            runs = grouped.setdefault(foot, [])
+            if runs and runs[-1][-1][1] == left:
+                runs[-1].append((left, right))
+            else:
+                runs.append([(left, right)])
+    return grouped
 
 
 # --------------------------------------------------------------------------- #
@@ -285,7 +342,12 @@ def _perpendicular(vector: Vector3) -> Vector3:
 
 
 def _pin_toe_of(
-    pose: dict[str, JointPose], skeleton: Skeleton, foot: str, toe_target: Vector3
+    pose: dict[str, JointPose],
+    skeleton: Skeleton,
+    foot: str,
+    toe_target: Vector3,
+    *,
+    pole: Vector3,
 ) -> bool:
     """Drive one foot's toe onto ``toe_target``; report whether it was clamped.
 
@@ -325,10 +387,6 @@ def _pin_toe_of(
     vector = _scale(_unit(vector), distance)
 
     e_unit = _unit(vector)
-    knee_dir = _sub(positions[knee_j.name], hip_pos)
-    if _norm(knee_dir) < 1e-9:
-        knee_dir = rotate(pelvis_rot, knee_off)
-    pole = _unit(knee_dir)
     axis = _cross(e_unit, pole)
     axis = _unit(axis) if _norm(axis) > 1e-6 else _perpendicular(e_unit)
     alpha = math.acos(

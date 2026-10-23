@@ -146,6 +146,25 @@ def test_pin_uses_one_stable_target_across_a_noisy_contact_run() -> None:
         assert toe.x == pytest.approx(-7.0, abs=1e-6)
 
 
+def test_pin_uses_one_stable_knee_pole_across_noisy_generated_rows() -> None:
+    """Generated-row knee noise must not change the planted foot orientation."""
+    poses = {
+        0: _stand(),
+        1: _pose(L_Hip=JointPose(rotation=rotation_x(3.0))),
+        2: _pose(L_Hip=JointPose(rotation=rotation_x(-3.0))),
+        3: _pose(L_Hip=JointPose(rotation=rotation_x(2.0))),
+        4: _stand(),
+    }
+    state = _state([_key(frame, pose) for frame, pose in poses.items()])
+
+    pinned, _report = pin_foot_contacts(state, (0, 4))
+
+    interior = [_pose_at(pinned, frame) for frame in (1, 2, 3)]
+    assert interior[0]["L_Hip"].rotation == interior[1]["L_Hip"].rotation
+    assert interior[1]["L_Hip"].rotation == interior[2]["L_Hip"].rotation
+    assert interior[0]["L_Knee"].rotation == interior[1]["L_Knee"].rotation
+
+
 def test_pin_keeps_the_original_keys_byte_identical() -> None:
     state = _dense()
     keys_before = [keyframe for keyframe in state.keyframes if keyframe.frame in (46, 71)]
