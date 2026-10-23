@@ -8,9 +8,11 @@ FR-IK-01's contract, per ``odd/tasks/m7-ik-foot-pinning.md`` S3 and the
 animator's threshold answer (spec.md open question 8, the balanced option):
 
 - the pinned point is the FOOT (toe ball) - the same joint detection reads -
-  landed at the first original key's world contact position; a key whose
-  reading penetrates the ground has its target lifted to the ground plane,
-  which is the pass's penetration correction;
+  landed at one robust contact target for each continuous planted run; the
+  target is the coordinate-wise median of that run's original-key readings,
+  which prevents HMR key noise from making consecutive spans tremble. A run
+  whose median reading penetrates the ground has its target lifted to the
+  ground plane, which is the pass's penetration correction;
 - the leg solves with analytic two-bone IK; the knee pole comes from the
   frame's own knee direction so a bent leg bends the way it already bends;
 - the ankle's local rotation is never rewritten, so foot roll stays exactly
@@ -41,6 +43,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from statistics import median
 
 from aimation_actor.core.foot_contacts import contact_spans
 from aimation_actor.core.kinematics import (
@@ -108,13 +111,11 @@ def pin_foot_contacts(
     clamped: set[str] = set()
     frames_corrected = 0
 
+    targets_by_span = _stable_targets(
+        skeleton, poses, active, ground_z=ground_z
+    )
     for (left, right), feet in active:
-        left_world, _ = joint_transforms(skeleton, poses[left])
-        targets = {}
-        for foot in sorted(feet):
-            toe = left_world[foot]
-            lifted = max(0.0, ground_z - toe.z)
-            targets[foot] = Vector3(x=toe.x, y=toe.y, z=toe.z + lifted)
+        targets = {foot: targets_by_span[((left, right), foot)] for foot in sorted(feet)}
         spans_pinned.append((left, right))
         feet_pinned.update(targets)
 
@@ -146,6 +147,50 @@ def pin_foot_contacts(
             clamped=tuple(sorted(clamped)),
         ),
     )
+
+
+def _stable_targets(
+    skeleton: Skeleton,
+    poses: dict[int, dict[str, JointPose]],
+    active: list[tuple[tuple[int, int], set[str]]],
+    *,
+    ground_z: float,
+) -> dict[tuple[tuple[int, int], str], Vector3]:
+    """Use one robust contact target across each continuous planted run.
+
+    HMR key readings contain centimetre-scale noise. Choosing each span's
+    left key independently makes a planted toe jump whenever a new span
+    starts. A continuous run of planted spans is one physical contact, so its
+    key readings share one coordinate-wise median target. The median rejects
+    isolated capture noise while preserving the existing ground correction.
+    """
+    key_world = {
+        frame: joint_transforms(skeleton, poses[frame])[0]
+        for span, _feet in active
+        for frame in span
+    }
+    grouped: dict[str, list[list[tuple[int, int]]]] = {}
+    for (left, right), feet in active:
+        for foot in feet:
+            runs = grouped.setdefault(foot, [])
+            if runs and runs[-1][-1][1] == left:
+                runs[-1].append((left, right))
+            else:
+                runs.append([(left, right)])
+
+    result: dict[tuple[tuple[int, int], str], Vector3] = {}
+    for foot, runs in grouped.items():
+        for run in runs:
+            frames = [run[0][0], *[right for _left, right in run]]
+            readings = [key_world[frame][foot] for frame in frames]
+            target = Vector3(
+                x=median(reading.x for reading in readings),
+                y=median(reading.y for reading in readings),
+                z=max(ground_z, median(reading.z for reading in readings)),
+            )
+            for span in run:
+                result[(span, foot)] = target
+    return result
 
 
 # --------------------------------------------------------------------------- #

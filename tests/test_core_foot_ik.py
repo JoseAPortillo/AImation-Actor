@@ -124,6 +124,28 @@ def test_pin_lands_every_interior_toe_on_the_first_keys_contact() -> None:
         )
 
 
+def test_pin_uses_one_stable_target_across_a_noisy_contact_run() -> None:
+    """Consecutive planted keys must not make the pinned target walk."""
+    key_positions = (0.0, 2.0, 4.0, 6.0)
+    key_poses = [
+        _pose(Main=JointPose(rotation=Quaternion.identity(), translation=Vector3(x=x)))
+        for x in key_positions
+    ]
+    keyframes = []
+    for index, frame in enumerate((0, 2, 4, 6)):
+        keyframes.append(_key(frame, key_poses[index]))
+    for frame in (1, 3, 5):
+        keyframes.append(_key(frame, _stand()))
+    state = _state(sorted(keyframes, key=lambda keyframe: keyframe.frame))
+
+    pinned, report = pin_foot_contacts(state, (0, 2, 4, 6))
+
+    assert report.spans_pinned == ((0, 2), (2, 4), (4, 6))
+    for frame in (1, 3, 5):
+        toe = _toe(pinned, frame, "L_Foot")
+        assert toe.x == pytest.approx(-7.0, abs=1e-6)
+
+
 def test_pin_keeps_the_original_keys_byte_identical() -> None:
     state = _dense()
     keys_before = [keyframe for keyframe in state.keyframes if keyframe.frame in (46, 71)]

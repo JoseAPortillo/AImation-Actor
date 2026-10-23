@@ -166,3 +166,13 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
   never settles longer than ~15 frames, so the validated span is short; a
   longer held pose pins just the same (the mechanism is per interior row, not
   span-length-dependent — the unit rig proves 24-row spans).
+- **L9.** Follow-up animator test (2026-10-23) found constant foot trembling.
+  The analytic solve was not unstable: a real-capture diagnostic measured
+  natural toe steps of 1.997 cm mean / 6.137 cm max and, with keys every 3-5
+  frames, the old left-key target policy jumped 1.228-3.246 cm at each planted
+  span. Fix: a continuous run of planted spans now shares one coordinate-wise
+  median target across all its original-key readings (`_stable_targets`),
+  while penetration still lifts the median z to ground. Diagnostic after the
+  fix: every consecutive span target step is 0.000 cm, every within-span hold
+  remains 0.000 cm, and the full suite plus ruff are green. Regression test:
+  `test_pin_uses_one_stable_target_across_a_noisy_contact_run`.
