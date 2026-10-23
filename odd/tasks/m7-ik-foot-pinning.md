@@ -78,7 +78,7 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
 | -- | ---- | ----- | ------ | -------- |
 | T1 | S1, S3, S4 | inline | done | commit `35329a8`: `core/foot_contacts.py` `contact_spans(...)` + 11 tests (`tests/test_core_foot_contacts.py`); RED observed (ModuleNotFoundError), GREEN 11/11 first implementation, ruff clean |
 | T2 | S1, S2, S3, S4 | inline | done | commit `aa895a2`: `core/foot_ik.py` `pin_foot_contacts(...)` + `PinReport`; 11 tests RED first; exact toe solve GREEN, full suite green, ruff clean. `core/kinematics.py` grew public `compose`/`inverse`/`quaternion_between_directions`/`rotate_about_axis`/`joint_transforms` (additive, no behavior change) |
-| T3 | S1, S3 | inline | pending | Controller wiring: detection + pinning run in the fill-adoption path where the pre-fill keys are known; typed degradation without a rig; status line names the pinned spans |
+| T3 | S1, S3 | inline | done | commit pending: `capture_controller.py` `_pin_filled(...)` — pre-fill key frames stashed at `fill_inbetweens()` (`_fill_original_keys`), detection + `pin_foot_contacts` run at adoption (`_on_inbetweens_filled`) before the state lands; typed degradation without leg chains (fill adopted unpinned, note stays non-fatal); status line names pinned frames/spans/feet (and reach-clamped feet); stash cleared on failed/abandoned/stale paths. 3 controller tests RED first (`tests/test_gui_foot_pinning.py`), GREEN; M6 inbetween tests untouched; full suite green, ruff clean |
 | T4 | S1, S2 | inline | pending | GPU validation on the real clip (JACE_REF_04, keys 46/71 standing contact + 46/58/71): foot world drift across detected contact spans < S4 hold; FBX readback via the app's writer; keys reassertion intact |
 
 ## Log
@@ -136,3 +136,17 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
   tests; full suite green (pytest, 0 failures), ruff clean. T2 recorded in
   commit `aa895a2`, T1 in `35329a8`. Next: T3 (controller wiring at fill
   adoption) then T4 (GPU validation).
+- **L7.** T3 wiring decision (2026-10-23): the wire point is adoption —
+  `fill_inbetweens()` stashes the pre-fill key frame list (`_fill_original_keys`:
+  post-fill the generated rows are keyed indistinguishably, so the list cannot
+  be recovered later), and `_on_inbetweens_filled` runs `_pin_filled(...)` on
+  the engine's result BEFORE adopting it. Pinning never blocks a fill: a
+  skeleton without the four foot/ankle joints (pre-checked names) or with an
+  incomplete leg chain (`ValueError` from `_chain`) degrades TYPED — the fill
+  is adopted unpinned and the status note says why; a failed/abandoned/stale
+  fill clears the stash. The adoption status keeps the M6 sentence and appends
+  the pin note (`Pinned N contact frame(s) across M span(s) (feet))`, reach
+  clamps named). Flaky note: `test_ai_hmr2_adapter.py::test_a_timed_out_worker…`
+  failed twice mid-day under full-suite load and passed on base, alone, and in
+  the final full run — environmental timing, not coupled to this change. T3
+  committed; next T4 (GPU validation on the real clip).
