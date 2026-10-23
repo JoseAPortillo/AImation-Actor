@@ -97,7 +97,15 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 5. Project persistence (session file) or export-only? *(MVP assumption: export-only.)*
 6. One reference video per session or a list? *(MVP: one.)*
 7. `AIPort` method signatures for extraction and inbetweening.
-8. Numeric threshold defining "no foot sliding".
+8. *(Resolved 2026-10-23, M7 planning — the animator chose the balanced
+   option.)* **Planting** = a foot's world position differs ≤ **4.0 cm**
+   between the two bounding ORIGINAL keys of a span AND sits at ground contact
+   (world z ≤ ground + **6.0 cm**) at both; the IK then pins the ankle to the
+   first key's contact position, holding it within **0.5 cm** across the whole
+   pinned span. Calibrated against the measured HMR2 per-frame noise (M6 T8:
+   guide hits mean 3.1–6.3 cm); the three numbers live as named constants in
+   `core/foot_contacts.py` / `core/foot_ik.py`, adjustable without logic
+   changes. Evidence in `odd/tasks/m7-ik-foot-pinning.md` S4/L4.*
 9. *(Resolved 2026-10-15.)* "Offset calculation" in `core/services.py`:
    `build_production_pose` maps a raw `WorldPose` onto the production
    hierarchy — `Main` stays **clean** (`(0,0,0)`, identity rotation), because it
