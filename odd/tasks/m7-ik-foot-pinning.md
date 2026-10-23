@@ -79,7 +79,7 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
 | T1 | S1, S3, S4 | inline | done | commit `35329a8`: `core/foot_contacts.py` `contact_spans(...)` + 11 tests (`tests/test_core_foot_contacts.py`); RED observed (ModuleNotFoundError), GREEN 11/11 first implementation, ruff clean |
 | T2 | S1, S2, S3, S4 | inline | done | commit `aa895a2`: `core/foot_ik.py` `pin_foot_contacts(...)` + `PinReport`; 11 tests RED first; exact toe solve GREEN, full suite green, ruff clean. `core/kinematics.py` grew public `compose`/`inverse`/`quaternion_between_directions`/`rotate_about_axis`/`joint_transforms` (additive, no behavior change) |
 | T3 | S1, S3 | inline | done | commit `a37c480`: `_pin_filled(...)` — pre-fill key frames stashed at `fill_inbetweens()` (`_fill_original_keys`), detection + `pin_foot_contacts` run at adoption (`_on_inbetweens_filled`) before the state lands; typed degradation without leg chains (fill adopted unpinned, note stays non-fatal); status line names pinned frames/spans/feet (and reach-clamped feet); stash cleared on failed/abandoned/stale paths. 3 controller tests RED first (`tests/test_gui_foot_pinning.py`), GREEN; M6 inbetween tests untouched; full suite green, ruff clean |
-| T4 | S1, S2 | inline | pending | GPU validation on the real clip (JACE_REF_04, keys 46/71 standing contact + 46/58/71): foot world drift across detected contact spans < S4 hold; FBX readback via the app's writer; keys reassertion intact |
+| T4 | S1, S2 | inline | done | probe `.engine/_e2e_foot_pinning.py` (real checkpoint, RTX 3080, JACE_REF_04.mov 30 fps): **A** keys 46/71 read NO contact (key-A toes L z 3.00 / R z 7.34, key drift 25.06/23.12 cm > 4 cm) -> detection empty, pass leaves the fill untouched - the negative control honest; **B** a real planted span IS found in the captured window 40..80: frames 40..55 with L_Foot planted; dense capture fill (14 anchors, no engine); BEFORE pin worst L toe drift 5.30 cm -> PinReport(1 span, 14 frames corrected, 0 clamp) -> AFTER pin 0.00 cm (exact), hold within POST_PIN_HOLD_CM asserted; keys byte-intact asserted; FBX `_e2e_jace_foot_pinned_40_55.fbx` for review |
 
 ## Log
 
@@ -150,3 +150,19 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
   failed twice mid-day under full-suite load and passed on base, alone, and in
   the final full run — environmental timing, not coupled to this change. T3
   committed; next T4 (GPU validation on the real clip).
+- **L8.** T4 closed (2026-10-23, probe `.engine/_e2e_foot_pinning.py`, real
+  checkpoint, RTX 3080, JACE_REF_04.mov): the planning assumption "keys 46/71
+  standing contact" is FALSE on the real clip — measured first-hand: key-A
+  toes L (0.99,-2.08,3.00), R (-25.46,-7.80,7.34), key drift 25.06/23.12 cm,
+  so detection correctly reads NO contact (A: the negative control, pin leaves
+  the dense fill untouched). A real planted contact WAS found in the captured
+  window (40..80): span 40..55, L_Foot planted the way the thresholds define
+  it; the dense-capture fill (14 anchor rows, no engine request) wobbled the
+  toe UP TO 5.30 cm BEFORE pin, and pin_foot_contacts corrected 14 frames with
+  zero clamping to 0.00 cm worst drift (the exact solve), held within the 0.5
+  cm budget end to end, keys byte-intact (asserted in the probe). The swing
+  foot (R) is untouched, as S2 mandates. FBX review artifact:
+  `.engine/_e2e_jace_foot_pinned_40_55.fbx`. Honest honest limiter: this clip
+  never settles longer than ~15 frames, so the validated span is short; a
+  longer held pose pins just the same (the mechanism is per interior row, not
+  span-length-dependent — the unit rig proves 24-row spans).
