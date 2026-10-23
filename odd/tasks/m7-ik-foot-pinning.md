@@ -25,30 +25,38 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
   by frame to mathematically pin the feet to the ground during calculated
   contacts, eliminating foot sliding entirely before writing the final `.fbx`
   file."*
-- **S3. (design shape, decided at planning 2026-10-23)** The pass is pure
-  domain math in `core/` and consumes the FK `core/kinematics.py` already
-  exposes (`joint_world_positions`; its docstring anticipates M7). Detection
-  reads the FOOT world positions (L/R_Ankle + L/R_Foot) at the two bounding
-  ORIGINAL keys of each span; a foot is "planted" across a span when both
-  readings sit at ground contact (world z ≤ tol ground) and their positions
-  agree within the key-side tolerance (both values pend the user's OQ8 answer,
-  S4). Pinning then corrects every non-original frame of that span — generated
+- **S3. (design shape, decided at planning 2026-10-23; refined the same day
+  during T1/T2 geometry review — Log L5, exact-solve truth in L6)** The pass
+  is pure domain math in `core/` and consumes the FK `core/kinematics.py`
+  already exposes (`joint_world_positions`, now standing on the public
+  `joint_transforms`). Detection reads the FOOT world positions (L/R_Foot toe balls) at the two bounding ORIGINAL keys
+  of each span; a foot is "planted" across a span when both readings sit at
+  ground contact and their positions agree within the key-side tolerance (S4).
+  Pinning then corrects every non-original frame of that span — generated
   engine rows AND capture-anchored rows (T9 fills included, uniform rule per
-  S1/S2 wording) — with a two-bone analytic IK that only rewrites
-  L/R_Hip + L/R_Knee rotations to land the ANKLE at the first key's contact
-  position (the ankle's own rotation is preserved, so foot roll stays exactly
-  as captured/created); the original key poses stay byte-untouched (the S1
-  pattern of M6). When BOTH feet are planted in the same span, the pelvis
-  height is kept within the feasibility band the two leg chains impose
-  (clamped between the two solvable heights, never below the highest ground
-  pin); a single planted foot never moves the pelvis. Ground z = 0 (the
-  `Pelvis` height convention: height is ground-to-hip). Penetration (a foot's
-  world z below 0) resolves inside the same pin pass. The pass runs at FILL
-  ADOPTION time (controller-side), so the animator scrubs an already-pinned
-  timeline in the viewport; the final export (M8) simply writes it. The
-  pre-fill original keys are known exactly there (after adoption the dense
-  keyframes are indistinguishable from generated ones, `core/resampling.py`
-  L230).
+  S1/S2 wording). **The pinned point is the FOOT (toe ball) — the same joint
+  detection reads —** landed at the first key's world contact position; a key
+  whose reading penetrates the ground (toe z below it) has its target lifted
+  to the ground plane, which is the pass's penetration correction. The leg
+  solve is analytic two-bone IK (hip + knee rotations, law-of-cosines angles,
+  knee pole taken from the frame's own knee direction so a bent leg bends the
+  way it already bends); the ankle's own local rotation is ALWAYS preserved,
+  so foot roll stays exactly as captured in every case. When BOTH feet are
+  planted in the same span, the
+  pelvis is lowered only as far as both leg chains require to reach their
+  pinned positions (never moved for a single planted foot), and never past the
+  point where an ankle would sink under its ground pin. An unreachable target
+  (the frame's own pelvis pose puts the contact beyond the leg's reach) is
+  clamped along the target direction to full leg reach and named in the
+  pass's report instead of failing the fill. The original key poses stay
+  byte-untouched (the S1 pattern of M6): the ≤ 4.0 cm detection tolerance is
+  the amount of drift the animator accepts at the far key by construction.
+  Ground z = 0 (the `Pelvis` height convention: height is ground-to-hip). The
+  pass runs at FILL ADOPTION time (controller-side), so the animator scrubs an
+  already-pinned timeline in the viewport; the final export (M8) simply writes
+  it. The pre-fill original keys are known exactly there (after adoption the
+  dense keyframes are indistinguishable from generated ones,
+  `core/resampling.py` L230).
 - **S4. (thresholds — open question 8 of `spec.md` §4, RESOLVED with the user
   2026-10-23: the balanced option)** Planting tolerance between the two
   bounding keys: **4.0 cm**
@@ -68,8 +76,8 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
 
 | ID | Spec | Route | Status | Evidence |
 | -- | ---- | ----- | ------ | -------- |
-| T1 | S1, S3, S4 | inline | pending | `core/foot_contacts.py`: `planted_feet(...)` — pure detection over a dense timeline + original-key frame list + named thresholds; unit-tested RED first (planted / swing / one-foot-on-ground-only / penetration-data cases) |
-| T2 | S1, S2, S3, S4 | inline | pending | `core/foot_ik.py`: two-bone analytic IK + `pin_foot_contacts(timeline, original_key_frames)`: rewrites only Hip/Knee rotations of pinned spans, keys byte-untouched, both-feet pelvis clamp, penetration fix, post-pin hold ≤ 0.5 cm; RED first |
+| T1 | S1, S3, S4 | inline | done | commit `35329a8`: `core/foot_contacts.py` `contact_spans(...)` + 11 tests (`tests/test_core_foot_contacts.py`); RED observed (ModuleNotFoundError), GREEN 11/11 first implementation, ruff clean |
+| T2 | S1, S2, S3, S4 | inline | done | commit `aa895a2`: `core/foot_ik.py` `pin_foot_contacts(...)` + `PinReport`; 11 tests RED first; exact toe solve GREEN, full suite green, ruff clean. `core/kinematics.py` grew public `compose`/`inverse`/`quaternion_between_directions`/`rotate_about_axis`/`joint_transforms` (additive, no behavior change) |
 | T3 | S1, S3 | inline | pending | Controller wiring: detection + pinning run in the fill-adoption path where the pre-fill keys are known; typed degradation without a rig; status line names the pinned spans |
 | T4 | S1, S2 | inline | pending | GPU validation on the real clip (JACE_REF_04, keys 46/71 standing contact + 46/58/71): foot world drift across detected contact spans < S4 hold; FBX readback via the app's writer; keys reassertion intact |
 
@@ -98,4 +106,33 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
   balanced thresholds with the question tool — 4.0 cm between the bounding
   keys, ≤ 6.0 cm above ground, 0.5 cm post-pin hold ("Balanceado 4 cm / 6 cm",
   the recommended option). spec.md §4 OQ8 rewritten in the same change set
-  (SDD rule). T1 starts right after with its RED first.
+  (SDD rule). T1 starts right after with its RED first. T1 landed: RED observed
+  (ModuleNotFoundError, 11 tests), GREEN 11/11 on the first implementation,
+  ruff clean; suite-neighbours green (kinematics + resampling).
+- **L5.** S3 refinement (T2 design, 2026-10-23): the PINNED point is the FOOT
+  (toe ball), not the ankle as first drafted. Reason, in one line: pinning the
+  ankle gives the pass only two rotational DOF against a three-DOF contact
+  target, so penetration ("resolve it", FR-IK-01) would be unfixable, and
+  the acceptance's "foot position stays constant" is exactly what the
+  toe measures. Locked in: the ankle's local roll stays byte-identical;
+  hip + knee rotate via the analytic two-bone solution; unreachable targets
+  clamp along the target direction to full reach and are NAMED in the pass
+  report, never failures.
+- **L6.** T2 geometry truth (2026-10-23, RED-to-GREEN debugging): the first
+  implementation ran a fixed-point loop (solve ankle two-bone, move the
+  provisional ankle by the toe residual, repeat) and it DIVERGED on the
+  standing case — a planted leg sits at the two-bone singularity (the ankle
+  target at full thigh+shank reach, knee straight), where each provisional
+  step amplifies (~2.5x) instead of contracting, and a pole recomputed from
+  the moving knee spins the thigh direction pass to pass. The exact repair:
+  with the ankle's roll FROZEN, the toe hangs off the KNEE's frame through
+  one effective rigid vector — shin offset + q3-rotated toe offset — so the
+  leg is a textbook two-bone chain whose END IS THE TOE. One closed-form
+  solve per frame per foot: no iteration, no singularity (the standing case
+  solves at d=101.1 against a 101.85 reach - strictly inside), roll always
+  preserved, penetration handled purely by the lifted target. The earlier
+  "penetration reorients the ankle" note in L5 is superseded: the exact
+  solve needs no reorientation. Evidence: `tests/test_core_foot_ik.py`, 11
+  tests; full suite green (pytest, 0 failures), ruff clean. T2 recorded in
+  commit `aa895a2`, T1 in `35329a8`. Next: T3 (controller wiring at fill
+  adoption) then T4 (GPU validation).
