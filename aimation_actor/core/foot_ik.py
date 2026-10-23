@@ -15,8 +15,9 @@ animator's threshold answer (spec.md open question 8, the balanced option):
   ground plane, which is the pass's penetration correction;
 - the leg solves with analytic two-bone IK; the knee pole comes from the
   frame's own knee direction so a bent leg bends the way it already bends;
-- the ankle's local rotation is never rewritten, so foot roll stays exactly
-  as captured or generated;
+- planted rows use one stable ankle-roll quaternion per continuous contact run;
+  original key poses remain untouched, while noisy generated-row roll is
+  smoothed so a planted foot does not visibly vibrate;
 - the pelvis is lowered only when BOTH feet must be solved in the same span,
   and only as far as a chain needs to reach its pinned position;
 - an unreachable target (the frame's own pelvis pose puts the contact beyond
@@ -54,7 +55,14 @@ from aimation_actor.core.kinematics import (
     rotate,
     rotate_about_axis,
 )
-from aimation_actor.core.models import JointData, JointPose, Skeleton, TimelineState, Vector3
+from aimation_actor.core.models import (
+    JointData,
+    JointPose,
+    Quaternion,
+    Skeleton,
+    TimelineState,
+    Vector3,
+)
 
 __all__ = ["POST_PIN_HOLD_CM", "PinReport", "pin_foot_contacts"]
 
@@ -115,6 +123,7 @@ def pin_foot_contacts(
         skeleton, poses, active, ground_z=ground_z
     )
     poles_by_span = _stable_poles(skeleton, poses, active)
+    rolls_by_span = _stable_rolls(skeleton, poses, active)
     for (left, right), feet in active:
         targets = {foot: targets_by_span[((left, right), foot)] for foot in sorted(feet)}
         spans_pinned.append((left, right))
@@ -123,6 +132,12 @@ def pin_foot_contacts(
         for frame in range(left + 1, right):
             pose = poses[frame]
             before = dict(pose)
+            for foot in sorted(feet):
+                _foot, ankle, _knee, _hip = _chain(skeleton, foot)
+                pose[ankle.name] = dataclasses.replace(
+                    pose[ankle.name],
+                    rotation=rolls_by_span[((left, right), foot)],
+                )
             if len(targets) >= 2:
                 # Only a span with both feet pinned may trade pelvis height
                 # for reach; a single planted foot never moves the pelvis.
@@ -233,6 +248,49 @@ def _stable_poles(
             for span in run:
                 result[(span, foot)] = pole
     return result
+
+
+def _stable_rolls(
+    skeleton: Skeleton,
+    poses: dict[int, dict[str, JointPose]],
+    active: list[tuple[tuple[int, int], set[str]]],
+) -> dict[tuple[tuple[int, int], str], Quaternion]:
+    """Use one averaged ankle-local roll across each planted contact run."""
+    result: dict[tuple[tuple[int, int], str], Quaternion] = {}
+    for foot, runs in _contact_runs(active).items():
+        _foot, ankle, _knee, _hip = _chain(skeleton, foot)
+        for run in runs:
+            frames = [run[0][0], *[right for _left, right in run]]
+            reference = poses[frames[0]][ankle.name].rotation
+            aligned: list[Quaternion] = []
+            for frame in frames:
+                rotation = poses[frame][ankle.name].rotation
+                dot = _quaternion_dot(reference, rotation)
+                aligned.append(rotation if dot >= 0.0 else _negate_quaternion(rotation))
+            roll = _average_quaternions(aligned)
+            for span in run:
+                result[(span, foot)] = roll
+    return result
+
+
+def _quaternion_dot(left: Quaternion, right: Quaternion) -> float:
+    return left.w * right.w + left.x * right.x + left.y * right.y + left.z * right.z
+
+
+def _negate_quaternion(value: Quaternion) -> Quaternion:
+    return Quaternion(w=-value.w, x=-value.x, y=-value.y, z=-value.z)
+
+
+def _average_quaternions(values: list[Quaternion]) -> Quaternion:
+    """Average nearby, hemisphere-aligned unit quaternions and renormalize."""
+    w = sum(value.w for value in values)
+    x = sum(value.x for value in values)
+    y = sum(value.y for value in values)
+    z = sum(value.z for value in values)
+    length = math.sqrt(w * w + x * x + y * y + z * z)
+    if length <= 1e-12:
+        return Quaternion.identity()
+    return Quaternion(w=w / length, x=x / length, y=y / length, z=z / length)
 
 
 def _contact_runs(
@@ -354,8 +412,8 @@ def _pin_toe_of(
     An unreachable target (the frame's pelvis puts the contact beyond the
     leg's reach) is clamped along the target direction to full leg reach, and
     the caller records the foot in the report. The ankle's local rotation
-    survives, so the foot roll stays exactly the frame's own. Exact: one
-    closed-form solve, no iteration.
+    has already been stabilized for this contact run. Exact: one closed-form
+    solve, no iteration.
     """
     foot_j, ankle_j, knee_j, hip_j = _chain(skeleton, foot)
     pelvis_j = _chain_pelvis(skeleton, foot)

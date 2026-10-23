@@ -1,9 +1,9 @@
 """Tests for the analytic foot-IK pin pass (M7, FR-IK-01, S1/S2/S3/S4).
 
 The pass corrects every non-original frame of a detected contact span: it
-rotates hip and knee (analytic two-bone), keeps the ankle's local roll for
-normal contacts, lifts-and-reorients for penetrating spans, lowers the pelvis
-only when both feet must be solved, and never touches the original keys.
+rotates hip and knee (analytic two-bone), smooths generated-row ankle roll
+across the contact run, lifts penetrating targets, lowers the pelvis only when
+both feet must be solved, and never touches the original keys.
 The same minimal leg rig as ``test_core_foot_contacts.py`` stands in for the
 production skeleton, since the pass is name-driven.
 
@@ -165,6 +165,24 @@ def test_pin_uses_one_stable_knee_pole_across_noisy_generated_rows() -> None:
     assert interior[0]["L_Knee"].rotation == interior[1]["L_Knee"].rotation
 
 
+def test_pin_uses_one_stable_ankle_roll_across_noisy_generated_rows() -> None:
+    """Planted contact rows use one stable foot-roll orientation."""
+    poses = {
+        0: _stand(),
+        1: _pose(L_Ankle=JointPose(rotation=rotation_x(3.0))),
+        2: _pose(L_Ankle=JointPose(rotation=rotation_x(-3.0))),
+        3: _pose(L_Ankle=JointPose(rotation=rotation_x(2.0))),
+        4: _stand(),
+    }
+    state = _state([_key(frame, pose) for frame, pose in poses.items()])
+
+    pinned, _report = pin_foot_contacts(state, (0, 4))
+
+    interior = [_pose_at(pinned, frame) for frame in (1, 2, 3)]
+    assert interior[0]["L_Ankle"].rotation == interior[1]["L_Ankle"].rotation
+    assert interior[1]["L_Ankle"].rotation == interior[2]["L_Ankle"].rotation
+
+
 def test_pin_keeps_the_original_keys_byte_identical() -> None:
     state = _dense()
     keys_before = [keyframe for keyframe in state.keyframes if keyframe.frame in (46, 71)]
@@ -175,14 +193,14 @@ def test_pin_keeps_the_original_keys_byte_identical() -> None:
     assert keys_after == keys_before
 
 
-def test_pin_preserves_the_ankles_local_roll_on_a_normal_contact() -> None:
+def test_pin_smooths_generated_ankle_roll_but_keeps_keys_untouched() -> None:
     drift_ankle = JointPose(rotation=rotation_x(7.0))
     state = _dense(_pose(L_Ankle=drift_ankle))
 
     pinned, _report = pin_foot_contacts(state, (46, 71))
 
     after = _pose_at(pinned, 55)
-    assert after["L_Ankle"].rotation == drift_ankle.rotation
+    assert after["L_Ankle"].rotation == Quaternion.identity()
 
 
 def test_pin_lifts_a_penetrating_span_and_lands_the_toe_on_ground() -> None:
@@ -190,8 +208,8 @@ def test_pin_lifts_a_penetrating_span_and_lands_the_toe_on_ground() -> None:
 
     The target is the first key's toe LIFTED to the ground plane (the pass's
     penetration correction): x/y stay at the key's contact, z lands exactly
-    0. The ankle's local roll still survives - the effective-shin solve
-    places the toe exactly without touching it.
+    0. Generated-row ankle roll is smoothed from the original contact run;
+    the effective-shin solve still places the toe exactly.
     """
     pen = _pose(
         Pelvis=JointPose(rotation=Quaternion.identity(), translation=Vector3(z=-40.0))

@@ -186,3 +186,12 @@ Requirements verbatim from `spec.md` §2 (FR-IK-01, :69) and the plan
   The remaining product decision is whether to smooth captured ankle roll for
   planted contacts, which would reduce vibration but could erase intentional
   foot-roll animation; the current S3 contract preserves that roll exactly.
+- **L11.** User chose to smooth the planted ankle roll (2026-10-23). The
+  controller leaves original key poses byte-identical but replaces each
+  generated planted row's ankle-local quaternion with a hemisphere-aligned,
+  normalized average of the original-key ankle rotations in that continuous
+  contact run. This intentionally prioritizes a visually stable planted foot
+  over preserving noisy/generated foot-roll micro-motion. Regression coverage
+  includes noisy generated ankle rows. Real-cache diagnostic after the fix:
+  toe displacement 0.000 cm, ankle-local rotation steps 0.000 degrees, knee
+  steps max 0.4 degrees; full pytest and ruff green.
