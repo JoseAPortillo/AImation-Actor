@@ -169,9 +169,18 @@ def test_pin_uses_one_stable_ankle_roll_across_noisy_generated_rows() -> None:
     """Planted contact rows use one stable foot-roll orientation."""
     poses = {
         0: _stand(),
-        1: _pose(L_Ankle=JointPose(rotation=rotation_x(3.0))),
-        2: _pose(L_Ankle=JointPose(rotation=rotation_x(-3.0))),
-        3: _pose(L_Ankle=JointPose(rotation=rotation_x(2.0))),
+        1: _pose(
+            L_Ankle=JointPose(rotation=rotation_x(3.0)),
+            L_Foot=JointPose(rotation=rotation_x(4.0)),
+        ),
+        2: _pose(
+            L_Ankle=JointPose(rotation=rotation_x(-3.0)),
+            L_Foot=JointPose(rotation=rotation_x(-4.0)),
+        ),
+        3: _pose(
+            L_Ankle=JointPose(rotation=rotation_x(2.0)),
+            L_Foot=JointPose(rotation=rotation_x(3.0)),
+        ),
         4: _stand(),
     }
     state = _state([_key(frame, pose) for frame, pose in poses.items()])
@@ -181,6 +190,8 @@ def test_pin_uses_one_stable_ankle_roll_across_noisy_generated_rows() -> None:
     interior = [_pose_at(pinned, frame) for frame in (1, 2, 3)]
     assert interior[0]["L_Ankle"].rotation == interior[1]["L_Ankle"].rotation
     assert interior[1]["L_Ankle"].rotation == interior[2]["L_Ankle"].rotation
+    assert interior[0]["L_Foot"].rotation == interior[1]["L_Foot"].rotation
+    assert interior[1]["L_Foot"].rotation == interior[2]["L_Foot"].rotation
 
 
 def test_pin_keeps_the_original_keys_byte_identical() -> None:

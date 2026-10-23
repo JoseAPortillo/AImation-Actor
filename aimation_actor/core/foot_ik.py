@@ -15,9 +15,9 @@ animator's threshold answer (spec.md open question 8, the balanced option):
   ground plane, which is the pass's penetration correction;
 - the leg solves with analytic two-bone IK; the knee pole comes from the
   frame's own knee direction so a bent leg bends the way it already bends;
-- planted rows use one stable ankle-roll quaternion per continuous contact run;
-  original key poses remain untouched, while noisy generated-row roll is
-  smoothed so a planted foot does not visibly vibrate;
+- planted rows use stable ankle/foot-local quaternions per continuous contact
+  run; original key poses remain untouched, while noisy generated-row foot
+  orientation is smoothed so a planted foot does not visibly vibrate;
 - the pelvis is lowered only when BOTH feet must be solved in the same span,
   and only as far as a chain needs to reach its pinned position;
 - an unreachable target (the frame's own pelvis pose puts the contact beyond
@@ -133,11 +133,12 @@ def pin_foot_contacts(
             pose = poses[frame]
             before = dict(pose)
             for foot in sorted(feet):
-                _foot, ankle, _knee, _hip = _chain(skeleton, foot)
-                pose[ankle.name] = dataclasses.replace(
-                    pose[ankle.name],
-                    rotation=rolls_by_span[((left, right), foot)],
-                )
+                foot_joint, ankle, _knee, _hip = _chain(skeleton, foot)
+                for joint in (ankle, foot_joint):
+                    pose[joint.name] = dataclasses.replace(
+                        pose[joint.name],
+                        rotation=rolls_by_span[((left, right), joint.name)],
+                    )
             if len(targets) >= 2:
                 # Only a span with both feet pinned may trade pelvis height
                 # for reach; a single planted foot never moves the pelvis.
@@ -255,21 +256,24 @@ def _stable_rolls(
     poses: dict[int, dict[str, JointPose]],
     active: list[tuple[tuple[int, int], set[str]]],
 ) -> dict[tuple[tuple[int, int], str], Quaternion]:
-    """Use one averaged ankle-local roll across each planted contact run."""
+    """Use averaged ankle/foot-local rotations across each contact run."""
     result: dict[tuple[tuple[int, int], str], Quaternion] = {}
     for foot, runs in _contact_runs(active).items():
-        _foot, ankle, _knee, _hip = _chain(skeleton, foot)
+        foot_joint, ankle, _knee, _hip = _chain(skeleton, foot)
         for run in runs:
             frames = [run[0][0], *[right for _left, right in run]]
-            reference = poses[frames[0]][ankle.name].rotation
-            aligned: list[Quaternion] = []
-            for frame in frames:
-                rotation = poses[frame][ankle.name].rotation
-                dot = _quaternion_dot(reference, rotation)
-                aligned.append(rotation if dot >= 0.0 else _negate_quaternion(rotation))
-            roll = _average_quaternions(aligned)
-            for span in run:
-                result[(span, foot)] = roll
+            for joint in (ankle, foot_joint):
+                reference = poses[frames[0]][joint.name].rotation
+                aligned: list[Quaternion] = []
+                for frame in frames:
+                    rotation = poses[frame][joint.name].rotation
+                    dot = _quaternion_dot(reference, rotation)
+                    aligned.append(
+                        rotation if dot >= 0.0 else _negate_quaternion(rotation)
+                    )
+                roll = _average_quaternions(aligned)
+                for span in run:
+                    result[(span, joint.name)] = roll
     return result
 
 
