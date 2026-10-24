@@ -25,7 +25,7 @@ Delivery: work-unit commits, no PR; test runner:
 | ID | Spec | Route | Status | Commit |
 | -- | ---- | ----- | ------ | ------ |
 | T1 | S1-S3 | inline | done | 7f883dc |
-| T2 | S1 | inline | pending | Blender round-trip validation of the exported final file (manual, in .engine). |
+| T2 | S1 | inline | done | Real-file round trip verified in `.engine/_e2e_foot_pinning_long.py` (probe, gitignored); spec FR-GEN-04 + release history flipped in the same change set. |
 
 ## Log
 
@@ -43,4 +43,19 @@ Delivery: work-unit commits, no PR; test runner:
   Success writes through the adapter with the default filename from the
   clip's stem. Seven new RED-first window tests + one production-composition
   test. Focused, full suite and Ruff green.
+- **L3.** T2 (2026-10-24): the exported final file was validated round trip
+  through Blender 5.2 (`anim_offset=0`), riding the real-clip e2e probe:
+  48 frames come back keyed with the hierarchy intact, worst local
+  translation delta 3.4e-05 cm, worst quaternion component 1.6e-06 (well
+  inside float32), and the pinned planted foot holds 0.000 cm after read
+  (target = the span's corrected anchor at `left+1`; the untouched key at
+  `left` sits 2.468 cm away — that is its captured value, not a defect).
+  The declared range is verified at the byte level: TimeSpanStart/Stop are
+  the exact KTimes of the state's `frame_start`/`frame_end`. Discovery:
+  Blender's FBX importer derives its scene range from fcurve extents and
+  ignores the declared TimeSpan, so a range wider than the keyframes is not
+  a Blender-visible setting (Maya/Autodesk honor it) — the file carries the
+  approved range, which is what FR-GEN-04 requires. Probe failures during
+  T2 were all probe-side (over-strict range assertion; wrong hold target;
+  Vector3/Quaternion iteration) — no writer defect surfaced.
 

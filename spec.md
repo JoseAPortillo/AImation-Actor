@@ -6,7 +6,7 @@
 > [`docs/Plan_AImation_Actor_EN.md`](docs/Plan_AImation_Actor_EN.md). Where this
 > file and the plan disagree on behavior, **the plan wins**.
 
-Status: Draft · v0.3.2 · Scope: MVP only
+Status: Draft · v0.6.2 · Scope: MVP only
 
 ## How to use (SDD)
 
@@ -66,8 +66,8 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | FR-GEN-01 | Must | ✅ | Human keys are locked as hard constraints; only gaps are filled. | Output equals input at every human key (within tolerance); nothing outside the first/last key. *(Landed in M6: `core/resampling.py`'s `fill_gap_synthetically` leaves keys byte-untouched by construction and refuses to write outside the locked span; guide frames are reasserted byte-exact at their video frames (T7/T8), and a gap whose capture covers every interior frame is filled straight from the capture with no engine request (T9). End-to-end on real capture keys 46/71: reassertion 0 mismatches across 26 captured frames.)* |
 | FR-GEN-02 | Must | 🟡 | Engine behind a Model Factory selectable from the GUI; MVP = CondMDI. | Swapping the engine needs no `core/` edits; CondMDI is the default. *(Landed in M6 T1/T4: `InbetweeningPort` + `model_factory.py` with typed `UnknownEngineError`; `main.py` builds BOTH engines through the factory (`capture_engine("hmr2")`, `inbetweening_engine()` → CondMDI default), so a swap needs no `core/` edit. 🟡 honest split: the factory + default are done; the factory call site still names the engine in code — no in-app picker yet, deferred while the MVP has exactly one inbetweening engine.)* |
 | FR-GEN-03 | Must | ✅ | Generation runs in a `QThread`, batch 1, FP16, cache released; stays ≤ 10 GB VRAM. | Same constraints as FR-CAP-05; long spans complete on target hardware. *(M6 T4/T5: `InbetweeningRunner` on a `QThread` with batch-1 refusals; the CondMDI bootstrap carries `half_precision`; measured on the real RTX 3080 with the real checkpoint: VRAM peak **1831–1832 MiB** per fill (10 GB budget met with ~5× headroom), **~64 s warm per fill** (~78 s first call incl. kernel warmup) at both span 64 and the near-full 193-sample window; typed non-fatal failures à la `PoseExtractionRunner`. The engine is out-of-process, isolated like the capture engine.)* |
-| FR-IK-01 | Must | ⬜ | Detect planted feet in the original keys; IK pins contacts (no sliding/penetration) before final export. | Foot position stays constant across a contact span within tolerance. |
-| FR-GEN-04 | Must | ⬜ | Export the approved final FBX (same conventions as blocking), preserving the frame range. | Output is a valid FBX; `frame_start`/`frame_end` match the import. |
+| FR-IK-01 | Must | ✅ | Detect planted feet in the original keys; IK pins contacts (no sliding/penetration) before final export. | Foot position stays constant across a contact span within tolerance. *(Landed in M7 (2026-10-23): threshold question 8 resolved at the balanced option (4.0 cm between keys, 6.0 cm above ground); M7 T4 real-clip e2e on JACE_REF_04 span 40..87: planted span detected, 14 rows pinned, toe hold ≤ 0.5 cm, zero clamps. M8 root-motion follow-up (2026-10-24): planting detection reads each toe against the body's frame (`_planting_read` subtracts the root's horizontal displacement) so captured root motion cannot fake drift — without it, an empty detection shipped sliding feet; same real clip re-detected the span, 14 rows pinned, hold ≤ 0.5 cm.)* |
+| FR-GEN-04 | Must | ✅ | Export the approved final FBX (same conventions as blocking), preserving the frame range. | Output is a valid FBX; `frame_start`/`frame_end` match the import. *(Landed in M8 (2026-10-24): `Ctrl+E` / File-menu "Export FBX…" in `MainWindow` calls `export_fbx()`, which feeds the controller's approved timeline — keys and adopted fills, since fills live as `Keyframe`s in the adopted state — to the real `BlenderFbxAdapter` binary writer (identical path to the blocking export, `frame_start`/`frame_end` declared exactly at KTime in the file); honest status-bar refusals (NFR-03): empty timeline, no writer configured, cancelled dialog, failed writes reported with the session usable. T2 round-trip validation on the real final file (Blender 5.2, `anim_offset=0`): 48 frames come back keyed with the hierarchy intact, worst local-translation delta 3.4e-05 cm, worst quaternion component 1.6e-06 (float32 margin), planted-foot hold 0.000 cm after read. Blender's importer itself derives its scene range from fcurve extents and ignores the declared TimeSpan — the file carries the approved range, which Maya/Autodesk honor; a range wider than the keyframes is therefore not a Blender-visible setting.)* |
 
 ## 3. Non-functional requirements
 
@@ -203,6 +203,9 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.4.7   | 2026-10-19 | The real HMR2.0 adapter landed behind `AIPort` (FR-CAP-05 stays 🟡): out-of-process persistent worker (checkpoint loads once, FP16 + `empty_cache()` per request), typed actionable failures, template-anchored `WorldPose` conversion (§4.13 anchor decided); open question 1 resolved (no start-time VRAM pre-check, typed per-request failure). Real-engine end-to-end probe remains. |
 | 0.4.8   | 2026-10-19 | T13 closed M5: `build_window` injects the real `Hmr2Adapter` and a rig source over its bind offsets; the production skeleton is real body-model data the controller adopts at the first extraction (FR-CAP-06, open question 10 resolved). The real-engine end-to-end probe verified FR-CAP-05: VRAM flat across keys (1328.1 MiB fp16-autocast, growth 0.0; 2.66 GB fp32), fp16 numerics mean 0.84 mm / max 3.68 mm vs fp32; the fp16 recipe is autocast around the whole pipeline (plain fp16 weights fail; a double frame conversion between worker and adapter was caught and fixed by the probe). |
 | 0.5.0   | 2026-10-23 | **M6 generative inbetweening landed (T1-T9, 2026-10-20..22)**: `InbetweeningPort` + Model Factory (T1), engine-agnostic sampling clock in `core/resampling.py` (T2), fake-tested `CondMDIAdapter` wire bridge (T3), `InbetweeningRunner` + `CaptureController.fill_inbetweens` + `G` action (T4), real out-of-process CondMDI worker on the vendored stack with measured VRAM/latency (T5), guide track S6 through worker/port/adapter/core/controller (T6-T8), and anchor-dense capture for narrow gaps (T9). FR-GEN-01 ✅, FR-GEN-02 🟡 (no in-app engine picker yet), FR-GEN-03 ✅ (1831 MiB / ~64 s per fill, real RTX 3080), NFR-02 ✅. Roadmap: **M7 (IK foot pinning) → M8 (final generative export)**. |
+| 0.6.0   | 2026-10-23 | **M7 IK foot pinning landed**: contact spans detected in the original keys (balanced thresholds: 4.0 cm between keys, 6.0 cm above ground), analytic two-bone pin holds planted toes within 0.5 cm with zero clamps, wired at fill adoption. FR-IK-01 ✅. |
+| 0.6.1   | 2026-10-24 | **M8 root-motion iteration**: captured HMR2 root trajectory on `Main` (first captured frame as origin, `Pelvis` residual height) + anchor-padded root-jitter smoothing at fill adoption + root-invariant planted-foot detection (`_planting_read`) — the last one fixed real sliding feet the root noise had un-detected (real e2e restored: (40,55) detected, 14 rows pinned, hold ≤ 0.5 cm). |
+| 0.6.2   | 2026-10-24 | **M8 final generative export landed**: File-menu "Export FBX…" / `Ctrl+E` writes the approved timeline (keys + fills) through the real binary FBX writer with the approved KTime range declared; honest status-bar refusals; real-file round-trip through Blender verified 48 frames / float32-exact / pinned foot held (FR-GEN-04 ✅). Feature doc: `odd/tasks/m8-final-export.md`. |
 
 ## 6. Session state (resume here)
 
@@ -333,13 +336,16 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 **Next**
 
-1. **M7 — IK foot pinning (FR-IK-01).** Detect planted feet in the original
-   keys and pin contacts (no sliding/penetration) before the final export.
-   Open question 8 (the numeric threshold for "no foot sliding") resolves here.
+1. ✅ **M7 — IK foot pinning (FR-IK-01) landed (2026-10-23).** Threshold
+   question 8 resolved at the balanced option (4.0 cm between keys, 6.0 cm
+   above the ground); real-clip e2e verified on JACE_REF_04 (span 40..87).
    Feature doc: `odd/tasks/m7-ik-foot-pinning.md`.
-2. Then **M8 — final generative export (FR-GEN-04)**: the approved timeline
-   (keys + fills) exported with the blocking FBX conventions, frame range
-   preserved.
+2. ✅ **M8 — final generative export (FR-GEN-04) landed (2026-10-24).** The
+   approved timeline (keys + fills) exported from the GUI with the blocking
+   FBX conventions, frame range preserved. Feature doc:
+   `odd/tasks/m8-final-export.md`. The M8 root-motion iteration (captured
+   trajectory on `Main`, root-jitter smoothing, root-invariant contact
+   detection) rode this milestone: `odd/tasks/m8-root-motion.md`.
 3. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
    while the MVP has exactly one inbetweening engine; revisit with the second
    engine.
