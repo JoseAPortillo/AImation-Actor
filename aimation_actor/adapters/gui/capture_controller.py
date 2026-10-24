@@ -230,6 +230,11 @@ class CaptureController(QObject):
         self._inbetweener = inbetweener
         self._inbetween_generation: int | None = None
         self._root_origin: Vector3 | None = None
+        # M8 S8: the animator's real distance to the subject at the first
+        # captured key, in metres; it calibrates the depth channel once per
+        # clip (the camera-space estimate carries a ~30x focal assumption).
+        self.subject_distance_m = 3.0
+        self._depth_scale = 1.0
         # M7: the pre-fill human keys the pin pass must detect contacts from.
         # After a fill the generated rows are indistinguishable from keys, so
         # the frame list is captured at request time and consumed at adoption.
@@ -355,6 +360,7 @@ class CaptureController(QObject):
         # Indexing depends on this clip's own metadata, so it is re-proved here.
         self._frames_are_indexed = False
         self._root_origin = None
+        self._depth_scale = 1.0
         fps = reported_fps if reported_fps > 0.0 else self._state.fps
         total = max(1, int(math.floor(duration_ms / 1000.0 * fps)))
         # Keys belong to the clip that was loaded when they were marked, so a new
@@ -578,18 +584,41 @@ class CaptureController(QObject):
         return True
 
     def _build_production_pose(self, pose: WorldPose) -> dict[str, JointPose]:
-        """Apply the first captured root position as this clip's origin."""
+        """Apply the first captured root position as this clip's origin.
+
+        M8 S8: the depth channel of camera-space translation carries HMR2's
+        telephoto focal assumption (~30x), so relative depth is calibrated
+        once per clip against the animator's known subject distance at the
+        first key. Lateral and vertical channels self-calibrate through the
+        projection (the focal cancels) and stay untouched; an origin without
+        a credible depth keeps the historical 1:1 behavior (S4).
+        """
         if self._root_origin is None:
             self._root_origin = pose.root_translation
+            self._depth_scale = self._compute_depth_scale(pose.root_translation)
         origin = self._root_origin
+        scale = self._depth_scale
         relative = Vector3(
             x=pose.root_translation.x - origin.x,
-            y=pose.root_translation.y - origin.y,
+            y=(pose.root_translation.y - origin.y) * scale,
             z=pose.root_translation.z - origin.z,
         )
         return build_production_pose(
             replace(pose, root_translation=relative), self._state.skeleton
         )
+
+    def _compute_depth_scale(self, origin: Vector3) -> float:
+        """cm-per-cm factor mapping the estimated depth span onto metres.
+
+        ``origin.y`` is ``-tz * 100`` in camera metres; a first frame that did
+        not report a physical distance (missing, zero, or below a half metre
+        — inside which the weak-perspective fit is meaningless) gets no
+        calibration rather than a fabricated one.
+        """
+        tz_first_m = -origin.y / 100.0
+        if not math.isfinite(tz_first_m) or tz_first_m < 0.5:
+            return 1.0
+        return self.subject_distance_m / tz_first_m
 
     def _on_pose_failed(self, frame_index: int, message: str) -> None:
         """Report a failed extraction; the session and prior keys survive (FR-CAP-07)."""

@@ -364,9 +364,20 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   inbetween wire, and exports it; the fill adoption applies a robust jitter
   filter (median-3 ×2, then a quarter-half-quarter average, anchor-padded) to
   interior rows' `Main` translation while original keys keep their exact
-  captured values. HMR2 remains a single-image weak-perspective
-  estimator, so absolute scale and camera-motion separation are best-effort;
-  validate long clips against the reference video.
+  captured values. Two M8 fixes made forward motion real (2026-10-24): the
+  worker no longer feeds HMR2 a full-frame box but auto-detects the largest
+  qualifying person per frame (torchvision Faster R-CNN MobileNetV3, COCO
+  weights, honest full-frame fallback), and the half-precision focal-length
+  overflow that had made **every** root depth `+inf` (hence silently zero) is
+  fixed (fp32; the detector costs ~0.03 s and ~100 MB of resident VRAM per
+  frame on an RTX 3080). Camera-space depth still carries the engine's telephoto focal
+  assumption, so the controller calibrates the relative depth once per clip by
+  `subject_distance_m / tz_first` (default 3 m, the animator's real distance
+  to the subject at the first key — lateral and vertical channels
+  self-calibrate through the projection); a GUI setting for that distance is
+  still pending. HMR2 remains a single-image weak-perspective estimator, so
+  absolute scale and camera-motion separation are best-effort; validate long
+  clips against the reference video.
 - **Bent-knee prior on webcam footage (crop hypothesis tested and falsified,
   2026-10-24).** The animator reported Golden Poses exported with knees deeply
   flexed (~40–55°), toes off the ground, and hip-forward offsets on a clip of
