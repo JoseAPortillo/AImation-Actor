@@ -27,6 +27,15 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
    trajectory.
    Acceptance: missing/invalid translation is zero-relative and non-fatal.
    Checks: adapter fallback tests and full suite.
+5. **S5 — Reduce root-jitter noise.** The captured root trajectory is too
+   noisy for the animator ("tiene ruido el movimiento demasiado"). Interior
+   filled/captured rows must have their `Main` translation jitter-reduced
+   while original keyframes keep their exact captured values.
+   Acceptance: a robust temporal filter on interior `Main` translations
+   dampens frame-to-frame jitter, preserves linear motion exactly, never
+   touches original key frames, and runs before foot contact detection so
+   pinning sees the smoothed root. Checks: core smoothing tests and fill
+   adoption tests.
 
 ## Tasks
 
@@ -35,6 +44,7 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
 | T1 | S1, S2 | inline | done | HMR2 response now returns pelvis/root camera translation; adapter converts camera `(x,y,z)` to domain `(x,-z,y)`; `WorldPose.root_translation`; controller subtracts the first captured frame; `build_production_pose` carries relative X/Y/Z on `Main` and removes root Z from the local Pelvis offset. Tests cover mapping and controller origin. |
 | T2 | S1, S3 | inline | done | CondMDI worker carries root translation through FK, decoded root positions, canonical-yaw restoration, and `_frame_to_wire`; `Main.trans` is no longer forced to zero. Wire regression covers decoded translation. |
 | T3 | S3, S4 | inline | done | Missing HMR root translation falls back to zero-relative behavior; existing fake engines remain compatible through the default `WorldPose.root_translation`. |
+| T5 | S5 | inline | done | `smooth_root_path`/`smooth_root_trajectory` in `core/services.py` (median-3 ×2 + quarter-half-quarter average, anchor-padded windows); wired into `_on_inbetweens_filled` before the pin pass; keys always kept by object identity. Real 48-frame probe: successive-root jitter mean 1.77→1.06 cm, max 8.05→3.46 cm. Shortcut fill adoption test plus ramp/zigzag/outlier core tests. |
 | T4 | S1-S4 | inline | partial | Real 48-frame probe 40..87 completed and wrote `.engine/_e2e_jace_root_motion_40_87.fbx`. HMR2 produced finite relative root X ≈ −32 cm and Z ≈ −0.23 cm over the range, but depth was invalid on some rows and fell back to zero; no planted contact met the 4 cm threshold after root motion, so foot pinning was not claimed. Subject crop/detector or temporal root source remains required for full acceptance. |
 
 ## Log
@@ -67,3 +77,17 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
   applied no foot pinning. This proves the safety/fallback path, not full root
   trajectory quality; T4 remains partial pending a reliable subject crop or
   temporal root estimator.
+- **L7.** User feedback, verbatim: *"mejor pinta, tiene ruido el movimiento
+  demasiado para mi gusto, pero como punto de partida esta bastante bien."*
+  Accepted as the starting point, but noise reduction is now requested (S5).
+- **L8.** T5 (2026-10-24): a pure, anchor-padded robust filter
+  (`core/services.py`: two median-3 passes, then a quarter-half-quarter
+  average) damps the interior rows' `Main` translation exactly where the fill
+  is adopted, before foot-contact detection; original keys keep their exact
+  captured value objects. Unit proofs: linear motion preserved exactly, one
+  20 cm outlier deleted (>99.99%), period-2 alternation halved at the window
+  edges and near-zeroed in the interior. Real 48-frame probe on the JACE clip:
+  successive-root delta mean 1.77→1.06 cm, max 8.05→3.46 cm, regenerated
+  `.engine/_e2e_jace_root_motion_40_87.fbx` smoothed. Full suite and Ruff
+  green (HMR adapter tests run separately as usual).
+
