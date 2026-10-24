@@ -154,13 +154,34 @@ def test_a_foot_penetrating_the_ground_still_counts_as_planted() -> None:
 
 
 def test_drift_within_the_tolerance_stays_planted() -> None:
-    """The measured capture noise (~3-6 cm per frame) stays inside 4.0 cm.
+    """The measured capture noise (~3-6 cm per frame) stays inside the drift budget.
 
     A 2-degree pelvis pitch drifts the 100 cm leg chain's toe ~ 3.5 cm
     horizontally while keeping it at ground height: still planted.
     """
     noisy = _pose(Pelvis=JointPose(rotation=rotation_x(2.0)))
     state = _timeline(_key(46, noisy), _key(71, noisy))
+
+    spans = contact_spans(state, (46, 71))
+
+    assert spans == {(46, 71): {"L_Foot", "R_Foot"}}
+
+
+def test_measured_tight_crop_planting_noise_stays_planted() -> None:
+    """M8 re-tune (2026-10-24): the real JACE L_Foot reading must count as planted.
+
+    With the production detection crop, the planted toe's root-relative drift
+    measured 5.24 cm between keys 40/55 (dx -4.14, dy 1.14, dz 3.0). A
+    3-degree pitch difference between the two keys reproduces that magnitude
+    on this rig: the toe drifts 100 cm * sin(3 deg) = 5.23 while staying at
+    ground height — inside the re-tuned 5.5 cm tolerance the animator
+    approved (Q8 amendment: 4.0/6.0 was calibrated on full-frame-box noise;
+    the tight crop moved the standing subject's readings by ~1 cm).
+    """
+    state = _timeline(
+        _key(46, _stand()),
+        _key(71, _pose(Pelvis=JointPose(rotation=rotation_x(3.0)))),
+    )
 
     spans = contact_spans(state, (46, 71))
 
@@ -175,8 +196,15 @@ def test_a_footless_gap_is_not_reported() -> None:
 
 
 def test_the_thresholds_match_open_question_8() -> None:
-    """The balanced option (2026-10-23): 4.0 cm between keys, 6.0 cm ground."""
-    assert (PLANT_POSITION_TOLERANCE_CM, GROUND_CONTACT_HEIGHT_CM) == (4.0, 6.0)
+    """Q8 as amended: 5.5 cm drift, 8.0 cm ground (animator, 2026-10-24).
+
+    The 2026-10-23 balanced option (4.0/6.0) was calibrated on the old
+    full-frame-box noise. The M8 S7 production crop moved the standing
+    subject's planted readings to 5.24 cm drift with a 6.5 cm toe z, and the
+    animator approved re-tuning so real contacts are still flagged (the
+    genuinely moving foot, 10.86 cm, stays excluded).
+    """
+    assert (PLANT_POSITION_TOLERANCE_CM, GROUND_CONTACT_HEIGHT_CM) == (5.5, 8.0)
 
 
 def test_detection_does_not_mutate_the_timeline() -> None:

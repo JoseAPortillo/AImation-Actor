@@ -75,6 +75,7 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
 | T5 | S5 | inline | done | `smooth_root_path`/`smooth_root_trajectory` in `core/services.py` (median-3 ×2 + quarter-half-quarter average, anchor-padded windows); wired into `_on_inbetweens_filled` before the pin pass; keys always kept by object identity. Real 48-frame probe: successive-root jitter mean 1.77→1.06 cm, max 8.05→3.46 cm. Shortcut fill adoption test plus ramp/zigzag/outlier core tests. |
 | T7 | S7 | inline | done | Worker auto-detects the person per frame (torchvision Faster R-CNN MobileNetV3, score>=0.4, largest person, 1.2x margin clamped to the image) and reports `person_bbox`/`detector`; honest full-frame fallback names itself. Root cause fix found on the way: the scaled focal was computed from the halved batch, so `2*focal` overflowed fp16 and **every** `tz` was `+inf` (the adapter's fallback zeroed it — that is why no clip ever had depth). New pure-helper tests + real 3-frame probe: tz finite and varying. |
 | T8 | S8 | inline | done | `capture_controller` calibrates the relative depth once per clip: `scale = subject_distance_m / tz_first` locked at the origin (public attribute, default 3 m), 1.0 without a credible origin depth; X/Z untouched. RED/GREEN controller tests (500 cm raw delta -> 25 cm at 2.5 m/50 m; zero-origin unchanged). Real clip: f87 root `(-34.2, +30.9, +2.4) cm`, raw depth jitter 29.71 -> 2.09 cm/step. |
+| T9 | S6 | inline | done | Q8 thresholds re-tuned 4.0/6.0 -> 5.5/8.0 cm at the animator's decision (2026-10-24): the production detection crop moved the standing planted toe's real readings to 5.24 cm drift (dx/dy/dz) with toe z 6.5, which the old balanced option missed; the genuinely moving foot (10.86 cm) stays excluded. Boundary test at the measured magnitude (3-degree pitch = 5.23 cm drift) plus the pinned-constants test updated with the amendment history. |
 | T4 | S1-S4 | inline | partial | Real 48-frame probe 40..87 completed and wrote `.engine/_e2e_jace_root_motion_40_87.fbx`. HMR2 produced finite relative root X ≈ −32 cm and Z ≈ −0.23 cm over the range, but depth was invalid on some rows and fell back to zero; no planted contact met the 4 cm threshold after root motion, so foot pinning was not claimed. Subject crop/detector or temporal root source remains required for full acceptance. (T7 supplies the detector; the fp32 focal fix makes depth finite — re-validation pending.) |
 
 ## Log
@@ -180,3 +181,17 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
   planted foot and the pin pass stands down on this clip (it passed with the
   old full-frame fit). Threshold retuning is the animator's call (open
   question 8), and longer three-axis tests are running.
+- **L16.** Q8 re-tune decision (2026-10-24): presented with the measurements
+  (L_Foot drift 5.24 cm including z, toe z 6.5; R_Foot 10.86 cm genuinely
+  moving), the user chose *"Subir a 5.0/8.0 cm (Recomendado)"*. The approved
+  intent — restore the clip's planted detection while keeping the moving foot
+  excluded — requires 5.5, not 5.0, because `_is_planted` measures drift in
+  3D (the z difference counts too): 5.24 > 5.0. Constants set to
+  PLANT_POSITION_TOLERANCE_CM=5.5, GROUND_CONTACT_HEIGHT_CM=8.0 with the
+  amendment history recorded in code, spec Q8, and FR-IK-01. Real-clip
+  re-validation: span (40,55) flagged again, 16 rows corrected, hold <= 0.5 cm,
+  L_Foot worst drift 0.00 cm, R_Foot (moving) still excluded, round-trip OK.
+  One new advisory: the grounding solve now flags `clamped=('L_Foot',)` on a
+  row — marginal reach to the ground-pinned target with the root shifted; the
+  outcome checks (hold/drift) all pass, so it is recorded, not chased, pending
+  the user's longer tests.

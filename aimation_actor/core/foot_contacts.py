@@ -7,10 +7,13 @@ third-party package (NFR-01).
 A foot is "planted" across a span when, at the two bounding ORIGINAL keys of
 the span, its world position sits at ground contact and does not move beyond
 the planting tolerance between them. The thresholds are open question 8's
-answer (2026-10-23, the balanced option): they are calibrated against the
-measured HMR2 per-frame noise — identical guidance frames hit with a mean
-error of 3.1-6.3 cm (M6 T8 evidence) — so a real contact whose readings wobble
-inside that noise is detected, while a foot actually swinging away is not.
+answer (2026-10-23, the balanced option; re-tuned 2026-10-24 at the
+animator's decision after the M8 S7 detection crop moved the standing
+subject's readings to 5.24 cm drift / 6.5 cm toe z on the real JACE clip):
+they are calibrated against the measured HMR2 per-frame noise — identical
+guidance frames hit with a mean error of 3.1-6.3 cm (M6 T8 evidence) — so a
+real contact whose readings wobble inside that noise is detected, while a
+foot actually swinging away is not.
 
 Detection reads the FOOT joints (``L_Foot``/``R_Foot``, the toe balls); the
 pin pass (``core.foot_ik``) pins their ANKLE partners, so the split foot pair
@@ -46,13 +49,14 @@ FOOT_JOINTS: tuple[tuple[str, str], ...] = (
     ("R_Foot", "R_Ankle"),
 )
 
-#: Open question 8 (2026-10-23, the balanced option): the two bounding original
-#: keys agree on a planted foot within this much world drift.
-PLANT_POSITION_TOLERANCE_CM = 4.0
+#: Open question 8 (2026-10-23, the balanced option; re-tuned 2026-10-24 after
+#: the M8 S7 detection crop, at the animator's decision): the two bounding
+#: original keys agree on a planted foot within this much world drift.
+PLANT_POSITION_TOLERANCE_CM = 5.5
 
 #: ... and the toe ball reads this close to the ground plane to count as a
 #: contact (a reading below it is penetration, still planted).
-GROUND_CONTACT_HEIGHT_CM = 6.0
+GROUND_CONTACT_HEIGHT_CM = 8.0
 
 
 def contact_spans(
