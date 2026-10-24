@@ -1,9 +1,9 @@
-"""Tests for the analytic foot-IK pin pass (M7, FR-IK-01, S1/S2/S3/S4).
+"""Tests for the analytic foot-IK pin pass (M7/M8, FR-IK-01, S1/S2/S3/S4).
 
 The pass corrects every non-original frame of a detected contact span: it
 rotates hip and knee (analytic two-bone), smooths generated-row ankle roll
-across the contact run, lifts penetrating targets, lowers the pelvis only when
-both feet must be solved, and never touches the original keys.
+across the contact run, lifts penetrating targets, and has an explicit
+per-foot grounding mode for contacts that need key correction.
 The same minimal leg rig as ``test_core_foot_contacts.py`` stands in for the
 production skeleton, since the pass is name-driven.
 
@@ -202,6 +202,26 @@ def test_pin_keeps_the_original_keys_byte_identical() -> None:
 
     keys_after = [keyframe for keyframe in pinned.keyframes if keyframe.frame in (46, 71)]
     assert keys_after == keys_before
+
+
+def test_per_foot_grounding_corrects_contact_keys_without_moving_main() -> None:
+    """The trial mode grounds each planted foot through its own IK chain."""
+    floating = _pose(
+        Main=JointPose(rotation=Quaternion.identity(), translation=Vector3(z=3.0))
+    )
+    state = _dense(drifted=floating)
+
+    corrected, report = pin_foot_contacts(
+        state,
+        (46, 71),
+        preserve_original_keys=False,
+        ground_contacts=True,
+    )
+
+    assert report.feet_pinned == ("L_Foot", "R_Foot")
+    assert corrected.keyframes[0].pose["Main"] == state.keyframes[0].pose["Main"]
+    assert _toe(corrected, 46, "L_Foot").z == pytest.approx(0.0, abs=1e-6)
+    assert _toe(corrected, 71, "R_Foot").z == pytest.approx(0.0, abs=1e-6)
 
 
 def test_pin_smooths_generated_ankle_roll_but_keeps_keys_untouched() -> None:

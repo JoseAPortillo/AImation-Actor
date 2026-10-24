@@ -16,16 +16,16 @@ animator's threshold answer (spec.md open question 8, the balanced option):
 - the leg solves with analytic two-bone IK; the knee pole comes from the
   frame's own knee direction so a bent leg bends the way it already bends;
 - planted rows use stable ankle/foot-local quaternions per continuous contact
-  run; original key poses remain untouched, while noisy generated-row foot
-  orientation is smoothed so a planted foot does not visibly vibrate;
-- the pelvis is lowered only when BOTH feet must be solved in the same span,
-  and only as far as a chain needs to reach its pinned position;
+  run; default pinning leaves original key poses untouched, while the explicit
+  grounding trial may correct the contact keys through each foot's own chain;
+- default pinning lowers the pelvis only when BOTH feet must be solved in the
+  same span; grounding mode may lower local Pelvis for reach, never Main;
 - an unreachable target (the frame's own pelvis pose puts the contact beyond
   the leg's reach) is clamped along the target direction to full leg reach
   and NAMED in the pass's report instead of failing the fill;
-- the original key poses stay byte-untouched (the S1 pattern of M6); the
-  detection tolerance is the drift the animator accepts at the far key by
-  construction.
+- default pinning keeps the original key poses byte-untouched (the S1 pattern
+  of M6); the explicit grounding mode is the approved per-foot cleanup path
+  for contacts that the capture itself placed above the floor.
 
 The exact solve. With the ankle's roll frozen, forward kinematics factors
 the toe's position in a way two separate segments cannot: the toe hangs off
@@ -96,8 +96,10 @@ def pin_foot_contacts(
     original_key_frames: tuple[int, ...],
     *,
     ground_z: float = 0.0,
+    preserve_original_keys: bool = True,
+    ground_contacts: bool = False,
 ) -> tuple[TimelineState, PinReport]:
-    """Hold every detected planted foot across its span; keys stay untouched.
+    """Hold every detected planted foot across its span.
 
     ``original_key_frames`` lists the pre-fill human keys - detection's input,
     because after a fill the dense keyframes are indistinguishable from the
@@ -106,6 +108,10 @@ def pin_foot_contacts(
     The timeline itself is never mutated: poses are copied per frame and a new
     state is composed, so callers can compare keyframe equality freely and the
     original ``Keyframe`` objects survive for untouched frames.
+    ``preserve_original_keys`` is the default safe mode. The opt-in grounding
+    trial corrects the contact keys through each foot's own IK chain, while
+    ``ground_contacts`` makes those individual targets land on ``ground_z``.
+    Neither option moves ``Main`` or lowers the pelvis.
     """
     spans = contact_spans(timeline, original_key_frames, ground_z=ground_z)
     skeleton = timeline.skeleton
@@ -120,7 +126,7 @@ def pin_foot_contacts(
     frames_corrected = 0
 
     targets_by_span = _stable_targets(
-        skeleton, poses, active, ground_z=ground_z
+        skeleton, poses, active, ground_z=ground_z, ground_contacts=ground_contacts
     )
     poles_by_span = _stable_poles(skeleton, poses, active)
     rolls_by_span = _stable_rolls(skeleton, poses, active)
@@ -129,7 +135,9 @@ def pin_foot_contacts(
         spans_pinned.append((left, right))
         feet_pinned.update(targets)
 
-        for frame in range(left + 1, right):
+        frame_start = left + 1 if preserve_original_keys else left
+        frame_stop = right if preserve_original_keys else right + 1
+        for frame in range(frame_start, frame_stop):
             pose = poses[frame]
             before = dict(pose)
             for foot in sorted(feet):
@@ -139,7 +147,7 @@ def pin_foot_contacts(
                         pose[joint.name],
                         rotation=rolls_by_span[((left, right), joint.name)],
                     )
-            if len(targets) >= 2:
+            if len(targets) >= 2 or ground_contacts:
                 # Only a span with both feet pinned may trade pelvis height
                 # for reach; a single planted foot never moves the pelvis.
                 _lower_pelvis_to_reach(skeleton, pose, targets)
@@ -174,6 +182,7 @@ def _stable_targets(
     active: list[tuple[tuple[int, int], set[str]]],
     *,
     ground_z: float,
+    ground_contacts: bool = False,
 ) -> dict[tuple[tuple[int, int], str], Vector3]:
     """Use one robust contact target across each continuous planted run.
 
@@ -205,7 +214,11 @@ def _stable_targets(
             target = Vector3(
                 x=median(reading.x for reading in readings),
                 y=median(reading.y for reading in readings),
-                z=max(ground_z, median(reading.z for reading in readings)),
+                z=(
+                    ground_z
+                    if ground_contacts
+                    else max(ground_z, median(reading.z for reading in readings))
+                ),
             )
             for span in run:
                 result[(span, foot)] = target

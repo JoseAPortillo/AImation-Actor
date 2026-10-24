@@ -817,7 +817,7 @@ class CaptureController(QObject):
         self._emit_status(
             actionable=(
                 f"Generated {len(key_frames(filled)) - before} inbetween frames "
-                f"between {before} golden poses (keys untouched).{pin_note}"
+                f"between {before} golden poses.{pin_note}"
             )
         )
 
@@ -838,7 +838,12 @@ class CaptureController(QObject):
         if missing:
             return filled, f" Foot pinning skipped (no joints: {', '.join(missing)})."
         try:
-            pinned, report = pin_foot_contacts(filled, keys)
+            pinned, report = pin_foot_contacts(
+                filled,
+                keys,
+                preserve_original_keys=False,
+                ground_contacts=True,
+            )
         except ValueError as error:
             # e.g. an incomplete leg chain (a joint's parent is missing).
             return filled, f" Foot pinning skipped ({error})."

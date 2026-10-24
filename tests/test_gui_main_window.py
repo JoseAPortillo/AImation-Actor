@@ -258,7 +258,7 @@ def test_g_runs_the_fill_off_the_ui_thread_and_reports_the_outcome(
         WorldPose(translation=Vector3(z=140.0), rotations={}), _skeleton()
     )
     assert guides == {frame: guides_at for frame in range(1, 10)}  # 0..10 is dense
-    assert "(keys untouched)" in window.statusBar().currentMessage()
+    assert "Generated" in window.statusBar().currentMessage()
 
 
 def test_the_open_action_hands_the_path_to_the_controller(

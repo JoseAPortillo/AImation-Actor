@@ -114,6 +114,14 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
   worst toe drift across the un-pinned R_Foot remains ~7.75 cm — its 8.68 cm
   body-relative drift exceeds the 4 cm plant tolerance, i.e. that foot is
   genuinely moving in the capture, not a detection artifact. The regenerated
-  `.engine/_e2e_jace_root_motion_40_87.fbx` now carries the pinned planted
-  foot.
-
+   `.engine/_e2e_jace_root_motion_40_87.fbx` now carries the pinned planted
+   foot.
+- **L11.** User-selected per-foot grounding trial (2026-10-24): the IK pass
+  now has an explicit `preserve_original_keys=False, ground_contacts=True`
+  mode used by fill adoption. It corrects only the detected planted leg
+  chains, may lower local `Pelvis` for reach, and never moves global `Main`.
+  Real JACE e2e: 16 frames corrected, zero clamps, `L_Foot` worst drift
+  reduced from 5.90 cm to 0.00 cm, `R_Foot` remained unpinned at 7.74 cm,
+  hold ≤ 0.5 cm across 40..55, and Blender round-trip passed. The default
+  pin API still preserves original keys; this opt-in cleanup is the approved
+  exception for planted contact keys.
