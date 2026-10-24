@@ -35,7 +35,7 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
 | T1 | S1, S2 | inline | done | HMR2 response now returns pelvis/root camera translation; adapter converts camera `(x,y,z)` to domain `(x,-z,y)`; `WorldPose.root_translation`; controller subtracts the first captured frame; `build_production_pose` carries relative X/Y/Z on `Main` and removes root Z from the local Pelvis offset. Tests cover mapping and controller origin. |
 | T2 | S1, S3 | inline | done | CondMDI worker carries root translation through FK, decoded root positions, canonical-yaw restoration, and `_frame_to_wire`; `Main.trans` is no longer forced to zero. Wire regression covers decoded translation. |
 | T3 | S3, S4 | inline | done | Missing HMR root translation falls back to zero-relative behavior; existing fake engines remain compatible through the default `WorldPose.root_translation`. |
-| T4 | S1-S4 | inline | pending | — |
+| T4 | S1-S4 | inline | partial | Real 48-frame probe 40..87 completed and wrote `.engine/_e2e_jace_root_motion_40_87.fbx`. HMR2 produced finite relative root X ≈ −32 cm and Z ≈ −0.23 cm over the range, but depth was invalid on some rows and fell back to zero; no planted contact met the 4 cm threshold after root motion, so foot pinning was not claimed. Subject crop/detector or temporal root source remains required for full acceptance. |
 
 ## Log
 
@@ -58,3 +58,12 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
   threshold after root motion was applied, so it did not claim a pinned span.
   T4 stays pending until a subject crop/detector or temporal root-motion source
   makes the trajectory reliable enough for a moving-contact validation.
+- **L6.** T4 partial result (2026-10-24): the 48-frame real probe completed
+  safely after the finite-axis fallback. It measured relative root X ≈ −32 cm
+  and Z ≈ −0.23 cm across 40..87; invalid depth remained zero rather than
+  becoming NaN. The exported review artifact is
+  `.engine/_e2e_jace_root_motion_40_87.fbx`. Because the resulting world foot
+  readings no longer met the 4 cm planting threshold, the probe deliberately
+  applied no foot pinning. This proves the safety/fallback path, not full root
+  trajectory quality; T4 remains partial pending a reliable subject crop or
+  temporal root estimator.
