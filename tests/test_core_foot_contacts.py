@@ -201,3 +201,19 @@ def test_single_original_key_has_no_span_to_compare() -> None:
     state = _timeline(_key(46, _stand()), _key(71, _stand()))
 
     assert contact_spans(state, (46,)) == {}
+
+
+def test_a_still_body_with_a_displaced_root_keeps_its_planted_feet() -> None:
+    """M8 S6: the capturing root may move (or wobble) between the bounding
+    keys; a body whose feet sit at the same world position modulo that root
+    displacement is still standing on them. The raw world comparison alone
+    would read 30 cm of fake drift and un-pin the feet."""
+    moved_root = _pose(
+        Main=JointPose(
+            rotation=Quaternion.identity(), translation=Vector3(x=30.0, y=-5.0)
+        )
+    )
+    state = _timeline(_key(46, _stand()), _key(71, moved_root))
+    spans = contact_spans(state, (46, 71))
+    assert spans == {(46, 71): {"L_Foot", "R_Foot"}}
+

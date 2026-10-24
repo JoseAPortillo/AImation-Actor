@@ -14,9 +14,9 @@ inside that noise is detected, while a foot actually swinging away is not.
 
 Detection reads the FOOT joints (``L_Foot``/``R_Foot``, the toe balls); the
 pin pass (``core.foot_ik``) pins their ANKLE partners, so the split foot pair
-drives both ends without a second joint hierarchy traversal. Ground z = 0:
-the domain's ground plane is the one ``Pelvis``' height is measured from
-(the in-place wire design), and a foot reading below it is a penetration —
+drive both ends without a second joint hierarchy traversal. Ground z = 0:
+the domain's ground plane is the one ``Pelvis``' height is measured from, and
+a foot reading below it is a penetration —
 still a contact, which the pass must fix.
 
 Foot positions come from the same pure forward kinematics the 3D viewport
@@ -29,7 +29,7 @@ from __future__ import annotations
 import math
 
 from aimation_actor.core.kinematics import joint_world_positions
-from aimation_actor.core.models import JointPose, TimelineState, Vector3
+from aimation_actor.core.models import JointPose, Skeleton, TimelineState, Vector3
 
 __all__ = [
     "FOOT_JOINTS",
@@ -96,8 +96,8 @@ def contact_spans(
         planted: set[str] = set()
         for contact, _ankle in FOOT_JOINTS:
             if _is_planted(
-                left_world[contact],
-                right_world[contact],
+                _planting_read(timeline.skeleton, left_world, contact),
+                _planting_read(timeline.skeleton, right_world, contact),
                 ground_z=ground_z,
                 position_tolerance_cm=position_tolerance_cm,
                 ground_height_cm=ground_height_cm,
@@ -105,6 +105,21 @@ def contact_spans(
                 planted.add(contact)
         spans[(left, right)] = planted
     return spans
+
+
+def _planting_read(
+    skeleton: Skeleton, world: dict[str, Vector3], contact: str
+) -> Vector3:
+    """A contact reading that root displacement cannot fake drift into (M8 S6).
+
+    The root carries the M8 captured trajectory; a body standing still while
+    its root moves must still read as planted, so the horizontal comparison
+    happens against the body's own frame. World Z stays: the ground plane is
+    a world fact.
+    """
+    root = world[skeleton.root().name]
+    foot = world[contact]
+    return Vector3(x=foot.x - root.x, y=foot.y - root.y, z=foot.z)
 
 
 def _keyed_pose(timeline: TimelineState, frame: int) -> dict[str, JointPose]:
