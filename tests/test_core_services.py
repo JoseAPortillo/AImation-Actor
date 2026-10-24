@@ -25,6 +25,8 @@ from aimation_actor.core.services import (
     next_key_frame,
     previous_key_frame,
     remove_pose,
+    smooth_root_path,
+    smooth_root_trajectory,
 )
 
 
@@ -218,3 +220,74 @@ def test_neutral_pose_covers_a_joint_that_is_missing_from_a_raw_pose() -> None:
     # neutral pose is the same for every joint, keyed or not.
     assert pose["Pelvis"].translation == Vector3()
     assert pose["Head"] == pose["Main"]
+
+def test_root_path_smoothing_keeps_anchors_and_linear_motion() -> None:
+    ramp = {frame: Vector3(x=frame * 0.5, y=frame * 0.25, z=frame) for frame in range(21)}
+
+    smoothed = smooth_root_path(ramp, anchors=[0, 20])
+
+    assert smoothed[0] == ramp[0]
+    assert smoothed[20] == ramp[20]
+    # The anchors pad every filter window, so linear motion survives exactly,
+    # boundary frames included.
+    for frame in range(1, 20):
+        assert smoothed[frame] == pytest.approx(ramp[frame], abs=1e-9)
+
+
+def test_root_path_smoothing_damps_alternating_jitter() -> None:
+    A = 30.0
+    zigzag = {frame: Vector3(x=A if frame % 2 else -A) for frame in range(1, 20)}
+    values = {0: Vector3(), 20: Vector3(), **zigzag}
+
+    smoothed = smooth_root_path(values, anchors=[0, 20])
+
+    for frame in range(1, 20):
+        assert abs(smoothed[frame].x) <= A / 2, frame
+
+
+def test_root_path_smoothing_removes_a_single_outlier_frame() -> None:
+    flat = {frame: Vector3(z=5.0) for frame in range(21)}
+    flat[10] = Vector3(z=25.0)
+
+    smoothed = smooth_root_path(flat, anchors=[0, 20])
+
+    for frame in range(1, 20):
+        assert smoothed[frame].z == pytest.approx(5.0, abs=0.01), frame
+
+
+def test_root_trajectory_smoothing_leaves_original_keys_untouched() -> None:
+    skeleton = Skeleton(
+        joints=(
+            JointData(name="Main", parent=None),
+            JointData(name="Pelvis", parent="Main", rest_translation=Vector3(z=100.0)),
+        )
+    )
+    key_pose = {
+        "Main": JointPose(rotation=Quaternion.identity(), translation=Vector3(x=7.0)),
+        "Pelvis": JointPose(rotation=Quaternion.identity()),
+    }
+    jitter_a = {
+        "Main": JointPose(rotation=Quaternion.identity(), translation=Vector3(x=30.0)),
+        "Pelvis": JointPose(rotation=Quaternion.identity()),
+    }
+    jitter_b = {
+        "Main": JointPose(rotation=Quaternion.identity(), translation=Vector3(x=-30.0)),
+        "Pelvis": JointPose(rotation=Quaternion.identity()),
+    }
+    timeline = TimelineState(
+        skeleton=skeleton,
+        keyframes=(
+            Keyframe(frame=0, pose=key_pose),
+            Keyframe(frame=1, pose=jitter_a),
+            Keyframe(frame=2, pose=jitter_b),
+            Keyframe(frame=3, pose=key_pose),
+        ),
+    )
+
+    smoothed, count = smooth_root_trajectory(timeline, anchors=(0, 3))
+
+    assert smoothed.keyframes[0].pose is timeline.keyframes[0].pose
+    assert smoothed.keyframes[3].pose is timeline.keyframes[3].pose
+    assert smoothed.keyframes[1].pose["Main"].translation.x <= 15.0
+    assert smoothed.keyframes[2].pose["Main"].translation.x >= -15.0
+    assert count == 2

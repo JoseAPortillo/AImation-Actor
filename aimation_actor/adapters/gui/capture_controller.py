@@ -57,6 +57,7 @@ from aimation_actor.core.services import (
     next_key_frame,
     previous_key_frame,
     remove_pose,
+    smooth_root_trajectory,
 )
 
 __all__ = ["CaptureController", "Inbetweener", "PoseExtractor", "VideoSource"]
@@ -805,6 +806,10 @@ class CaptureController(QObject):
         self._inbetween_generation = None
         self._fill_active = False
         before = len(key_frames(self._state))
+        # M8 S5: the engine output carries the captured/decoded root
+        # trajectory; damp its frame-to-frame jitter before anything else uses
+        # it, while the original keys keep their exact captured values.
+        filled = smooth_root_trajectory(filled, self._fill_original_keys)[0]
         corrected, pin_note = self._pin_filled(filled)
         self._state = corrected
         self.timeline_changed.emit()

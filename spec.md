@@ -355,7 +355,10 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 - **Root trajectory quality remains model-limited.** M8 now captures the HMR2
   pelvis/camera translation where available, makes the first captured frame the
   origin, carries relative X/Y/Z through `Main`, preserves it through the
-  inbetween wire, and exports it. HMR2 remains a single-image weak-perspective
+  inbetween wire, and exports it; the fill adoption applies a robust jitter
+  filter (median-3 ×2, then a quarter-half-quarter average, anchor-padded) to
+  interior rows' `Main` translation while original keys keep their exact
+  captured values. HMR2 remains a single-image weak-perspective
   estimator, so absolute scale and camera-motion separation are best-effort;
   validate long clips against the reference video.
 - **AIPort has both implementations landed** (T11/T12/T13 for capture,

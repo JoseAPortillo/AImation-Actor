@@ -18,6 +18,7 @@ from aimation_actor.core.models import (
     Quaternion,
     Skeleton,
     TimelineState,
+    Vector3,
 )
 
 
@@ -108,6 +109,53 @@ def _filled() -> TimelineState:
     return TimelineState(
         skeleton=_skeleton(), keyframes=_keys(1, 2, 3, 4), fps=24.0, frame_end=10
     )
+
+
+def _root_pose(x: float) -> dict[str, JointPose]:
+    return {
+        "Main": JointPose(
+            rotation=Quaternion.identity(), translation=Vector3(x=x)
+        ),
+        "Pelvis": JointPose(rotation=Quaternion.identity()),
+    }
+
+
+def test_a_fill_adopted_smooths_interior_root_jitter_and_keeps_keys() -> None:
+    """M8 S5: the filled rows' ``Main`` translation is jitter-reduced before
+    adoption, and the original keys keep their exact captured values."""
+    value = 30.0
+    source = _FakeSource()
+    extractor = _FakeExtractor()
+    filler = _FakeInbetweener(
+        result=TimelineState(
+            skeleton=_skeleton(),
+            keyframes=(
+                Keyframe(frame=1, pose=_root_pose(0.0)),
+                Keyframe(frame=12, pose=_root_pose(0.0)),
+            )
+            + tuple(
+                Keyframe(frame=frame, pose=_root_pose(value if frame % 2 else -value))
+                for frame in range(2, 12)
+            ),
+            fps=24.0,
+            frame_end=20,
+        )
+    )
+    controller = CaptureController(
+        source,
+        TimelineState(skeleton=_skeleton(), keyframes=_keys(1, 12), fps=24.0, frame_end=20),
+        extractor=extractor,
+        inbetweener=filler,
+    )
+    controller.fill_inbetweens()
+
+    filler.filled.emit(filler.result)
+
+    poses = {kf.frame: kf.pose for kf in controller.state.keyframes}
+    assert poses[1]["Main"].translation.x == 0.0  # keys untouched
+    assert poses[12]["Main"].translation.x == 0.0
+    worst = max(abs(poses[frame]["Main"].translation.x) for frame in range(2, 12))
+    assert worst <= value / 2
 
 
 @pytest.fixture
