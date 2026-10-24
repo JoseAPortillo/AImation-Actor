@@ -384,6 +384,14 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   engine (Apache-2.0 path, new adapter behind the existing factory); or
   treating cleanup as the animator's refine pass, which the pipeline already
   budgets for.
+- **Do not "connect" imported bones in Blender.** Measured on the exported
+  file with a three-way headless import (default vs `automatic_bone_orientation`
+  + `force_connect_children` vs a manual edit-mode connect script): the default
+  import reproduces the FBX faithfully, while either connect variant rewrites
+  the rest bone geometry (head/tail/roll) without remapping the animation
+  curves, displacing the ankle up to ~55 cm and the knee ~13–16 cm. Our rig is
+  pure joints with identity bind, so the animator should import the FBX as-is
+  and change only viewport display settings, never rest positions.
 - **AIPort has both implementations landed** (T11/T12/T13 for capture,
   T3/T5/T9 for inbetweening); the parked refactor from M6 L8/L10 stands: the
   two adapters carry ~120 duplicated subprocess-bridge lines and the two
