@@ -11,8 +11,20 @@ speaks a line-JSON protocol over stdin/stdout:
     request   (adapter -> worker): {"image_path", "frame_index"}
     response: {"status": "ok", "per_frame_hip_height_m",
                "root_translation": [x, y, z],
+               "person_bbox": [x1, y1, x2, y2] | None, "detector": name,
                "rotations": {joint_name: [9 floats, row-major 3x3]}}
                | {"status": "error", "message", "fatal": false}  (worker stays up)
+
+Person detection (M8, S7): the root-depth component ``tz`` comes from
+``2 * focal_length / (box_size * pred_cam_scale)``, so the full-frame box the
+worker used to hardcode pinned depth to a near-constant. Each request now
+detects the largest high-scoring person with torchvision's Faster R-CNN
+(MobileNetV3-FPN, COCO weights — the engine environment already ships
+torchvision; the ~75 MB weights download once into the engine's torch cache on
+first use), margins that box around its center, and feeds it to ViTDetDataset.
+When no detector is usable (torchvision missing, weights unreachable, no
+person found) the worker honestly falls back to the full-frame box and names
+the fallback in ``"detector"`` — never a fabricated trajectory (S4).
 
 The worker owns every Windows fix the engine stack needs (recorded in
 ``odd/tasks/m5-pose-extraction.md`` L21/L23; no vendored engine line changes):
@@ -99,6 +111,155 @@ def _prepare_environment(engine_root: str) -> None:
     """Set the env the engine stack requires before any engine import."""
     os.environ.setdefault("HOME", engine_root)
     os.environ.setdefault("PYOPENGL_PLATFORM", "win32")
+
+
+# -- automatic person detection (M8, S7) --------------------------------------- #
+
+#: COCO category id for ``person`` in torchvision's detection models.
+COCO_PERSON_LABEL = 1
+
+#: Below this the detection is not trusted as the capture subject.
+MIN_PERSON_SCORE = 0.4
+
+#: Padding around the detected box, about its center. The dataset re-expands
+#: to the model's crop aspect itself (``expand_to_aspect_ratio``); this margin
+#: only keeps limbs the tight detector box may clip.
+DETECTION_MARGIN = 1.2
+
+#: Name reported in the response when no detector is usable and the
+#: historical full-frame box is kept.
+FULL_FRAME_DETECTOR = "full-frame-fallback"
+
+#: The torchvision model behind the ``detector`` callable.
+_PERSON_MODEL_NAME = "fasterrcnn_mobilenet_v3_large_320_fpn"
+
+
+def pick_best_person(boxes, scores, labels):
+    """The largest-area box among persons scoring at least MIN_PERSON_SCORE.
+
+    Score first filters, area then decides between several people: the capture
+    subject fills a large share of a reference-video frame, background people
+    are smaller (probed on the JACE clip: score 1.0, 65-73% frame height).
+    Pure-Python over any sequence shape so tests need no torch.
+    """
+    best = None
+    best_area = 0.0
+    for box, score, label in zip(boxes, scores, labels, strict=True):
+        if int(label) != COCO_PERSON_LABEL or float(score) < MIN_PERSON_SCORE:
+            continue
+        x1, y1, x2, y2 = (float(value) for value in box)
+        if x2 <= x1 or y2 <= y1:
+            continue  # degenerate detection
+        area = (x2 - x1) * (y2 - y1)
+        if area > best_area:
+            best, best_area = [x1, y1, x2, y2], area
+    return best
+
+
+def _box_with_margin(box, image_size, *, margin: float = DETECTION_MARGIN) -> list[float]:
+    """Grow a detection box by ``margin`` about its center, clamped to the image."""
+    width, height = image_size
+    x1, y1, x2, y2 = box
+    center_x, center_y = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    half_w, half_h = (x2 - x1) * margin / 2.0, (y2 - y1) * margin / 2.0
+    return [
+        max(0.0, center_x - half_w),
+        max(0.0, center_y - half_h),
+        min(float(width), center_x + half_w),
+        min(float(height), center_y + half_h),
+    ]
+
+
+def detect_person_box(detector, image):
+    """One detection pass -> the best person box, or ``None`` honestly.
+
+    ``detector(image)`` returns the torchvision dict (``boxes``/``scores``/
+    ``labels``). Any miss or failure is ``None`` — the caller falls back to
+    the full-frame box and says so in the response (S4: no fake trajectory).
+    The result read is duck-typed (``tolist`` when present) so the box logic
+    stays testable without the torch stack.
+    """
+    if detector is None or image is None:
+        return None
+    try:
+        try:
+            import torch
+
+            context = torch.no_grad()
+        except ImportError:  # tests run without torch; fakes need no grad anyway
+            context = _NullContext()
+        with context:
+            output = detector(image)[0]
+        boxes = _as_plain_list(output["boxes"])
+        scores = _as_plain_list(output["scores"])
+        labels = _as_plain_list(output["labels"])
+        return pick_best_person(boxes, scores, labels)
+    except Exception:  # noqa: BLE001 - any detection miss is an honest fallback
+        return None
+
+
+def _as_plain_list(value):
+    tolist = getattr(value, "tolist", None)
+    return tolist() if tolist is not None else list(value)
+
+
+def _resolve_request_box(detector, image, image_size, fallback_box, *, margin=DETECTION_MARGIN):
+    """The crop box for one request, plus the detector name that produced it.
+
+    A detection is margined around its center (clamped to the image); any miss
+    keeps the historical full-frame box and names the fallback honestly.
+    """
+    found = detect_person_box(detector, image)
+    if found is None:
+        return list(fallback_box), FULL_FRAME_DETECTOR
+    return _box_with_margin(found, image_size, margin=margin), _PERSON_MODEL_NAME
+
+
+_PERSON_DETECTOR: object | None = None
+_PERSON_DETECTOR_FAILED = False
+
+
+def _get_person_detector():
+    """Lazy-load the torchvision person detector (returns None once it failed).
+
+    The returned callable takes the decoded BGR array from ``cv2.imread`` and
+    hands the model the RGB float tensor it expects. The weights (~75 MB)
+    download on first use into the engine's torch cache; a missing torchvision,
+    unreachable download, or CUDA failure disables detection for the worker's
+    whole life — the per-request fallback then keeps the historical behavior
+    instead of erroring out every capture.
+    """
+    global _PERSON_DETECTOR, _PERSON_DETECTOR_FAILED
+    if _PERSON_DETECTOR is not None or _PERSON_DETECTOR_FAILED:
+        return _PERSON_DETECTOR
+    try:
+        import torch
+        import torchvision
+
+        model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(
+            weights="COCO_V1"
+        )
+        model.eval()
+        model.cuda()
+
+        def detect(image_bgr):
+            rgb = image_bgr[:, :, ::-1].copy()
+            tensor = torch.as_tensor(rgb).permute(2, 0, 1).float().div_(255.0)
+            return model([tensor.cuda(non_blocking=True)])
+
+        _PERSON_DETECTOR = detect
+    except Exception as error:  # noqa: BLE001 - the fallback must stay silent-but-named
+        _PERSON_DETECTOR_FAILED = True
+        # Not a protocol line (no "status"): the adapter skips it as engine
+        # print. A detection miss must never fail an extraction request (S4).
+        _emit(
+            {
+                "engine_notice": "person detection unavailable "
+                f"({type(error).__name__}: {error}); "
+                "root depth will keep the full-frame fallback box"
+            }
+        )
+    return _PERSON_DETECTOR
 
 
 def _template_hip_height_cm(model) -> tuple[float, int]:
@@ -234,8 +395,11 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
         }
 
     height, width = img_bgr.shape[:2]
-    box = np.array([0.0, 0.0, float(width), float(height)], dtype=np.float32)
-    dataset = ViTDetDataset(model_cfg, img_bgr, box.reshape(1, 4))
+    fallback_box = [0.0, 0.0, float(width), float(height)]
+    box, detector_name = _resolve_request_box(
+        _get_person_detector(), img_bgr, (width, height), fallback_box
+    )
+    dataset = ViTDetDataset(model_cfg, img_bgr, np.array(box, dtype=np.float32).reshape(1, 4))
     from torch.utils.data.dataloader import default_collate
 
     batch = default_collate([dataset[0]])
@@ -272,8 +436,13 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     # ``pred_cam_t`` is already the translation of the SMPL model used by the
     # renderer. Adding ``joints[0]`` would apply the pelvis offset twice and
     # produced impossible multi-metre root jumps on real clips.
+    # The focal must stay fp32: ``cam_crop_to_full`` computes ``2 * focal / bs``
+    # and the halved img_size here gave an fp16 focal whose doubling overflowed
+    # to +inf, so every depth came back invalid (measured, M8 S7 probe).
     scaled_focal_length = (
-        model_cfg.EXTRA.FOCAL_LENGTH / model_cfg.MODEL.IMAGE_SIZE * batch["img_size"].max()
+        model_cfg.EXTRA.FOCAL_LENGTH
+        / model_cfg.MODEL.IMAGE_SIZE
+        * batch["img_size"].float().max()
     )
     root_translation = cam_crop_to_full(
         output["pred_cam"].float(),
@@ -292,6 +461,8 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
         "frame_index": request.get("frame_index"),
         "per_frame_hip_height_m": per_frame,
         "root_translation": [float(v) for v in root_translation],
+        "person_bbox": [float(v) for v in box],
+        "detector": detector_name,
         "vram_allocated_mib": torch.cuda.memory_allocated() / 1024**2,
         "rotations": rotations,
     }
