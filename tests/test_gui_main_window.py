@@ -7,6 +7,8 @@ timeline and the 3D pane all follow one time indicator (plan §3.B).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QKeySequence
@@ -280,3 +282,112 @@ def test_a_failed_open_is_reported_and_the_capture_stays_usable(
 
     window.action_step_forward.trigger()  # and the session keeps working
     assert window.controller.frame == 1
+
+
+class _RecordingExporter:
+    """A seam exporter: it records exactly what the window asked it to write."""
+
+    def __init__(self) -> None:
+        self.saved: list[tuple[object, Path]] = []
+
+    def save(self, state, path) -> None:
+        self.saved.append((state, path))
+
+
+class _FailingExporter:
+    """A writer that always fails, to prove the failure is non-fatal."""
+
+    def save(self, state, path) -> None:
+        raise RuntimeError("disk full")
+
+
+def _choose(monkeypatch, value) -> None:
+    """Point the save dialog at a canned answer."""
+    monkeypatch.setattr(
+        "aimation_actor.adapters.gui.main_window.QFileDialog.getSaveFileName",
+        staticmethod(lambda *args, **kwargs: value),
+    )
+
+
+def test_ctrl_e_exports_the_approved_timeline(
+    qtbot, monkeypatch, window: MainWindow, source: _FakeSource
+) -> None:
+    exporter = _RecordingExporter()
+    window.exporter = exporter
+    _load_two_seconds(window, source)
+    window.action_step_forward.trigger()
+    window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(1), timeout=5000)
+
+    state = window.controller.state
+    _choose(monkeypatch, ("out.fbx", "Binary FBX (*.fbx)"))
+
+    window.action_export.trigger()
+
+    assert exporter.saved == [(state, Path("out.fbx"))]
+    assert "out.fbx" in window.statusBar().currentMessage()
+
+
+def test_the_export_action_lives_in_the_file_menu(window: MainWindow) -> None:
+    assert window.action_export.shortcut() == QKeySequence("Ctrl+E")
+
+
+def test_an_empty_timeline_refuses_to_export(
+    monkeypatch, window: MainWindow, source: _FakeSource
+) -> None:
+    exporter = _RecordingExporter()
+    window.exporter = exporter
+    _load_two_seconds(window, source)  # media loaded, but no Golden Pose yet
+    _choose(monkeypatch, ("out.fbx", "Binary FBX (*.fbx)"))
+
+    window.action_export.trigger()
+
+    assert exporter.saved == []
+    assert "no Golden Pose" in window.statusBar().currentMessage()
+
+
+def test_a_failed_write_is_reported_non_fatally(
+    qtbot, monkeypatch, window: MainWindow, source: _FakeSource
+) -> None:
+    window.exporter = _FailingExporter()
+    _load_two_seconds(window, source)
+    window.action_step_forward.trigger()
+    window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(1), timeout=5000)
+    _choose(monkeypatch, ("out.fbx", "Binary FBX (*.fbx)"))
+
+    window.action_export.trigger()  # must not raise
+
+    assert "disk full" in window.statusBar().currentMessage()
+    assert window.controller.has_media  # the session stays usable
+
+
+def test_a_cancelled_dialog_saves_nothing(
+    qtbot, monkeypatch, window: MainWindow, source: _FakeSource
+) -> None:
+    exporter = _RecordingExporter()
+    window.exporter = exporter
+    _load_two_seconds(window, source)
+    window.action_step_forward.trigger()
+    window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(1), timeout=5000)
+    _choose(monkeypatch, ("", ""))
+
+    window.action_export.trigger()
+
+    assert exporter.saved == []
+    assert window.statusBar().currentMessage() != ""
+
+
+def test_export_without_a_writer_reports_the_gap(
+    qtbot, monkeypatch, window: MainWindow, source: _FakeSource
+) -> None:
+    _load_two_seconds(window, source)
+    window.action_step_forward.trigger()
+    window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(1), timeout=5000)
+    _choose(monkeypatch, ("out.fbx", "Binary FBX (*.fbx)"))
+
+    window.action_export.trigger()  # no exporter configured (defaults)
+
+    assert "no FBX writer" in window.statusBar().currentMessage()

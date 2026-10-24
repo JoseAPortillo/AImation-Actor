@@ -32,6 +32,20 @@ def test_the_application_window_starts_without_a_rig(qtbot) -> None:
     assert "No rig" in window.viewport.notice_label.text()
 
 
+def test_the_application_window_ships_the_real_fbx_writer(qtbot) -> None:
+    # M8 final export (FR-GEN-04): the production composition wires the real
+    # Blender-backed FBX adapter behind the export action.
+    from PySide6.QtGui import QKeySequence
+
+    from aimation_actor.adapters.io.fbx_adapter import BlenderFbxAdapter
+
+    window = build_window()
+    qtbot.addWidget(window)
+
+    assert isinstance(window.exporter, BlenderFbxAdapter)
+    assert window.action_export.shortcut() == QKeySequence("Ctrl+E")
+
+
 def test_importing_the_entry_point_does_not_start_the_application() -> None:
     # A top-level `main()` call would start an event loop on import.
     module = importlib.import_module("aimation_actor.main")

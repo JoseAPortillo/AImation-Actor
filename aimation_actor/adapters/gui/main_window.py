@@ -19,6 +19,7 @@ usable (S5, NFR-03), and a modal box would block a session that can continue.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
@@ -39,10 +40,12 @@ from aimation_actor.adapters.gui.video_player import VideoPlayer
 from aimation_actor.adapters.gui.viewport_3d import SkeletonViewport
 from aimation_actor.core.models import JointPose, Skeleton, TimelineState
 from aimation_actor.ports.ai_port import AIPort, InbetweeningPort
+from aimation_actor.ports.io_port import IOPort
 
 __all__ = ["MainWindow"]
 
 _VIDEO_FILTER = "Reference video (*.mp4 *.mov)"
+_FBX_FILTER = "Binary FBX (*.fbx)"
 _DEFAULT_FPS = 24.0
 
 
@@ -57,6 +60,7 @@ class MainWindow(QMainWindow):
         engine: AIPort | None = None,
         skeleton_source: Callable[[], Skeleton | None] | None = None,
         inbetween_engine: InbetweeningPort | None = None,
+        exporter: IOPort | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build the window.
@@ -73,7 +77,8 @@ class MainWindow(QMainWindow):
         report: the skeleton is real body-model data, adopted at the first
         successful extraction — never invented here. Without an engine or a rig
         source, ``K`` reports what is missing rather than writing a pose nobody
-        computed.
+        computed. ``exporter`` (FR-GEN-04) is the FBX writer behind ``Ctrl+E``:
+        without one, exporting reports the gap rather than writing nothing.
         """
         super().__init__(parent)
         self.setWindowTitle("AImation Actor")
@@ -100,6 +105,7 @@ class MainWindow(QMainWindow):
             skeleton_source=skeleton_source,
             inbetweener=self.filler,
         )
+        self.exporter = exporter
         self.viewport = SkeletonViewport(self)
         self.timeline = TimelineBar(self)
 
@@ -148,6 +154,9 @@ class MainWindow(QMainWindow):
         self.action_fill_inbetweens = self._action(
             "Fill Gaps (Generate Inbetweens)", "G", self.controller.fill_inbetweens
         )
+        self.action_export = self._action(
+            "Export &FBX…", "Ctrl+E", self.export_fbx
+        )
 
         self._shortcuts = (
             self.action_play_pause,
@@ -158,6 +167,7 @@ class MainWindow(QMainWindow):
             self.action_previous_key,
             self.action_next_key,
             self.action_fill_inbetweens,
+            self.action_export,
         )
         for action in self._shortcuts:
             self.addAction(action)
@@ -168,6 +178,7 @@ class MainWindow(QMainWindow):
 
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.action_open)
+        file_menu.addAction(self.action_export)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
 
@@ -191,6 +202,44 @@ class MainWindow(QMainWindow):
 
     def _next_key(self) -> None:
         self.controller.jump_to_key(1)
+
+    def export_fbx(self) -> None:
+        """Write the approved timeline to an FBX file (FR-GEN-04,S2 refusals).
+
+        The same conventions as the blocking export: binary FBX, keys only at
+        the marked frames, and the ``frame_start``/``frame_end`` range the
+        import established. Every refusal is a status-bar message — the session
+        never dies because an export could not happen (NFR-03).
+        """
+        if not self.controller.state.keyframes:
+            self.statusBar().showMessage(
+                "Nothing to export: there is no Golden Pose yet (press K)."
+            )
+            return
+        if self.exporter is None:
+            self.statusBar().showMessage(
+                "Cannot export: no FBX writer is configured in this build."
+            )
+            return
+        video = self.controller.video_path
+        default_name = f"{video.stem}.fbx" if video is not None else "export.fbx"
+        path_text, _chosen_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export FBX",
+            default_name,
+            _FBX_FILTER,
+        )
+        if not path_text:
+            self.statusBar().showMessage("Export cancelled.")
+            return
+        path = Path(path_text)
+        try:
+            self.exporter.save(self.controller.state, path)
+        except Exception as exc:  # a bad disk/filename must not kill the session
+            self.statusBar().showMessage(f"Export failed: {exc}")
+            return
+        keys = len(self.controller.state.keyframes)
+        self.statusBar().showMessage(f"Exported {keys} Golden Pose(s) to {path}.")
 
     # -- following the controller ------------------------------------------ #
 

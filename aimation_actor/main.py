@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from aimation_actor.adapters.ai.model_factory import capture_engine, inbetweening_engine
 from aimation_actor.adapters.gui.main_window import MainWindow
+from aimation_actor.adapters.io.fbx_adapter import BlenderFbxAdapter
 from aimation_actor.core.production_skeleton import production_skeleton
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ def build_window() -> MainWindow:
         engine=engine,
         inbetween_engine=inbetween_engine,
         skeleton_source=_engine_rig_of(engine),
+        exporter=BlenderFbxAdapter(),  # final generative export (FR-GEN-04)
     )
 
 
