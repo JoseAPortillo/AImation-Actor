@@ -367,6 +367,23 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   captured values. HMR2 remains a single-image weak-perspective
   estimator, so absolute scale and camera-motion separation are best-effort;
   validate long clips against the reference video.
+- **Bent-knee prior on webcam footage (crop hypothesis tested and falsified,
+  2026-10-24).** The animator reported Golden Poses exported with knees deeply
+  flexed (~40–55°), toes off the ground, and hip-forward offsets on a clip of
+  a clearly standing subject (JACE_REF_04). Hypothesis: the worker's
+  full-frame box (`hmr2_worker._run_request`) is out-of-distribution; a tight
+  box should fix it. Measured on the real frames with a clean-room probe
+  (canonical SMPL-24 FK, engine examples as positive controls): a visually
+  verified tight crop (subject ≈77% of the input) reproduces the same bent
+  knees (f46: tight 50.9/38.7° vs full 46.0/41.6°), on both checkpoint
+  variants — the crop changes little; the flexion is HMR2's prior on
+  full-body wide-angle footage, not a box or export defect. The export path
+  was independently proven faithful (FR-GEN-04 T2 byte-exact round trip).
+  Candidate remedies (unresolved, product decision): grounding the root Z so
+  planted feet meet the floor at fill adoption; a landmark-based lifting
+  engine (Apache-2.0 path, new adapter behind the existing factory); or
+  treating cleanup as the animator's refine pass, which the pipeline already
+  budgets for.
 - **AIPort has both implementations landed** (T11/T12/T13 for capture,
   T3/T5/T9 for inbetweening); the parked refactor from M6 L8/L10 stands: the
   two adapters carry ~120 duplicated subprocess-bridge lines and the two
