@@ -358,7 +358,15 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
    MVP tracks as closed here; the remaining quality follow-ups (anchor
    seam, ruido de captura, bent-knee, refactors) are the "afinar" phase,
    to be scheduled by task with the animator.
-4. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
+4. ✅ **Refinement R1 — capture progress bar landed (2026-10-26).** The
+   controller reports the guide gather through `guide_progress(done, total)`
+   and exposes `fill_active` / `extraction_busy`; the capture window maps
+   that onto one `QProgressBar` in the timeline row: determinate while
+   guides are collected between Golden Poses, indeterminate while the
+   engine generates or a solo `K` extraction runs, and hidden whenever
+   nothing is in flight (a new clip ends an in-flight fill at once). The
+   status bar keeps its text; the bar answers "is it working?" at a glance.
+5. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
    while the MVP has exactly one inbetweening engine; revisit with the second
    engine.
 

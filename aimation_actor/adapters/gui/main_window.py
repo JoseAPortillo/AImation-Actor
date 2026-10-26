@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QProgressBar,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -120,10 +121,12 @@ class MainWindow(QMainWindow):
         central = QWidget(self)
         layout = QVBoxLayout(central)
         layout.addWidget(self.splitter, 1)
+        self._build_progress_bar()
         bottom = QHBoxLayout()
         bottom.addWidget(self.timeline, 1)
         bottom.addWidget(self._distance_label)
         bottom.addWidget(self.subject_distance)
+        bottom.addWidget(self.progress)
         layout.addLayout(bottom)
         self.setCentralWidget(central)
 
@@ -276,6 +279,53 @@ class MainWindow(QMainWindow):
         """Forward the animator's distance to the controller."""
         self.controller.subject_distance_m = value
 
+    def _build_progress_bar(self) -> None:
+        """Build the capture progress bar (GUI progress feature).
+
+        One bar for everything off-thread: determinate while the gather
+        collects guides between Golden Poses, indeterminate while the engine
+        generates (or a solo extraction cold-starts), and hidden whenever
+        nothing is in flight. It lives in the timeline row, where the eye
+        already follows the time indicator.
+        """
+        self.progress = QProgressBar(self)
+        self.progress.setTextVisible(False)
+        self.progress.hide()
+
+    def _on_guide_progress(self, done: int, total: int) -> None:
+        """Show the gather's determinate range, or the engine's full-tilt move."""
+        self.progress.show()
+        if total > 0 and done < total:
+            self.progress.setRange(0, total)
+            self.progress.setValue(done)
+        else:
+            # ``done == total``: the gathering ended and the engine is filling;
+            # ``total == 0``: a keys-only fill from the start. Both swim.
+            self.progress.setRange(0, 0)
+
+    def _refresh_progress(self, *_ignored: object) -> None:
+        """Re-derive the bar from the controller's own state.
+
+        Runs on every status change (adoption, failure, a report), on the
+        timeline refresh a new clip causes, and on both runners' busy
+        announcements: the controller is asked, not guessed at, so any path
+        that ends the work ends the bar with it.
+        """
+        if self.controller.fill_active:
+            self.progress.show()
+            return
+        if self.controller.extraction_busy:
+            # A lone Golden-Pose extraction in flight: no gather to count, so
+            # the bar swims until the runner frees up.
+            self.progress.show()
+            self.progress.setRange(0, 0)
+            return
+        self.progress.hide()
+
+    def _on_runner_busy_changed(self, *_ignored: object) -> None:
+        """Fold a batch-1 runner's busy announcements into the bar."""
+        self._refresh_progress()
+
     def _connect(self) -> None:
         self.timeline.frame_requested.connect(self.controller.go_to_frame)
         self.controller.frame_changed.connect(self.timeline.set_frame)
@@ -283,6 +333,12 @@ class MainWindow(QMainWindow):
         self.controller.timeline_changed.connect(self._refresh_timeline)
         self.controller.media_changed.connect(self._on_media_changed)
         self.controller.status_changed.connect(self.statusBar().showMessage)
+        self.controller.status_changed.connect(self._refresh_progress)
+        self.controller.guide_progress.connect(self._on_guide_progress)
+        if self.extractor is not None:
+            self.extractor.busy_changed.connect(self._on_runner_busy_changed)
+        if self.filler is not None:
+            self.filler.busy_changed.connect(self._on_runner_busy_changed)
         # Show the starting pose right away: a pane that only fills in after the
         # first event would look broken on an empty session.
         self._on_pose_changed(self.controller.current_pose())
@@ -304,6 +360,7 @@ class MainWindow(QMainWindow):
         # clip: both moments arrive through this slot, so it is the one place
         # the distance control's enabled state needs refreshing (M8 S8).
         self.subject_distance.setEnabled(not self.controller.depth_calibrated)
+        self._refresh_progress()
 
     def _on_media_changed(self) -> None:
         self._refresh_timeline()

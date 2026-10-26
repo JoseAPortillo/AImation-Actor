@@ -204,6 +204,10 @@ class CaptureController(QObject):
     playback_changed = Signal(bool)
     status_changed = Signal(str)
     failed = Signal(str)
+    # Progress mapping for a gap fill (GUI progress feature): ``done`` guides
+    # gathered out of ``total`` planned. ``done == total`` (or ``total == 0``,
+    # a keys-only fill) means the gathering is over and the engine is working.
+    guide_progress = Signal(int, int)
 
     def __init__(
         self,
@@ -252,6 +256,9 @@ class CaptureController(QObject):
         self._guide_busy_waits = 0  # start refusals of the gather, bounded
         self._guide_timer: QTimer | None = None
         self._fill_active = False
+        # The plan length of the fill in flight: the total the progress signal
+        # reports against. Zero outside a fill.
+        self._guide_total = 0
 
         source.media_loaded.connect(self._on_media_loaded)
         source.position_changed.connect(self._on_position_changed)
@@ -323,6 +330,20 @@ class CaptureController(QObject):
         """How many frames the range spans, at least one."""
         return max(1, self._state.frame_end - self._state.frame_start + 1)
 
+    @property
+    def fill_active(self) -> bool:
+        """Whether a gap fill is in flight: gathering guides or generating."""
+        return self._fill_active
+
+    @property
+    def extraction_busy(self) -> bool:
+        """Whether the capture engine still holds an extraction in flight.
+
+        Read straight off the batch-1 runner; a source without the runner
+        protocol (no ``busy``) reads idle rather than inventing state.
+        """
+        return bool(getattr(self._extractor, "busy", False))
+
     def has_key(self, frame: int | None = None) -> bool:
         """Whether ``frame`` (default: the playhead) carries a golden pose."""
         target = self._frame if frame is None else frame
@@ -369,6 +390,14 @@ class CaptureController(QObject):
         # A new clip invalidates any extraction still running against the old one.
         self._generation += 1
         self._extraction_generation = None
+        # A fill gathered for the replaced clip cannot survive it either: its
+        # stranded results are refused by the generation checks anyway, so
+        # retire the gather state here instead of letting it run on (and the
+        # progress bar claim work the old fill will never finish).
+        self._fill_active = False
+        self._guide_queue = []
+        self._guide_pending = None
+        self._guide_total = 0
         # Indexing depends on this clip's own metadata, so it is re-proved here.
         self._frames_are_indexed = False
         self._root_origin = None
@@ -546,6 +575,7 @@ class CaptureController(QObject):
             self._guides[pending] = built
             if self._guide_queue and self._guide_queue[0] == pending:
                 self._guide_queue.pop(0)
+            self.guide_progress.emit(len(self._guides), self._guide_total)
             self._advance_guides()
             return
 
@@ -722,6 +752,10 @@ class CaptureController(QObject):
         # when it finally hands the request over.
         self._inbetween_generation = self._generation
         self._fill_active = True
+        self._guide_total = len(self._guide_queue)
+        # Progress contract: announce the plan before the first guide moves, so
+        # the bar shows a determinate range even while the gather is still 0/N.
+        self.guide_progress.emit(0, self._guide_total)
         self._advance_guides()
 
     def _advance_guides(self) -> None:
@@ -819,6 +853,9 @@ class CaptureController(QObject):
             self._report(_INBETWEEN_BUSY)
             return
 
+        # The gathering phase is over (whatever guides exist are the request's
+        # now); announce it so the bar can drop into its engine-fill mode.
+        self.guide_progress.emit(self._guide_total, self._guide_total)
         if guides is None:
             self._emit_status(
                 actionable=actionable
