@@ -227,3 +227,12 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
   the change. Real-clip re-validation in T10: magnitudes preserved,
   facing·delta > 0, all checks green. S8-era numbers recorded under the old
   signs (`+30.9` depth, `+2.4` z) now mirror to `-30.9`/`-2.4`.
+
+- L19 (2026-10-26): S8's pending GUI setting landed (commit `1497258`,
+  follow-up outside the T1-T10 plan). A "Subject distance"
+  `QDoubleSpinBox` beside the timeline writes
+  `controller.subject_distance_m`; the controller exposes
+  `depth_calibrated` and the window disables the control once the first
+  Golden Pose locks the scale, re-enabling on the next clip load. RED
+  observed on three new tests, suite green in two steps, ruff clean; spec
+  note updated (no longer "still pending").
