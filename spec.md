@@ -356,12 +356,29 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 **Known follow-ups**
 
-- **Wide-gap fill quality (M6 carry-forward).** Gaps WIDER than ~24 interior
-  frames still go through the model and keep the free-row splay diagnosed in
-  L23 (`odd/tasks/m6-inbetweening.md`): rows not covered by an observation
-  condition weakly and drift toward a degenerate prior. The prepared remedy is
-  a worker-side probe: diffusion init with the capture prior (`init_image` +
-  `skip_timesteps`) — revisit when the animator reports it on a real clip.
+- **Wide-gap fill quality (M6 carry-forward, M9 measured).** Gaps WIDER than
+  ~24 interior frames still go through the model and keep the free-row splay
+  diagnosed in L23 (`odd/tasks/m6-inbetweening.md`): rows not covered by an
+  observation condition weakly and drift toward a degenerate prior. M9 (2026-10-26)
+  landed the prepared remedy and MEASURED it (`odd/tasks/m9-wide-gap-prior.md`):
+  the fill request accepts `skip_timesteps`, the worker seeds the diffusion's
+  `init_image` with the request's own dense capture prior (keys exact, guides
+  stamped, lerp underneath) and starts `p_sample_loop` partway down the
+  1000-step chain; guided engine gaps carry the measured constant
+  `_CAPTURE_PRIOR_SKIP_TIMESTEPS = 500`. The probe sweep (keys 40/87 of the
+  real clip, skips 0/300/500/700/850) showed the interior content is
+  **skip-insensitive within ~1.5 deg** (the per-step observation replant
+  dominates the free rows — the L23 verdict reconfirmed at the init level),
+  while latency scales with the skip (70.6 -> 31.6 s at 500; facing
+  positive-share constant 85.1%). So M9's value is cost per wide gap, not
+  content. Remaining, for the "afinar" phase in priority order: (1) the
+  **anchor-vs-fill seam** — captured anchors can sit far from the model's
+  content in joint space (measured: ~50 deg upper-arm jump at an anchor's
+  neighbor row on the real clip), so boundary rows snap; the pipeline's
+  cleanup pass owns smoothing today; (2) free-row content itself (model
+  limited: a different checkpoint/backbone, e.g. sequence-native models, is
+  the prepared direction — see §4.12's superseded GVHMR analysis for why
+  single-image engines cannot fix it alone).
 - **Root trajectory quality remains model-limited.** M8 now captures the HMR2
   pelvis/camera translation where available, makes the first captured frame the
   origin, carries relative X/Y/Z through `Main`, preserves it through the

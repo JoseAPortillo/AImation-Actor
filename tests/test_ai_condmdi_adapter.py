@@ -258,8 +258,9 @@ def test_a_partly_covered_gap_still_fills_through_the_engine(tmp_path) -> None:
 def test_a_guided_gap_seeds_the_fill_with_the_capture_prior(tmp_path) -> None:
     # M9 S4: a gap whose request carries capture data between the keys also
     # carries skip_timesteps, so the diffusion starts from the noised prior
-    # instead of pure noise. The literal pins the provisional value until the
-    # T3 probe measures and finalizes it (odd/tasks/m9-wide-gap-prior.md).
+    # instead of pure noise. The literal pins the T3 measured default
+    # (odd/tasks/m9-wide-gap-prior.md S5): content is skip-insensitive the
+    # sweep over, so the value is the production latency choice.
     dump = tmp_path / "requests.jsonl"
     state = _timeline(10, 40)
     guides = {15: {"Pelvis": JointPose(rotation=_qz(0.3))}}
@@ -269,7 +270,7 @@ def test_a_guided_gap_seeds_the_fill_with_the_capture_prior(tmp_path) -> None:
 
     requests = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
     assert len(requests) == 1
-    assert requests[0]["skip_timesteps"] == 300
+    assert requests[0]["skip_timesteps"] == 500
 
 
 def test_an_unguided_gap_keeps_free_generation(tmp_path) -> None:

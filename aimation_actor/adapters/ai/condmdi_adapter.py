@@ -68,12 +68,19 @@ _MOTION_FPS = 20.0  # HumanML3D's clock (the ready line re-states it)
 _MAX_SAMPLES_DEFAULT = 196  # ~9.8 s at 20 fps; the model's trained window
 # M9 (S4): an engine-filled gap whose request carries capture data between
 # the keys seeds the diffusion with its own dense capture prior and starts
-# this many timesteps down the vendored chain (1000 total, no respacing):
-# free rows generate from capture-adjacent content instead of the noise
-# start whose pure-model content splayed (M6 L23). Unguided gaps keep free
-# generation. Provisional value until the T3 probe measures the splay /
-# fidelity / latency trade (odd/tasks/m9-wide-gap-prior.md).
-_CAPTURE_PRIOR_SKIP_TIMESTEPS = 300
+# this many timesteps down the vendored chain (1000 total, no respacing).
+# Measured default (T3 probe, `_e2e_wide_gap_prior.py`, keys 40/87 of
+# JACE_REF_04, guides {58, 76}): the sweep 0/300/500/700/850 showed the
+# interior content is nearly skip-INSENSITIVE (arm columns within ~1.5 deg,
+# facing positive share constant 85.1%), because the per-step observation
+# replant dominates the free rows — the L23 "model's free-joint content"
+# verdict reconfirmed at the init level. What the prior/skip DOES change
+# is cost: 70.6 -> 44.2 -> 31.6 -> 19.0 -> 9.6 s per fill. 500 is the
+# halfway-noise start: the largest latency saving (2.2x) among values whose
+# output stayed stat-noise-close to the unskipped baseline. Unguided gaps
+# keep free generation. Quality tuning of the free rows is the "afinar"
+# phase (see spec.md: anchor-vs-fill seam is the next visible defect).
+_CAPTURE_PRIOR_SKIP_TIMESTEPS = 500
 
 
 class CondMDIEngineError(RuntimeError):
