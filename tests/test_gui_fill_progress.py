@@ -11,7 +11,14 @@ can miss. The contract pinned here:
   runner (``extraction_busy``);
 - the window maps that onto one bar: determinate while guides gather,
   indeterminate while the engine works or a solo extraction runs, hidden
-  whenever nothing is in flight, hidden again on a new clip.
+  whenever nothing is in flight, hidden again on a new clip;
+- a fill must SURVIVE user input, not block it: scrubbing, stepping and
+  playback stay fully live while a fill runs — the gather re-seeks its own
+  target on every retry and the hand-off returns the decoder to the
+  playhead — while the mutations that would genuinely break the process
+  (``K`` stealing the batch-1 slot or colliding with the guide plan,
+  ``Delete`` rewriting the keys the hand-off reads) are refused at the
+  controller boundary.
 """
 
 from __future__ import annotations
@@ -48,6 +55,7 @@ class _FakeSource(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.frame_index: int | None = None
+        self._shown: int | None = None
         self.plays = 0
         self.paused = 0
         self.seeks: list[tuple[int, float]] = []
@@ -62,12 +70,15 @@ class _FakeSource(QObject):
         self.paused += 1
 
     def seek_frame(self, frame: int, fps: float) -> None:
-        pass
+        # The pane follows the seek: whoever seeks last owns what is proven.
+        self.seeks.append((frame, fps))
+        self._shown = frame
 
     def grab_frame(self, fps: float) -> CapturedFrame | None:
+        proven = self.frame_index if self.frame_index is not None else self._shown
         return CapturedFrame(
             image=FrameImage(width=1, height=1, rgb=bytes(3)),
-            frame_index=self.frame_index,
+            frame_index=proven,
         )
 
 
@@ -210,59 +221,120 @@ def test_a_new_clip_ends_an_in_flight_fill() -> None:
     assert controller.fill_active is False
 
 
-# ------------------------------------------------------- navigation guard #
+# ------------------------------------------------- interruption immunity #
 
 
-def test_navigation_refuses_while_a_fill_is_in_flight() -> None:
-    """Scrubbing mid-gather re-seeks the decoder out from under the grabs;
-    the controller itself must refuse every playhead path while a fill runs,
-    so no entry point (arrows, jumps, a programmatic request) slips past the
-    window's slider lock."""
-    controller, source, extractor, _ = _fill_controller()
-    _mark_two_keys(controller, source)  # playhead lands on frame 60
-    extractor.refuse = True
+class _DeferredExtractor(QObject):
+    """Answers only when the test advances it: the gather really pauses
+    between guides, so user input can land mid-gather."""
+
+    extracted = Signal(int, object)
+    failed = Signal(int, str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pending: list[int] = []
+
+    def start(self, frame_index: int, image: FrameImage) -> bool:
+        self.pending.append(frame_index)
+        return True
+
+    def answer(self) -> None:
+        frame_index = self.pending.pop(0)
+        self.extracted.emit(
+            frame_index,
+            WorldPose(translation=Vector3(z=140.0), rotations={}),
+        )
+
+
+def _deferred_fill_controller() -> tuple[
+    CaptureController, _FakeSource, _DeferredExtractor, _FakeInbetweener
+]:
+    source = _FakeSource()
+    extractor = _DeferredExtractor()
+    inbetweener = _FakeInbetweener()
+    state = TimelineState(skeleton=_skeleton(), fps=24.0, frame_start=0, frame_end=0)
+    controller = CaptureController(
+        source, state, extractor=extractor, inbetweener=inbetweener
+    )
+    controller.open_video("scrub-during-fill.mp4")
+    source.media_loaded.emit(24.0, 5000)  # frames 0..119
+    return controller, source, extractor, inbetweener
+
+
+def _mark_pair(controller: CaptureController, source: _FakeSource,
+               extractor: _DeferredExtractor) -> None:
+    source.frame_index = 0
+    controller.mark_current()
+    extractor.answer()
+    source.frame_index = 60
+    controller.mark_current()
+    extractor.answer()
+
+
+def test_scrubbing_and_playing_never_interrupt_a_fill_in_flight() -> None:
+    """The user keeps full control of the timeline while a fill runs: a scrub
+    mid-gather only delays the guide it raced with — each extraction result is
+    attributed to the frame it started from, never to the current playhead —
+    and the fill hands off and completes anyway."""
+    controller, source, extractor, inbetweener = _deferred_fill_controller()
+    _mark_pair(controller, source, extractor)
+    plan = guide_frames_between((0, 60), 24.0)
+    total = len(plan)
+    assert total >= 2  # the interleaving below needs more than one guide
+    source.frame_index = None  # unindexed grabs are usable after the seek
+
+    emissions: list[tuple[int, int]] = []
+    controller.guide_progress.connect(
+        lambda done, count: emissions.append((done, count))
+    )
+
     controller.fill_inbetweens()
-    assert controller.fill_active is True
-    assert controller.frame == 60  # nothing moved
-    source.seeks.clear()  # drop the gather's own seeks; watch only user paths
-    refusals: list[str] = []
-    controller.failed.connect(refusals.append)
+    assert extractor.pending == [plan[0]]  # the gather waits on guide 1
 
+    # The animator touches everything the fill must survive.
     controller.go_to_frame(10)
-    controller.step(3)
-    controller.jump_to_key(-1)
-
-    assert len(refusals) == 3
-    assert len(source.seeks) == 0  # the decoder was not touched by the user paths
+    assert controller.frame == 10
     controller.toggle_playback()
-    assert source.plays == 0  # playing would sweep frames under the gather too
+    assert source.plays == 1
+
+    # The gather finishes its paused guide and everything after it.
+    while extractor.pending:
+        extractor.answer()
+
+    assert emissions == [(0, total)] + [
+        (done, total) for done in range(1, total + 1)
+    ] + [(total, total)]  # the hand-off re-announces the finished gather
+    assert inbetweener.starts  # handed off: the process the user started ran
+    assert controller.fill_active is True
+    # The pane belongs to the animator again: the hand-off returned the
+    # decoder to the frame the playhead shows.
+    assert source.seeks[-1] == (10, 24.0)
 
 
-def test_navigation_refuses_while_an_extraction_is_in_flight() -> None:
-    controller, source, extractor, _ = _fill_controller()
-    extractor.busy = True
-    refusals: list[str] = []
-    controller.failed.connect(refusals.append)
+def test_guide_retry_re_seeks_its_own_target() -> None:
+    """The retry is what a user scrub races with: re-seeking makes the race
+    delay the guide, never strand it."""
+    controller, source, extractor, _ = _deferred_fill_controller()
+    _mark_pair(controller, source, extractor)
+    plan = guide_frames_between((0, 60), 24.0)
+    source.frame_index = None
+    controller.fill_inbetweens()
+    assert extractor.pending == [plan[0]]
 
-    controller.go_to_frame(5)
-    controller.toggle_playback()
+    # The user dragged the pane onto frame 10 while the gather waited.
+    controller.go_to_frame(10)
+    source.frame_index = 10  # the pane still proves the USER's frame
 
-    assert controller.frame == 0
-    assert len(refusals) == 2
-    assert source.plays == 0
+    controller._retry_guide_grab()  # the 50 ms retry tick
 
+    assert source.seeks[-1] == (plan[0], 24.0)  # the retry re-seeks the guide
+    assert extractor.pending == [plan[0]]  # and never adopts the user's frame
+    source.frame_index = None  # now the pane has followed the seek (proves 14)
 
-def test_navigation_answers_again_when_idle() -> None:
-    """The guard is only for the in-flight window: idle navigation is intact."""
-    controller, source, extractor, _ = _fill_controller()
-    extractor.busy = True
-    controller.failed.connect(lambda _message: None)
-    controller.go_to_frame(5)
-    assert controller.frame == 0
+    controller._retry_guide_grab()  # the next tick
 
-    del extractor.busy
-    controller.go_to_frame(5)
-    assert controller.frame == 5
+    assert extractor.pending == [plan[0], plan[0]]  # and re-requests the guide
 
 
 def test_marking_refuses_while_a_fill_is_in_flight() -> None:
@@ -409,12 +481,14 @@ def test_a_solo_extraction_shows_an_indeterminate_bar(qtbot) -> None:
     qtbot.waitUntil(lambda: window.controller.extraction_busy)
     assert not window.progress.isHidden()
     assert window.progress.maximum() == window.progress.minimum() == 0
-    # Scrubbing now would fight the capture loop: the slider is locked too.
-    assert not window.timeline.isEnabled()
+    # The extraction owns the engine, not the UI: the animator keeps the
+    # timeline. Only K/Delete are refused meanwhile, by the controller.
+    assert window.timeline.isEnabled()
+    assert window.action_step_forward.isEnabled()
 
     engine.release.set()
     qtbot.waitUntil(lambda: window.progress.isHidden())
-    assert window.timeline.isEnabled()  # freed: the scrubber answers again
+    assert window.timeline.isEnabled()
 
 
 class _BlockingFillEngine:
@@ -428,10 +502,10 @@ class _BlockingFillEngine:
         return timeline
 
 
-def test_the_scrubber_locks_while_a_fill_is_in_flight(qtbot) -> None:
-    """Scrubbing during a gather re-seeks the decoder out from under the
-    guides and drags the playhead away from the frame being captured; the
-    window must refuse the interaction for as long as the work runs."""
+def test_the_timeline_stays_live_while_a_fill_is_in_flight(qtbot) -> None:
+    """A fill must survive user input, not block it: the scrubber keeps
+    answering, and the gather's re-seek retries make a mid-gather scrub a
+    delay, never a cancellation."""
     source = _window_source()
     engine = _BlockingFillEngine()
     window = MainWindow(
@@ -449,23 +523,27 @@ def test_the_scrubber_locks_while_a_fill_is_in_flight(qtbot) -> None:
     source.frame_index = 60
     window.controller.mark_current()
     qtbot.waitUntil(lambda: window.controller.key_count() == 2)
-    assert window.timeline.isEnabled()  # idle again between the marks
 
     source.frame_index = None  # the gather's grabs answer unindexed, usable
     window.controller.fill_inbetweens()
     qtbot.waitUntil(lambda: window.controller.fill_active)
-    assert not window.timeline.isEnabled()  # gather or engine fill: locked
-    # The mutating actions gray out too: the user sees the freeze, no fight.
-    assert not window.action_mark.isEnabled()
-    assert not window.action_remove_key.isEnabled()
-    assert not window.action_step_forward.isEnabled()
-    assert not window.action_play_pause.isEnabled()
-    # Read-only surfaces and the escape hatch stay usable.
-    assert window.action_export.isEnabled()
-    assert window.action_open.isEnabled()
+
+    # The animator drives the timeline through the widget path while the fill
+    # runs; the controller must accept it.
+    before = len(source.seeks)
+    window.timeline.slider.setValue(12)  # frame_requested -> go_to_frame
+    assert window.controller.frame == 12
+    assert len(source.seeks) > before  # and the decoder really followed
+    assert window.timeline.isEnabled()
+    assert window.action_step_forward.isEnabled()
+    assert window.action_play_pause.isEnabled()
+    # K is the one mutation that would break the fill: refused, not frozen.
+    refusals: list[str] = []
+    window.controller.failed.connect(refusals.append)
+    window.controller.mark_current()
+    assert refusals and "Cannot mark" in refusals[0]
+    assert window.controller.key_count() == 2
 
     engine.release.set()
     qtbot.waitUntil(lambda: not window.controller.fill_active)
-    assert window.timeline.isEnabled()  # adopted: everything answers again
-    assert window.action_mark.isEnabled()
-    assert window.action_step_forward.isEnabled()
+    assert window.timeline.isEnabled()  # adopted: everything still answers

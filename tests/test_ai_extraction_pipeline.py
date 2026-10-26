@@ -204,8 +204,9 @@ def test_a_result_lands_on_its_own_frame_after_the_playhead_moved(qtbot, source,
 
 def test_a_second_mark_while_extracting_is_refused(qtbot, source, rigged) -> None:
     # S4: batch 1. The refusal is reported, and nothing is keyed for it.
-    # R1 also locks navigation mid-extraction, so the scrub between the two
-    # marks is itself a refusal now: the test pins both, in order.
+    # Navigation is NOT refused mid-extraction: the answer is attributed to
+    # the frame it started from, so scrubbing cannot strand it. Only the
+    # second K is refused.
     engine = _SlowEngine(z=140.0)
     controller = rigged(engine)
     failures: list[str] = []
@@ -216,15 +217,12 @@ def test_a_second_mark_while_extracting_is_refused(qtbot, source, rigged) -> Non
 
     controller.mark_current()
     assert engine.started.wait(timeout=5.0)
-    controller.go_to_frame(16)  # R1: refused while the extraction runs
+    controller.go_to_frame(16)  # allowed: the pane follows the animator
     controller.mark_current()  # while the first is still running
 
-    assert len(failures) == 2
-    assert "Cannot navigate" in failures[0]
-    # R1c: the controller-level lock answers before the batch-1 race refusal
-    # can — the second K never even reaches the extractor.
-    assert "Cannot mark" in failures[1]
-    assert controller.frame == 15  # the refused scrub did not move the playhead
+    assert len(failures) == 1
+    assert "Cannot mark" in failures[0]
+    assert controller.frame == 16  # the scrub was honored, not refused
     assert engine.calls == [15]  # the refused frame never reached the engine
     engine.release.set()
     qtbot.waitUntil(lambda: controller.has_key(15), timeout=5000)

@@ -244,7 +244,9 @@ def test_a_fill_extracts_guides_and_hands_them_to_the_engine() -> None:
 
     controller.fill_inbetweens()
 
-    assert source.seeks == [(14, 24.0), (28, 24.0)]  # the guide plan, in order
+    assert source.seeks == [(14, 24.0), (28, 24.0), (0, 24.0)]
+    # the guide plan in order, then the hand-off returning the pane to the
+    # playhead (the gather ended on the last guide's frame).
     assert [frame for frame, _image in extractor.requests] == [14, 28]
     expected = build_production_pose(
         WorldPose(translation=Vector3(z=140.0), rotations={}), _skeleton()
@@ -304,7 +306,8 @@ def test_a_refused_extraction_degrades_to_keys_only() -> None:
 
     controller.fill_inbetweens()
 
-    assert source.seeks == [(14, 24.0)]  # the first guide was attempted
+    assert source.seeks == [(14, 24.0), (0, 24.0)]
+    # the first guide was attempted, then the hand-off returned the pane
     assert len(filler.requests) == 1
     assert filler.requests[0][1] is None
     assert any("golden poses" in report for report in reports)

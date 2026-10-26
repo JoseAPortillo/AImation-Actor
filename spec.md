@@ -365,17 +365,21 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
    guides are collected between Golden Poses, indeterminate while the
    engine generates or a solo `K` extraction runs, and hidden whenever
    nothing is in flight (a new clip ends an in-flight fill at once). While
-   any of that is in flight the process is **interruption-proofed**: the
-   controller's capture lock refuses every mutation that could strand it —
-   `go_to_frame` (arrows, key jumps, programmatic requests),
-   `toggle_playback`, `mark_current` (a stolen batch-1 slot or a key
-   colliding with the guide plan would break the fill) and
-   `remove_current` (a mid-fill removal is overwritten by the adoption) —
-   each refusal a reported, non-fatal message (NFR-03). The window shows
-   the same contract: the scrubber disables and the capture actions gray
-   out. Reading and escape surfaces stay open on purpose: export is a
-   snapshot, and opening a new clip is the deliberate restart (it retires
-   the in-flight fill at once).
+   any of that is in flight **the process survives user input — it does not
+   block it**: scrubbing, stepping, key jumps and playback stay fully live.
+   The gather is interruption-proof by construction: every guide retry
+   re-seeks its own target (so a mid-gather scrub delays that guide rather
+   than stealing the pane's frame from it), a frame that proves a different
+   index is never adopted as a guide, every extraction answer is attributed
+   to the frame it started from, and the hand-off returns the decoder to
+   the animator's playhead. Only the two mutations that would genuinely
+   break the started process are refused at the controller boundary, each
+   as a reported non-fatal message (NFR-03): `mark_current` (K steals the
+   batch-1 slot between guides, or a new key collides with the guide plan
+   the worker rejects) and `remove_current` (the hand-off reads the keys
+   again and the adoption would silently overwrite a mid-fill deletion).
+   Export (a read) and opening a new clip (the deliberate restart/escape
+   hatch) stay unlocked.
    The status bar keeps its text; the bar answers "is it working?" at a glance.
 5. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
    while the MVP has exactly one inbetweening engine; revisit with the second

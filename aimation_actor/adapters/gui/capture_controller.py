@@ -428,20 +428,20 @@ class CaptureController(QObject):
     # -- playhead (FR-CAP-04, plan §3.A) ----------------------------------- #
 
     def _capture_lock(self) -> str | None:
-        """Why capture work is refused right now, or ``None`` when free.
+        """Why a timeline MUTATION is refused right now, or ``None`` when free.
 
-        Every mutation the animator can make while a fill or an extraction is
-        in flight would interrupt the process that started first: a scrub
-        re-seeks the decoder out from under the guides' grabs; a mark steals
-        the batch-1 slot or adds a key that collides with the guide plan the
-        worker refuses; a removal changes the keys the hand-off reads and is
-        then silently overwritten by the adoption. The guard lives at the
-        playhead and timeline owner, so no entry point — the arrows, key
-        jumps, ``K``, ``Delete``, Space, or a programmatic request — slips
-        past the window's widget lock. Reading surfaces (export) and the new
-        clip's escape hatch (open) deliberately stay unlocked: they cannot
-        strand work in flight, and blocking the escape would trap the session
-        behind a slow fill.
+        A started process must survive user input, so navigation stays
+        fully live: a scrub mid-gather only delays the guide it raced with
+        (every retry re-seeks the guide's own frame, and every extraction
+        answer is attributed to the frame it started from, never to the
+        current playhead). What would genuinely break the fill is refused
+        here: ``K`` steals the batch-1 slot between guides or adds a key
+        that collides with the guide plan the worker rejects, and
+        ``Delete`` rewrites the keys the hand-off is about to read — and the
+        adoption overwrites it silently. Reading surfaces (export) and the
+        new clip's escape hatch (open) stay unlocked on purpose: they cannot
+        strand work in flight, and blocking the escape would trap the
+        session behind a slow fill.
         """
         if self._fill_active:
             return "a gap fill is in flight"
@@ -451,10 +451,6 @@ class CaptureController(QObject):
 
     def go_to_frame(self, frame: int) -> None:
         """Clamp ``frame``, seek the player and report the new playhead."""
-        locked = self._capture_lock()
-        if locked is not None:
-            self._report(f"Cannot navigate: {locked}.")
-            return
         target = clamp_frame(self._state, frame)
         self._frame = target
         self._source.seek_frame(target, self._state.fps)
@@ -478,10 +474,6 @@ class CaptureController(QObject):
 
     def toggle_playback(self) -> None:
         """Play or pause, following the player's reported state."""
-        locked = self._capture_lock()
-        if locked is not None:
-            self._report(f"Cannot play: {locked}.")
-            return
         if self._playing:
             self._source.pause()
         else:
@@ -860,6 +852,11 @@ class CaptureController(QObject):
         if not self._guide_queue or self._inbetween_generation != self._generation:
             return
         target = self._guide_queue[0]
+        # Re-seek on every retry: the user may have scrubbed the pane since
+        # the last attempt, and a retry that only re-grabs would race their
+        # frame forever. Seeking back makes a mid-gather scrub a delay for
+        # this guide, never a cancellation of the fill.
+        self._source.seek_frame(target, self._state.fps)
         self._request_guide_extraction(target, self._source.grab_frame(self._state.fps))
 
     def _degrade_to_keys_only(self, reason: str) -> None:
@@ -894,6 +891,12 @@ class CaptureController(QObject):
         # The gathering phase is over (whatever guides exist are the request's
         # now); announce it so the bar can drop into its engine-fill mode.
         self.guide_progress.emit(self._guide_total, self._guide_total)
+        if self._guide_total:
+            # The gather ends wherever its last guide sat; the animator may
+            # have moved the playhead meanwhile: hand the decoder back to the
+            # frame the UI shows. A keys-only fill never moved the pane, so
+            # there is nothing to hand back.
+            self._source.seek_frame(self._frame, self._state.fps)
         if guides is None:
             self._emit_status(
                 actionable=actionable
