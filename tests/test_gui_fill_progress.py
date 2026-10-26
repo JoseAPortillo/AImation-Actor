@@ -48,15 +48,18 @@ class _FakeSource(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.frame_index: int | None = None
+        self.plays = 0
+        self.paused = 0
+        self.seeks: list[tuple[int, float]] = []
 
     def open(self, path: str) -> None:
         pass
 
     def play(self) -> None:
-        pass
+        self.plays += 1
 
     def pause(self) -> None:
-        pass
+        self.paused += 1
 
     def seek_frame(self, frame: int, fps: float) -> None:
         pass
@@ -205,6 +208,61 @@ def test_a_new_clip_ends_an_in_flight_fill() -> None:
     source.media_loaded.emit(24.0, 5000)
 
     assert controller.fill_active is False
+
+
+# ------------------------------------------------------- navigation guard #
+
+
+def test_navigation_refuses_while_a_fill_is_in_flight() -> None:
+    """Scrubbing mid-gather re-seeks the decoder out from under the grabs;
+    the controller itself must refuse every playhead path while a fill runs,
+    so no entry point (arrows, jumps, a programmatic request) slips past the
+    window's slider lock."""
+    controller, source, extractor, _ = _fill_controller()
+    _mark_two_keys(controller, source)  # playhead lands on frame 60
+    extractor.refuse = True
+    controller.fill_inbetweens()
+    assert controller.fill_active is True
+    assert controller.frame == 60  # nothing moved
+    source.seeks.clear()  # drop the gather's own seeks; watch only user paths
+    refusals: list[str] = []
+    controller.failed.connect(refusals.append)
+
+    controller.go_to_frame(10)
+    controller.step(3)
+    controller.jump_to_key(-1)
+
+    assert len(refusals) == 3
+    assert len(source.seeks) == 0  # the decoder was not touched by the user paths
+    controller.toggle_playback()
+    assert source.plays == 0  # playing would sweep frames under the gather too
+
+
+def test_navigation_refuses_while_an_extraction_is_in_flight() -> None:
+    controller, source, extractor, _ = _fill_controller()
+    extractor.busy = True
+    refusals: list[str] = []
+    controller.failed.connect(refusals.append)
+
+    controller.go_to_frame(5)
+    controller.toggle_playback()
+
+    assert controller.frame == 0
+    assert len(refusals) == 2
+    assert source.plays == 0
+
+
+def test_navigation_answers_again_when_idle() -> None:
+    """The guard is only for the in-flight window: idle navigation is intact."""
+    controller, source, extractor, _ = _fill_controller()
+    extractor.busy = True
+    controller.failed.connect(lambda _message: None)
+    controller.go_to_frame(5)
+    assert controller.frame == 0
+
+    del extractor.busy
+    controller.go_to_frame(5)
+    assert controller.frame == 5
 
 
 # -------------------------------------------------------------------- window #

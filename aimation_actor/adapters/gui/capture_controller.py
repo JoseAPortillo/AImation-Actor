@@ -427,8 +427,29 @@ class CaptureController(QObject):
 
     # -- playhead (FR-CAP-04, plan §3.A) ----------------------------------- #
 
+    def _navigation_lock(self) -> str | None:
+        """Why playhead work is refused right now, or ``None`` when free.
+
+        The guide gather re-seeks the decoder itself, frame by frame, and a
+        solo extraction's answer belongs to the frame it started from: a
+        scrub or a play sweep over the clip while either runs fights that
+        work and can strand it — the same reason the window locks the
+        scrubber widget. The guard lives here, at the playhead owner, so no
+        entry point (the arrows, key jumps, a programmatic request) slips
+        past the widget-level lock.
+        """
+        if self._fill_active:
+            return "Cannot navigate: a gap fill is gathering its frames."
+        if self.extraction_busy:
+            return "Cannot navigate: a Golden Pose extraction is in flight."
+        return None
+
     def go_to_frame(self, frame: int) -> None:
         """Clamp ``frame``, seek the player and report the new playhead."""
+        locked = self._navigation_lock()
+        if locked is not None:
+            self._report(locked)
+            return
         target = clamp_frame(self._state, frame)
         self._frame = target
         self._source.seek_frame(target, self._state.fps)
@@ -452,6 +473,10 @@ class CaptureController(QObject):
 
     def toggle_playback(self) -> None:
         """Play or pause, following the player's reported state."""
+        locked = self._navigation_lock()
+        if locked is not None:
+            self._report(locked)
+            return
         if self._playing:
             self._source.pause()
         else:
