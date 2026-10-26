@@ -361,7 +361,8 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 4. ✅ **Refinement R1 — capture progress bar landed (2026-10-26).** The
    controller reports the guide gather through `guide_progress(done, total)`
    and exposes `fill_active` / `extraction_busy`; the capture window maps
-   that onto one `QProgressBar` in the timeline row: determinate while
+   that onto one `QProgressBar` on its own strip directly below the time
+   slider: determinate while
    guides are collected between Golden Poses, indeterminate while the
    engine generates or a solo `K` extraction runs, and hidden whenever
    nothing is in flight (a new clip ends an in-flight fill at once). While

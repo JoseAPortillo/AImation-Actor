@@ -126,8 +126,10 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.timeline, 1)
         bottom.addWidget(self._distance_label)
         bottom.addWidget(self.subject_distance)
-        bottom.addWidget(self.progress)
         layout.addLayout(bottom)
+        # The bar owns the strip below the time slider: wide, unmissable, and
+        # not competing with the timeline row's controls for space.
+        layout.addWidget(self.progress)
         self.setCentralWidget(central)
 
         self._build_actions()
@@ -285,8 +287,8 @@ class MainWindow(QMainWindow):
         One bar for everything off-thread: determinate while the gather
         collects guides between Golden Poses, indeterminate while the engine
         generates (or a solo extraction cold-starts), and hidden whenever
-        nothing is in flight. It lives in the timeline row, where the eye
-        already follows the time indicator.
+        nothing is in flight. It owns the strip directly below the time
+        slider, where the eye already follows the playhead.
         """
         self.progress = QProgressBar(self)
         self.progress.setTextVisible(False)

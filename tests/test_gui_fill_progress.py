@@ -429,6 +429,21 @@ def test_the_window_starts_with_the_progress_hidden(qtbot) -> None:
     assert window.progress.isHidden()  # a loaded idle clip keeps it hidden
 
 
+def test_the_progress_bar_sits_below_the_time_slider(qtbot) -> None:
+    """Layout contract: the bar owns the strip under the timeline row, not a
+    slot crammed beside the distance control."""
+    source = _window_source()
+    window = MainWindow(source=source, skeleton=_skeleton(), engine=_ConstantEngine())
+    qtbot.addWidget(window)
+
+    central = window.centralWidget().layout()
+    assert central.itemAt(central.count() - 1).widget() is window.progress
+    bottom = central.itemAt(central.count() - 2).layout()
+    widgets = [bottom.itemAt(i).widget() for i in range(bottom.count())]
+    assert window.timeline in widgets  # the row the slider lives in
+    assert window.progress not in widgets
+
+
 def test_guide_progress_wires_the_bar_in_the_bottom_row(qtbot) -> None:
     source = _window_source()
     window = MainWindow(source=source, skeleton=_skeleton(), engine=_ConstantEngine())
