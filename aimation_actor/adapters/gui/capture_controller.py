@@ -427,28 +427,33 @@ class CaptureController(QObject):
 
     # -- playhead (FR-CAP-04, plan §3.A) ----------------------------------- #
 
-    def _navigation_lock(self) -> str | None:
-        """Why playhead work is refused right now, or ``None`` when free.
+    def _capture_lock(self) -> str | None:
+        """Why capture work is refused right now, or ``None`` when free.
 
-        The guide gather re-seeks the decoder itself, frame by frame, and a
-        solo extraction's answer belongs to the frame it started from: a
-        scrub or a play sweep over the clip while either runs fights that
-        work and can strand it — the same reason the window locks the
-        scrubber widget. The guard lives here, at the playhead owner, so no
-        entry point (the arrows, key jumps, a programmatic request) slips
-        past the widget-level lock.
+        Every mutation the animator can make while a fill or an extraction is
+        in flight would interrupt the process that started first: a scrub
+        re-seeks the decoder out from under the guides' grabs; a mark steals
+        the batch-1 slot or adds a key that collides with the guide plan the
+        worker refuses; a removal changes the keys the hand-off reads and is
+        then silently overwritten by the adoption. The guard lives at the
+        playhead and timeline owner, so no entry point — the arrows, key
+        jumps, ``K``, ``Delete``, Space, or a programmatic request — slips
+        past the window's widget lock. Reading surfaces (export) and the new
+        clip's escape hatch (open) deliberately stay unlocked: they cannot
+        strand work in flight, and blocking the escape would trap the session
+        behind a slow fill.
         """
         if self._fill_active:
-            return "Cannot navigate: a gap fill is gathering its frames."
+            return "a gap fill is in flight"
         if self.extraction_busy:
-            return "Cannot navigate: a Golden Pose extraction is in flight."
+            return "a Golden Pose extraction is in flight"
         return None
 
     def go_to_frame(self, frame: int) -> None:
         """Clamp ``frame``, seek the player and report the new playhead."""
-        locked = self._navigation_lock()
+        locked = self._capture_lock()
         if locked is not None:
-            self._report(locked)
+            self._report(f"Cannot navigate: {locked}.")
             return
         target = clamp_frame(self._state, frame)
         self._frame = target
@@ -473,9 +478,9 @@ class CaptureController(QObject):
 
     def toggle_playback(self) -> None:
         """Play or pause, following the player's reported state."""
-        locked = self._navigation_lock()
+        locked = self._capture_lock()
         if locked is not None:
-            self._report(locked)
+            self._report(f"Cannot play: {locked}.")
             return
         if self._playing:
             self._source.pause()
@@ -541,6 +546,10 @@ class CaptureController(QObject):
             return
         if self._extractor is None:
             self._report(_NO_ENGINE)
+            return
+        locked = self._capture_lock()
+        if locked is not None:
+            self._report(f"Cannot mark: {locked}.")
             return
 
         captured = self._source.grab_frame(self._state.fps)
@@ -726,6 +735,10 @@ class CaptureController(QObject):
 
     def remove_current(self) -> None:
         """Drop the golden pose at the playhead; an empty frame is a no-op."""
+        locked = self._capture_lock()
+        if locked is not None:
+            self._report(f"Cannot remove: {locked}.")
+            return
         updated = remove_pose(self._state, self._frame)
         if updated is self._state:
             return

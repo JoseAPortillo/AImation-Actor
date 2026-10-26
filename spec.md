@@ -365,13 +365,17 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
    guides are collected between Golden Poses, indeterminate while the
    engine generates or a solo `K` extraction runs, and hidden whenever
    nothing is in flight (a new clip ends an in-flight fill at once). While
-   any of that is in flight the window **disables the timeline scrubber**
-   and the controller **refuses playhead work** at its own boundary —
-   `go_to_frame` (arrows, key jumps, programmatic requests) and
-   `toggle_playback` — because scrubbing or playing mid-fill re-seeks the
-   decoder out from under the guides' grabs and drags the playhead away
-   from the frame being captured. Each refusal is a reported, non-fatal
-   message (NFR-03).
+   any of that is in flight the process is **interruption-proofed**: the
+   controller's capture lock refuses every mutation that could strand it —
+   `go_to_frame` (arrows, key jumps, programmatic requests),
+   `toggle_playback`, `mark_current` (a stolen batch-1 slot or a key
+   colliding with the guide plan would break the fill) and
+   `remove_current` (a mid-fill removal is overwritten by the adoption) —
+   each refusal a reported, non-fatal message (NFR-03). The window shows
+   the same contract: the scrubber disables and the capture actions gray
+   out. Reading and escape surfaces stay open on purpose: export is a
+   snapshot, and opening a new clip is the deliberate restart (it retires
+   the in-flight fill at once).
    The status bar keeps its text; the bar answers "is it working?" at a glance.
 5. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
    while the MVP has exactly one inbetweening engine; revisit with the second

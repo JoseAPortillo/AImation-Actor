@@ -181,6 +181,18 @@ class MainWindow(QMainWindow):
         )
         for action in self._shortcuts:
             self.addAction(action)
+        # The mutations a fill or an extraction must not be interrupted by.
+        # Export (a read) and Open (the escape hatch) stay out on purpose:
+        # the controller's capture lock explains why they are safe.
+        self._capture_actions = (
+            self.action_play_pause,
+            self.action_step_back,
+            self.action_step_forward,
+            self.action_mark,
+            self.action_remove_key,
+            self.action_previous_key,
+            self.action_next_key,
+        )
 
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
@@ -292,6 +304,17 @@ class MainWindow(QMainWindow):
         self.progress.setTextVisible(False)
         self.progress.hide()
 
+    def _apply_capture_lock(self, locked: bool) -> None:
+        """Gray out everything that could interrupt a process in flight.
+
+        The controller refuses the same mutations at its own boundary; this
+        is the visible half of the same contract, so the animator sees the
+        freeze instead of fighting shortcuts that only print a refusal.
+        """
+        self.timeline.setEnabled(not locked)
+        for action in self._capture_actions:
+            action.setEnabled(not locked)
+
     def _on_guide_progress(self, done: int, total: int) -> None:
         """Show the gather's determinate range, or the engine's full-tilt move."""
         self.progress.show()
@@ -303,21 +326,20 @@ class MainWindow(QMainWindow):
             # ``total == 0``: a keys-only fill from the start. Both swim.
             self.progress.setRange(0, 0)
         if self.controller.fill_active:
-            # A gather only announces itself while a fill is in flight, and
-            # scrubbing mid-fill re-seeks the decoder out from under the
-            # guides' grabs: refuse the timeline until the work ends.
-            self.timeline.setEnabled(False)
+            # A gather only announces itself while a fill is in flight: lock
+            # the mutating surface now, not only when the next event lands.
+            self._apply_capture_lock(True)
 
     def _refresh_progress(self, *_ignored: object) -> None:
-        """Re-derive the bar (and the scrubber's lock) from the controller.
+        """Re-derive the bar and the lock from the controller's own state.
 
         Runs on every status change (adoption, failure, a report), on the
         timeline refresh a new clip causes, and on both runners' busy
         announcements: the controller is asked, not guessed at, so any path
-        that ends the work ends the bar — and unlocks the scrubber — with it.
+        that ends the work ends the bar — and unlocks the session — with it.
         """
         busy = self.controller.fill_active or self.controller.extraction_busy
-        self.timeline.setEnabled(not busy)
+        self._apply_capture_lock(busy)
         if self.controller.fill_active:
             self.progress.show()
             return

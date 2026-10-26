@@ -265,6 +265,59 @@ def test_navigation_answers_again_when_idle() -> None:
     assert controller.frame == 5
 
 
+def test_marking_refuses_while_a_fill_is_in_flight() -> None:
+    """A stolen batch-1 slot or a key that collides with the guide plan would
+    break the fill in flight: K is part of the locked surface, not only the
+    scrubber."""
+    controller, source, extractor, _ = _fill_controller()
+    _mark_two_keys(controller, source)
+    extractor.refuse = True
+    controller.fill_inbetweens()
+    assert controller.fill_active is True
+    refusals: list[str] = []
+    controller.failed.connect(refusals.append)
+
+    source.frame_index = 70
+    controller.mark_current()
+
+    assert controller.key_count() == 2  # nothing was marked
+    assert len(refusals) == 1
+    assert "Cannot mark" in refusals[0]
+
+
+def test_marking_refuses_while_an_extraction_is_in_flight() -> None:
+    """The lock covers the real runner's busy window, not just the gather."""
+    controller, source, extractor, _ = _fill_controller()
+    refusals: list[str] = []
+    controller.failed.connect(refusals.append)
+    extractor.busy = True
+    source.frame_index = 3
+
+    controller.mark_current()
+
+    assert controller.key_count() == 0
+    assert len(refusals) == 1
+    assert "Cannot mark" in refusals[0]
+
+
+def test_removing_refuses_while_a_fill_is_in_flight() -> None:
+    """A removal now would change the keys the hand-off reads and be silently
+    overwritten when the fill lands."""
+    controller, source, extractor, _ = _fill_controller()
+    _mark_two_keys(controller, source)  # playhead lands on keyed frame 60
+    extractor.refuse = True
+    controller.fill_inbetweens()
+    assert controller.fill_active is True
+    refusals: list[str] = []
+    controller.failed.connect(refusals.append)
+
+    controller.remove_current()
+
+    assert controller.key_count() == 2
+    assert len(refusals) == 1
+    assert "Cannot remove" in refusals[0]
+
+
 # -------------------------------------------------------------------- window #
 
 
@@ -402,7 +455,17 @@ def test_the_scrubber_locks_while_a_fill_is_in_flight(qtbot) -> None:
     window.controller.fill_inbetweens()
     qtbot.waitUntil(lambda: window.controller.fill_active)
     assert not window.timeline.isEnabled()  # gather or engine fill: locked
+    # The mutating actions gray out too: the user sees the freeze, no fight.
+    assert not window.action_mark.isEnabled()
+    assert not window.action_remove_key.isEnabled()
+    assert not window.action_step_forward.isEnabled()
+    assert not window.action_play_pause.isEnabled()
+    # Read-only surfaces and the escape hatch stay usable.
+    assert window.action_export.isEnabled()
+    assert window.action_open.isEnabled()
 
     engine.release.set()
     qtbot.waitUntil(lambda: not window.controller.fill_active)
-    assert window.timeline.isEnabled()  # adopted: the scrubber answers again
+    assert window.timeline.isEnabled()  # adopted: everything answers again
+    assert window.action_mark.isEnabled()
+    assert window.action_step_forward.isEnabled()
