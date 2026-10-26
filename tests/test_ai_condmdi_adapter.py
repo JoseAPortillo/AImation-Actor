@@ -255,6 +255,56 @@ def test_a_partly_covered_gap_still_fills_through_the_engine(tmp_path) -> None:
     _almost(keyed[16].pose["Pelvis"].rotation, expected, tol=_MOTION_TOL)
 
 
+def test_a_guided_gap_seeds_the_fill_with_the_capture_prior(tmp_path) -> None:
+    # M9 S4: a gap whose request carries capture data between the keys also
+    # carries skip_timesteps, so the diffusion starts from the noised prior
+    # instead of pure noise. The literal pins the provisional value until the
+    # T3 probe measures and finalizes it (odd/tasks/m9-wide-gap-prior.md).
+    dump = tmp_path / "requests.jsonl"
+    state = _timeline(10, 40)
+    guides = {15: {"Pelvis": JointPose(rotation=_qz(0.3))}}
+    _adapter(
+        tmp_path, extra_env={"FAKE_CONDMDI_REQUEST_DUMP": str(dump)}
+    ).inbetween(state, guides=guides)
+
+    requests = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
+    assert len(requests) == 1
+    assert requests[0]["skip_timesteps"] == 300
+
+
+def test_an_unguided_gap_keeps_free_generation(tmp_path) -> None:
+    # M9 S4 decision: no capture inside the gap means a bare keys-lerp prior
+    # and the risk of trading splay for a static glide — the request carries
+    # no skip at all, sampling starts from noise exactly as before M9.
+    dump = tmp_path / "requests.jsonl"
+    state = _timeline(10, 40)
+    _adapter(
+        tmp_path, extra_env={"FAKE_CONDMDI_REQUEST_DUMP": str(dump)}
+    ).inbetween(state)
+
+    requests = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
+    assert len(requests) == 1
+    assert "skip_timesteps" not in requests[0]
+
+
+def test_guides_outside_a_gap_do_not_seed_that_gap(tmp_path) -> None:
+    # The policy reads each gap's own payload: a timeline can carry guides
+    # whose frames never land inside this gap (before the first key, on a
+    # keyed frame another gap refused, ...). Engine gap without guides in it
+    # -> no skip, free generation.
+    dump = tmp_path / "requests.jsonl"
+    state = _timeline(10, 40)  # keyed {10, 40}; a guide AT 10 is keyed-dropped
+    guides = {10: {"Pelvis": JointPose(rotation=_qz(0.3))}}
+    _adapter(
+        tmp_path, extra_env={"FAKE_CONDMDI_REQUEST_DUMP": str(dump)}
+    ).inbetween(state, guides=guides)
+
+    requests = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
+    assert len(requests) == 1
+    assert requests[0]["guide_frames"] == []
+    assert "skip_timesteps" not in requests[0]
+
+
 # -- refusals that never reach the engine ------------------------------------------- #
 
 

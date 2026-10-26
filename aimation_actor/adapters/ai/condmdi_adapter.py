@@ -66,6 +66,14 @@ _WORKER_MODULE = Path(__file__).resolve().parent / "condmdi_worker.py"
 _CHECKPOINT_DEFAULT = "model000750000.pt"  # the official keyframe-conditioned save
 _MOTION_FPS = 20.0  # HumanML3D's clock (the ready line re-states it)
 _MAX_SAMPLES_DEFAULT = 196  # ~9.8 s at 20 fps; the model's trained window
+# M9 (S4): an engine-filled gap whose request carries capture data between
+# the keys seeds the diffusion with its own dense capture prior and starts
+# this many timesteps down the vendored chain (1000 total, no respacing):
+# free rows generate from capture-adjacent content instead of the noise
+# start whose pure-model content splayed (M6 L23). Unguided gaps keep free
+# generation. Provisional value until the T3 probe measures the splay /
+# fidelity / latency trade (odd/tasks/m9-wide-gap-prior.md).
+_CAPTURE_PRIOR_SKIP_TIMESTEPS = 300
 
 
 class CondMDIEngineError(RuntimeError):
@@ -326,6 +334,13 @@ class CondMDIAdapter(InbetweeningPort):
                 "bind_offsets": bind_offsets,
                 "guide_frames": guide_payload,
             }
+            if guide_payload:
+                # M9 S4: capture data inside this gap — the worker seeds the
+                # diffusion with the request's own dense prior and starts part
+                # of the way down the chain. A gap with no guides inside keeps
+                # free generation (a bare keys-lerp prior risks trading the
+                # splay for a static glide).
+                request["skip_timesteps"] = _CAPTURE_PRIOR_SKIP_TIMESTEPS
             response = self._request(request)
             if response.get("status") != "ok":
                 message = str(response.get("message", "the engine request failed"))

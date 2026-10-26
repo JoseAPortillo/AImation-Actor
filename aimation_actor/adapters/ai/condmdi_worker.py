@@ -496,12 +496,46 @@ class _CondMDIEngine:
             seen.add(sample)
         return sorted({0, span, *seen})
 
+    # -- the prior init (M9) ------------------------------------------------- #
+
+    def _prior_init(self, raw_skip: object, num_timesteps: int, prior: object) -> tuple:
+        """Validate the request's ``skip_timesteps``; return ``(skip, init)``.
+
+        The vendored ``p_sample_loop`` starts a positive skip at timestep
+        ``num_timesteps - skip - 1`` and noises ``init_image`` there once
+        (``q_sample``) — so a skip MUST be paired with a meaningful prior,
+        because ``init_image=None`` with ``skip > 0`` degrades to a zero
+        tensor (S2). The prior is the request's own dense capture motion:
+        keys exact, guides stamped, lerp underneath — the free rows then
+        generate from plausible capture-adjacent content instead of noise
+        (the M6 L23 splay remedy). ``skip == 0`` keeps the historical
+        noise-start behavior exactly.
+        """
+        value = 0 if raw_skip is None else raw_skip
+        if isinstance(value, bool) or not (
+            isinstance(value, int)
+            or (isinstance(value, float) and value.is_integer())
+            or (isinstance(value, str) and value.isdigit())
+        ):
+            raise _RequestError(f"skip_timesteps is not an integer: {value!r}")
+        skip = int(value)
+        if skip < 0:
+            raise _RequestError(f"skip_timesteps cannot be negative: {skip}")
+        if skip >= num_timesteps:
+            raise _RequestError(
+                f"skip_timesteps {skip} beyond the model's {num_timesteps} timesteps"
+            )
+        return (0, None) if skip == 0 else (skip, prior)
+
     def fill(self, request: dict) -> dict:
         """One gap-fill request: dense domain poses for the whole span.
 
         ``guide_frames`` (optional, M6 S6) carries captured poses between the
         keys; they enter both the dense prior and the observation mask so the
         generated motion follows the capture's dynamics (Log L17).
+        ``skip_timesteps`` (optional, M9 S1) with a positive value seeds the
+        sampling with that same dense prior via ``init_image`` and starts
+        partway down the noise chain instead of from pure noise.
         """
         span = int(request.get("span_frames") or 0)
         keys = request.get("keys") or []
@@ -612,14 +646,19 @@ class _CondMDIEngine:
         self.torch.cuda.empty_cache()
         self.torch.cuda.reset_peak_memory_stats()
         started = time.perf_counter()
+        # M9: a positive skip pairs with the dense prior (the obs_x0 this
+        # request just built); validation happens before any sampling work.
+        skip, init_image = self._prior_init(
+            request.get("skip_timesteps"), self.diffusion.num_timesteps, obs_x0
+        )
         sample = self.diffusion.p_sample_loop(
             wrapped,
             (1, self.model.njoints, self.model.nfeats, length),
             clip_denoised=False,
             progress=False,
             model_kwargs=model_kwargs,
-            skip_timesteps=0,
-            init_image=None,
+            skip_timesteps=skip,
+            init_image=init_image,
             dump_steps=None,
             noise=None,
             const_noise=False,
