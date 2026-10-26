@@ -344,11 +344,20 @@ def test_body_pose_locals_bypass_the_global_frame_flip(tmp_path: Path) -> None:
 
 
 def test_root_translation_is_converted_to_domain_axes(tmp_path: Path) -> None:
+    """The engine reports translations in its camera's Y-down frame (T15).
+
+    The camera frame first flips by ``R_x(180)`` (Y down -> up), then reads
+    into the domain through the shared ``A`` convention: domain depth is
+    ``+tz`` (a person in front of the camera sits at positive depth, facing
+    the canonical ``-Y`` front) and domain height is ``-ty``
+    (image up = ``-ty`` because the camera's Y points down).
+    """
     adapter = _world_pose_adapter(tmp_path)
     try:
         pose = adapter._to_world_pose(
             {
-                "root_translation": [0.12, 0.34, -0.56],
+                # 12 cm camera-right, 5 cm below the camera centre, 1 m in front.
+                "root_translation": [0.12, 0.05, 1.0],
                 "rotations": {},
             }
         )
@@ -358,7 +367,7 @@ def test_root_translation_is_converted_to_domain_axes(tmp_path: Path) -> None:
             pose.root_translation.z,
         )
         assert actual == pytest.approx(
-            (12.0, 56.0, 34.0)
+            (12.0, 100.0, -5.0)
         )
     finally:
         adapter.shutdown()

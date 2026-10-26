@@ -610,12 +610,13 @@ class CaptureController(QObject):
     def _compute_depth_scale(self, origin: Vector3) -> float:
         """cm-per-cm factor mapping the estimated depth span onto metres.
 
-        ``origin.y`` is ``-tz * 100`` in camera metres; a first frame that did
-        not report a physical distance (missing, zero, or below a half metre
-        — inside which the weak-perspective fit is meaningless) gets no
-        calibration rather than a fabricated one.
+        ``origin.y`` is ``+tz * 100`` in camera metres (domain depth grows
+        away from the camera, along the canonical ``-Y`` facing's back); a
+        first frame that did not report a physical distance (missing, zero,
+        or below a half metre — inside which the weak-perspective fit is
+        meaningless) gets no calibration rather than a fabricated one.
         """
-        tz_first_m = -origin.y / 100.0
+        tz_first_m = origin.y / 100.0
         if not math.isfinite(tz_first_m) or tz_first_m < 0.5:
             return 1.0
         return self.subject_distance_m / tz_first_m

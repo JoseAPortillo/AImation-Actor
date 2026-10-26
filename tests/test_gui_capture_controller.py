@@ -162,14 +162,16 @@ def test_depth_is_calibrated_by_the_subject_distance_at_the_first_key(
 ) -> None:
     """M8 S8: the camera-space depth carries HMR2's telephoto focal assumption.
 
-    Raw depths of 50 m and 45 m at a 2.5 m subject distance calibrate to a
-    500 cm raw delta becoming 25 cm of real forward motion; lateral and vertical
+    Raw depths of 50 m and 45 m at a 2.5 m subject distance calibrate a
+    500 cm raw delta to 25 cm of real motion; a person advancing toward the
+    camera (``tz`` decreasing) walks along the canonical facing axis, so the
+    relative ``Main`` depth reads **negative** domain Y. Lateral and vertical
     channels self-calibrate through the projection and must not be touched.
     """
     controller.subject_distance_m = 2.5
     extractor.root_positions = {
-        0: Vector3(x=3.0, y=-5000.0, z=1.0),
-        1: Vector3(x=-2.0, y=-4500.0, z=-1.0),
+        0: Vector3(x=3.0, y=5000.0, z=1.0),
+        1: Vector3(x=-2.0, y=4500.0, z=-1.0),
     }
     controller.open_video("depth-calibration.mp4")
     _load_clip(source)
@@ -182,7 +184,7 @@ def test_depth_is_calibrated_by_the_subject_distance_at_the_first_key(
 
     keys = {key.frame: key.pose for key in controller.state.keyframes}
     assert keys[0]["Main"].translation == Vector3()
-    assert keys[1]["Main"].translation == Vector3(x=-5.0, y=25.0, z=-2.0)
+    assert keys[1]["Main"].translation == Vector3(x=-5.0, y=-25.0, z=-2.0)
 
 
 def test_depth_without_a_credible_origin_is_not_calibrated(

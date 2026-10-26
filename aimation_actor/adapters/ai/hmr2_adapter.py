@@ -411,8 +411,13 @@ class Hmr2Adapter(AIPort):
         - the per-joint rotations are SMPL's local quaternions re-expressed in
           the domain's Z-up frame — the production skeleton mirrors SMPL's
           chain under ``Main``, so the names carry over untouched;
-        - the optional world root translation is converted to domain axes and
-          later made relative to the first captured frame by the controller;
+        - the optional world root translation is expressed in the camera's
+          Y-down frame (measured, T15). The domain reading is the half-turn
+          the mesh flip represents — ``R_x(180)`` — followed by the shared
+          ``A^-1`` frame conversion: domain depth is ``+tz`` (a person in
+          front of the camera sits at positive depth, ahead of their
+          canonical ``-Y`` facing) and domain height is ``-ty``; the
+          controller later makes it relative to the first captured frame;
           missing translation falls back to the historical zero-root behavior;
         - the engine's output frame is the camera's, with Y pointing down
           (measured, T15: for people standing upright the engine reports a
@@ -442,8 +447,8 @@ class Hmr2Adapter(AIPort):
             # Preserve axes the estimator did produce, but never let one
             # invalid depth value poison the other root components.
             x = values[0] * 100.0 if math.isfinite(values[0]) else 0.0
-            y = -values[2] * 100.0 if math.isfinite(values[2]) else 0.0
-            z = values[1] * 100.0 if math.isfinite(values[1]) else 0.0
+            y = values[2] * 100.0 if math.isfinite(values[2]) else 0.0
+            z = -values[1] * 100.0 if math.isfinite(values[1]) else 0.0
             root_translation = Vector3(x=x, y=y, z=z)
         else:
             root_translation = Vector3()

@@ -64,6 +64,18 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
    1:1 behavior (S4). Checks: controller unit tests with fake engines; the
    real clip's forward span must land at metre scale, not decametre.
 
+9. **S9 — Forward reads as forward after export.** A person advancing toward
+   the video camera must advance along their facing axis in the exported
+   scene, never walking backward. Acceptance: the engine's root translation
+   is read in its camera's Y-down frame (measured, T15) as the half-turn
+   followed by the shared `A⁻¹` conversion — domain X `+tx`, domain Y
+   `+tz`, domain Z `−ty` — and the depth calibration reads
+   `tz_first = origin.y / 100`. A `tz` decreasing toward the camera moves
+   `Main` toward −Y; exported facing and trajectory satisfy
+   facing·Δ > 0. Checks: adapter axis test, controller calibration test,
+   real-clip e2e plus the Blender facing probe
+   (`.engine/_probe_blender_facing.py`).
+
 ## Tasks
 
 | ID | Spec | Route | Status | Commit |
@@ -76,6 +88,7 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
 | T7 | S7 | inline | done | Worker auto-detects the person per frame (torchvision Faster R-CNN MobileNetV3, score>=0.4, largest person, 1.2x margin clamped to the image) and reports `person_bbox`/`detector`; honest full-frame fallback names itself. Root cause fix found on the way: the scaled focal was computed from the halved batch, so `2*focal` overflowed fp16 and **every** `tz` was `+inf` (the adapter's fallback zeroed it — that is why no clip ever had depth). New pure-helper tests + real 3-frame probe: tz finite and varying. |
 | T8 | S8 | inline | done | `capture_controller` calibrates the relative depth once per clip: `scale = subject_distance_m / tz_first` locked at the origin (public attribute, default 3 m), 1.0 without a credible origin depth; X/Z untouched. RED/GREEN controller tests (500 cm raw delta -> 25 cm at 2.5 m/50 m; zero-origin unchanged). Real clip: f87 root `(-34.2, +30.9, +2.4) cm`, raw depth jitter 29.71 -> 2.09 cm/step. |
 | T9 | S6 | inline | done | Q8 thresholds re-tuned 4.0/6.0 -> 5.5/8.0 cm at the animator's decision (2026-10-24): the production detection crop moved the standing planted toe's real readings to 5.24 cm drift (dx/dy/dz) with toe z 6.5, which the old balanced option missed; the genuinely moving foot (10.86 cm) stays excluded. Boundary test at the measured magnitude (3-degree pitch = 5.23 cm drift) plus the pinned-constants test updated with the amendment history. |
+| T10 | S9 | inline | done | Camera-frame sign fix (2026-10-26): `_to_world_pose` root translation now reads `(tx, +tz, -ty)` (flip then `A⁻¹`, same frame family as `bind_offsets` and `condmdi_worker`'s HML conversions) and `_compute_depth_scale` reads `tz_first = +origin.y/100`. RED: the two pinned-sign tests updated first and observed failing. Real-clip e2e re-run: f87 relative root `(-34.2, -30.9, -2.4) cm`, magnitudes unchanged, detection `{(40,55): {'L_Foot'}}`, 16 rows corrected, hold <=0.5 cm, round-trip 3.9e-05 cm; Blender facing probe: facing ~ -Y, Main delta ~ (-0.34, -0.31, -0.02), facing·delta ~ +0.33 (walks where it looks). |
 | T4 | S1-S4 | inline | partial | Real 48-frame probe 40..87 completed and wrote `.engine/_e2e_jace_root_motion_40_87.fbx`. HMR2 produced finite relative root X ≈ −32 cm and Z ≈ −0.23 cm over the range, but depth was invalid on some rows and fell back to zero; no planted contact met the 4 cm threshold after root motion, so foot pinning was not claimed. Subject crop/detector or temporal root source remains required for full acceptance. (T7 supplies the detector; the fp32 focal fix makes depth finite — re-validation pending.) |
 
 ## Log
@@ -195,3 +208,22 @@ Delivery: direct work-unit commits, no PR; test runner: `.venv/Scripts/python.ex
   row — marginal reach to the ground-pinned target with the root shifted; the
   outcome checks (hold/drift) all pass, so it is recorded, not chased, pending
   the user's longer tests.
+- **L17.** User, verbatim: *"sigue habiendo un poco de ruido en la captura,
+  pero esta lo dejaremos para mas adelante, lo que se ve en el fbx exportado
+  esque el avance de la persona capturada en el video lo toma como
+  retroceso."* Residual capture noise stays parked (user's call).
+- **L18.** S9 diagnosis and fix (2026-10-26). Video ground truth (cached
+  frames f2/f46/f86): the person walks TOWARD the camera, facing the
+  viewer; raw `tz` decreases (93.7 -> 83.1 m). Blender probe on the exported
+  FBX (`_probe_blender_facing.py`): facing constant ~(-0.09, -0.98, 0)
+  while `Main` advanced +0.31 m on Y — walking backward relative to their
+  own body, an internal rotation-vs-translation disagreement, not a viewer
+  choice. Root cause: `_to_world_pose` mapped the engine's camera
+  translation (Y-down frame) as `(x, -tz, +ty)`; the frame story every
+  other consumer shares (`bind_offsets` via `A⁻¹`, `condmdi_worker`
+  `(x, z, -y)` HML conversions, writer `A`) requires flip-then-`A⁻¹`:
+  `(x, +tz, -ty)`. Fixed the two signs plus `_compute_depth_scale`
+  (`tz_first = +origin.y/100`). RED observed on the two pinned tests before
+  the change. Real-clip re-validation in T10: magnitudes preserved,
+  facing·delta > 0, all checks green. S8-era numbers recorded under the old
+  signs (`+30.9` depth, `+2.4` z) now mirror to `-30.9`/`-2.4`.

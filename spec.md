@@ -379,7 +379,14 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   `subject_distance_m / tz_first` (default 3 m, the animator's real distance
   to the subject at the first key — lateral and vertical channels
   self-calibrate through the projection); a GUI setting for that distance is
-  still pending. HMR2 remains a single-image weak-perspective estimator, so
+  still pending. **Measured frame conventions (2026-10-26, S9).** The engine's
+  root translation lives in the camera's Y-down frame: domain depth is
+  `+tz` (a person in front of the camera sits at positive depth, facing the
+  canonical `-Y` front) and height is `-ty`; the earlier `(x, -tz, +ty)`
+  reading mirrored depth/height and made a person advancing toward the
+  camera walk backward in the export (facing settled at `-Y` while `Main`
+  moved `+Y`). The depth calibration reads `tz_first = origin.y / 100`.
+  HMR2 remains a single-image weak-perspective estimator, so
   absolute scale and camera-motion separation are best-effort; validate long
   clips against the reference video.
 - **Bent-knee prior on webcam footage (crop hypothesis tested and falsified,
