@@ -350,7 +350,15 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
    `odd/tasks/m8-final-export.md`. The M8 root-motion iteration (captured
    trajectory on `Main`, root-jitter smoothing, root-invariant contact
    detection) rode this milestone: `odd/tasks/m8-root-motion.md`.
-3. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
+3. ✅ **M9 — wide-gap fill cost (init-prior + skip_timesteps) landed
+   (2026-10-26).** The M6 remedy landed and measured; the wide-gap quality
+   premise was falsified with evidence (content skip-insensitive, ~1.5 deg
+   over the whole sweep) and the measured default halves fill latency
+   (70.6 -> 31.6 s). Feature doc: `odd/tasks/m9-wide-gap-prior.md`. The
+   MVP tracks as closed here; the remaining quality follow-ups (anchor
+   seam, ruido de captura, bent-knee, refactors) are the "afinar" phase,
+   to be scheduled by task with the animator.
+4. Parked: FR-GEN-02's in-app engine picker — the factory call site suffices
    while the MVP has exactly one inbetweening engine; revisit with the second
    engine.
 
