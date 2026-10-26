@@ -291,12 +291,60 @@ def test_a_solo_extraction_shows_an_indeterminate_bar(qtbot) -> None:
     window = MainWindow(source=source, skeleton=_skeleton(), engine=engine)
     qtbot.addWidget(window)
     _load_two_seconds(window, source)
+    assert window.timeline.isEnabled()  # idle: the scrubber answers
     source.frame_index = 0
 
     window.controller.mark_current()
     qtbot.waitUntil(lambda: window.controller.extraction_busy)
     assert not window.progress.isHidden()
     assert window.progress.maximum() == window.progress.minimum() == 0
+    # Scrubbing now would fight the capture loop: the slider is locked too.
+    assert not window.timeline.isEnabled()
 
     engine.release.set()
     qtbot.waitUntil(lambda: window.progress.isHidden())
+    assert window.timeline.isEnabled()  # freed: the scrubber answers again
+
+
+class _BlockingFillEngine:
+    """An inbetweening engine that never answers until released."""
+
+    def __init__(self) -> None:
+        self.release = threading.Event()
+
+    def inbetween(self, timeline: TimelineState, guides=None) -> TimelineState:
+        self.release.wait(timeout=10.0)
+        return timeline
+
+
+def test_the_scrubber_locks_while_a_fill_is_in_flight(qtbot) -> None:
+    """Scrubbing during a gather re-seeks the decoder out from under the
+    guides and drags the playhead away from the frame being captured; the
+    window must refuse the interaction for as long as the work runs."""
+    source = _window_source()
+    engine = _BlockingFillEngine()
+    window = MainWindow(
+        source=source,
+        skeleton=_skeleton(),
+        engine=_ConstantEngine(),
+        inbetween_engine=engine,
+    )
+    qtbot.addWidget(window)
+    _load_two_seconds(window, source)
+
+    source.frame_index = 0
+    window.controller.mark_current()
+    qtbot.waitUntil(lambda: window.controller.key_count() == 1)
+    source.frame_index = 60
+    window.controller.mark_current()
+    qtbot.waitUntil(lambda: window.controller.key_count() == 2)
+    assert window.timeline.isEnabled()  # idle again between the marks
+
+    source.frame_index = None  # the gather's grabs answer unindexed, usable
+    window.controller.fill_inbetweens()
+    qtbot.waitUntil(lambda: window.controller.fill_active)
+    assert not window.timeline.isEnabled()  # gather or engine fill: locked
+
+    engine.release.set()
+    qtbot.waitUntil(lambda: not window.controller.fill_active)
+    assert window.timeline.isEnabled()  # adopted: the scrubber answers again

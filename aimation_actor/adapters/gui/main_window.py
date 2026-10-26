@@ -302,15 +302,22 @@ class MainWindow(QMainWindow):
             # ``done == total``: the gathering ended and the engine is filling;
             # ``total == 0``: a keys-only fill from the start. Both swim.
             self.progress.setRange(0, 0)
+        if self.controller.fill_active:
+            # A gather only announces itself while a fill is in flight, and
+            # scrubbing mid-fill re-seeks the decoder out from under the
+            # guides' grabs: refuse the timeline until the work ends.
+            self.timeline.setEnabled(False)
 
     def _refresh_progress(self, *_ignored: object) -> None:
-        """Re-derive the bar from the controller's own state.
+        """Re-derive the bar (and the scrubber's lock) from the controller.
 
         Runs on every status change (adoption, failure, a report), on the
         timeline refresh a new clip causes, and on both runners' busy
         announcements: the controller is asked, not guessed at, so any path
-        that ends the work ends the bar with it.
+        that ends the work ends the bar — and unlocks the scrubber — with it.
         """
+        busy = self.controller.fill_active or self.controller.extraction_busy
+        self.timeline.setEnabled(not busy)
         if self.controller.fill_active:
             self.progress.show()
             return
