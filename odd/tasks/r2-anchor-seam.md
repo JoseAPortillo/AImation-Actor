@@ -49,10 +49,10 @@ alone) + `.venv\Scripts\ruff.exe check .`. GPU validation is an
 
 | ID | S#  | Route  | Status  | Commit |
 | -- | --- | ------ | ------- | ------ |
-| T1 | S2,S3,S4 | inline | done | — (next) |
-| T2 | S5   | inline | running | — |
-| T3 | S6   | inline | pending | — |
-| T4 | S7   | inline | pending | — |
+| T1 | S2,S3,S4 | inline | done | `bff7704` |
+| T2 | S5   | inline | done | `bff7704` |
+| T3 | S6   | inline | done | this |
+| T4 | S7   | inline | done | this |
 
 ## Log
 
@@ -70,3 +70,35 @@ alone) + `.venv\Scripts\ruff.exe check .`. GPU validation is an
 - **L3.** Sizing (2026-10-26): large (pure mechanism + wiring + measured
   constants via GPU probe + docs). Route: parent inline (no writer
   trigger — shared files, one behavior); probe runs in background.
+- **L4.** T1+T2 landed (`bff7704`): `core/seam.py` `feather_anchor_seams`
+  (pure; slerp along the short arc, nearest boundary wins, alpha decays
+  `strength*(1 - d/(window+1))`, threshold skips continuous joints,
+  untouched rows keep Keyframe object identity, `(timeline, 0)` returned
+  unchanged when nothing moved) wired into adoption between root smoothing
+  and pinning, with a status note. RED observed on 7 core + 2 wiring tests;
+  full suite green in two steps, ruff clean. Provisional constants
+  `SEAM_WINDOW_FRAMES=4`, `SEAM_BLEND_STRENGTH=0.8`, `SEAM_THRESHOLD_DEG=30`
+  await the T3 grid.
+- **L5.** T3 probe running (`.engine/_e2e_seam_feather.py`): ONE real fill
+  (keys 40/87, guides {58,76}, skip 500) feeds the whole
+  window {2,4,6} x strength {0.6,0.8,1.0} grid (feathering is pure CPU);
+  per combo: boundary arm jumps (L23 metric) before/after, rewritten count,
+  anchor survival, worst angular motion the blend introduces; raw and
+  default (w4/s0.8) FBXs for animator inspection.
+- **L6.** T3 measured (2026-10-26, `.engine/_e2e_seam_feather.py`): ONE
+  real fill (keys 40/87, guides {58,76}, skip 500, 42.3 s, anchors
+  reasserted byte-exact True) fed the pure-CPU grid window {2,4,6} x
+  strength {0.6,0.8,1.0} at threshold 30. Raw mean boundary arm jump
+  (L+R, FK): 78.8 deg over the six neighbour rows (range 51.3..95.8).
+  After: w2s8 48.1 (12 rows), w4s8 42.0 (24 rows, worst joint motion
+  96.9 deg), w4s1.0 33.1, w6s8 39.4, w6s1.0 30.1 but 129.8 deg worst
+  motion — evidence of the pop becoming an anchor-hugging glide. ALL 9
+  combos kept anchor rows byte-exact. ADOPTED: window 4, strength 0.8,
+  threshold 30 — the middle setting that halves the pop while leaving
+  ~40% of the gap content untouched; constants now carry their measured
+  rationale in seam.py. FBX pair for the animator: raw vs w4s8 feathered.
+- **L7.** T4: spec.md wide-gap follow-up entry rewritten — the seam moves
+  from "the pipeline's cleanup pass owns smoothing" to the landed feather
+  with the grid numbers, the rejected aggressive setting, and the honest
+  residual (the boundary still eases TO the capture, and the interior
+  content disagreement remains model-limited).

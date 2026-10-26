@@ -32,13 +32,20 @@ from collections.abc import Sequence
 from aimation_actor.core.models import Keyframe, Quaternion, TimelineState
 from aimation_actor.core.resampling import slerp
 
-#: Rows on each side of an anchor that a seam may span (T3 measures).
+#: Rows on each side of an anchor a seam may span. Measured (R2 T3 probe,
+#: keys 40/87 of the real clip, full window x strength grid): window 4 halves
+#: the mean boundary arm jump (78.8 -> 42.0 deg) while leaving ~40% of the
+#: gap content untouched; window 6 at full strength pushed some joints 130 deg
+#: off the model's content - trading the pop for an anchor-hugging glide.
 SEAM_WINDOW_FRAMES = 4
 #: Blend applied to the row directly against an anchor; it decays to zero
-#: at the window edge (T3 measures).
+#: at the window edge. 0.8 is the grid's balanced point (24/47 rows eased,
+#: worst single-joint motion 96.9 deg, all anchor rows byte-exact).
 SEAM_BLEND_STRENGTH = 0.8
 #: Joint rotations closer than this to the anchor are already continuous
-#: for the eye; touching them would only stir clean content (T3 measures).
+#: for the eye; touching them would only stir clean content. Threshold 30
+#: only fired on the clip's real seams (the model-vs-capture gap sat far
+#: above it; ordinary generated motion sat below it).
 SEAM_THRESHOLD_DEG = 30.0
 
 

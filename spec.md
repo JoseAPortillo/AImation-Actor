@@ -404,13 +404,24 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   while latency scales with the skip (70.6 -> 31.6 s at 500; facing
   positive-share constant 85.1%). So M9's value is cost per wide gap, not
   content. Remaining, for the "afinar" phase in priority order: (1) the
-  **anchor-vs-fill seam** — captured anchors can sit far from the model's
-  content in joint space (measured: ~50 deg upper-arm jump at an anchor's
-  neighbor row on the real clip), so boundary rows snap; the pipeline's
-  cleanup pass owns smoothing today; (2) free-row content itself (model
-  limited: a different checkpoint/backbone, e.g. sequence-native models, is
-  the prepared direction — see §4.12's superseded GVHMR analysis for why
-  single-image engines cannot fix it alone).
+  **anchor-vs-fill seam — feathered (R2, 2026-10-26)**: captured anchors sat
+  far from the model's content in joint space (mean 78.8 deg L+R arm jump at
+  the six anchor-boundary rows on the real clip), so boundary rows snapped.
+  Adoption now runs `core/seam.py::feather_anchor_seams` (after root
+  smoothing, before pinning): free rows within `window` of the nearest
+  anchor blend toward it along `slerp`, alpha decaying with distance,
+  continuous rows under a 30 deg threshold untouched, anchor rows byte-exact
+  by construction. The measured grid (one real fill, window 2/4/6 x strength
+  0.6/0.8/1.0) adopted the middle setting `window=4, strength=0.8`: mean
+  boundary jump 78.8 -> 42.0 deg (-47%) with 24 of ~47 interior rows eased
+  and worst single-joint motion 96.9 deg; the aggressive `w6/s1.0` reached
+  30.1 deg but pushed some joints 130 deg off the model's content — trading
+  the pop for an anchor-hugging glide, rejected on evidence. Residual
+  boundary pop and (2) free-row content itself remain model-limited (a
+  different checkpoint/backbone, e.g. sequence-native models, is the
+  prepared direction — see §4.12's superseded GVHMR analysis for why
+  single-image engines cannot fix it alone). Feature doc:
+  `odd/tasks/r2-anchor-seam.md`.
 - **Root trajectory quality remains model-limited.** M8 now captures the HMR2
   pelvis/camera translation where available, makes the first captured frame the
   origin, carries relative X/Y/Z through `Main`, preserves it through the
