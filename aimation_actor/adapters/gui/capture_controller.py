@@ -47,6 +47,7 @@ from aimation_actor.core.models import (
     Vector3,
     WorldPose,
 )
+from aimation_actor.core.seam import feather_anchor_seams
 from aimation_actor.core.services import (
     build_production_pose,
     clamp_frame,
@@ -915,10 +916,16 @@ class CaptureController(QObject):
         open: the previous clip's keys must not rewrite a replacement's
         timeline, for the same reason an extraction result is (M5, S5).
 
-        Before adopting, the pin pass (M7, FR-IK-01) holds the planted contacts
-        the pre-fill keys agree on — detection needs those keys, which is why
-        pinning runs here, not at export time. Pinning never blocks adoption:
-        a skeleton without complete leg chains degrades it with a note.
+        Before adopting, two cleanup passes run on the GENERATED rows only:
+        seam feathering (R2, S5) eases the frames beside a captured anchor
+        toward it — the model's content can disagree with the capture by
+        tens of degrees and the boundary snaps — and the pin pass (M7,
+        FR-IK-01) then holds the planted contacts the pre-fill keys agree on
+        (pinning keeps the final word on contact rows, which is why it runs
+        last; detection needs the original keys too, so neither runs at
+        export time). Neither pass may block adoption: a skeleton without
+        foot joints degrades pinning with a note, and feathering simply has
+        nothing to blend when the capture already matches.
         """
         if self._inbetween_generation != self._generation:
             self._report(_INBETWEENS_STALE)
@@ -930,6 +937,12 @@ class CaptureController(QObject):
         # trajectory; damp its frame-to-frame jitter before anything else uses
         # it, while the original keys keep their exact captured values.
         filled = smooth_root_trajectory(filled, self._fill_original_keys)[0]
+        # R2 S5: feather the generated rows against every captured anchor -
+        # keys and reasserted guides - before pinning may take its final word
+        # on contact rows.
+        anchors = tuple(self._fill_original_keys) + tuple(self._guides)
+        filled, seam_fixed = feather_anchor_seams(filled, anchors)
+        seam_note = f" Feathered {seam_fixed} seam frame(s)." if seam_fixed else ""
         corrected, pin_note = self._pin_filled(filled)
         self._state = corrected
         self.timeline_changed.emit()
@@ -937,7 +950,7 @@ class CaptureController(QObject):
         self._emit_status(
             actionable=(
                 f"Generated {len(key_frames(filled)) - before} inbetween frames "
-                f"between {before} golden poses.{pin_note}"
+                f"between {before} golden poses.{seam_note}{pin_note}"
             )
         )
 

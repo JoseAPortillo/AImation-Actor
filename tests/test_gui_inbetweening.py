@@ -7,6 +7,8 @@ a failure is non-fatal — the keys survive (S1 hard constraints, FR-GEN-01).
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from PySide6.QtCore import QObject, Signal
 
@@ -306,3 +308,98 @@ def test_a_successful_fill_reports_what_it_generated(
     filler.filled.emit(filler.result)
 
     assert any("2 inbetween" in report for report in reports)
+
+
+# --------------------------------------------------------------------------- #
+# R2 seam feathering at adoption
+# --------------------------------------------------------------------------- #
+
+
+def _zq(angle_deg: float) -> Quaternion:
+    half = math.radians(angle_deg) / 2.0
+    return Quaternion(w=math.cos(half), x=0.0, y=0.0, z=math.sin(half))
+
+
+def _rotated(angle_deg: float) -> dict:
+    return {"Pelvis": JointPose(rotation=_zq(angle_deg))}
+
+
+def test_adoption_feathers_generated_rows_against_the_anchors() -> None:
+    """R2 S2-S5: the seam is eased at adoption; anchors keep object identity."""
+    source = _FakeSource()
+    filler = _FakeInbetweener(
+        result=TimelineState(
+            skeleton=_skeleton(),
+            keyframes=(
+                Keyframe(frame=1, pose=_rotated(0.0)),
+                Keyframe(frame=2, pose=_rotated(60.0)),
+                Keyframe(frame=3, pose=_rotated(60.0)),
+                Keyframe(frame=4, pose=_rotated(60.0)),
+                Keyframe(frame=5, pose=_rotated(0.0)),
+            ),
+            fps=24.0,
+            frame_end=10,
+        )
+    )
+    controller = CaptureController(
+        source,
+        TimelineState(
+            skeleton=_skeleton(), keyframes=_keys(1, 5), fps=24.0, frame_end=10
+        ),
+        extractor=None,
+        inbetweener=filler,
+    )
+    reports: list[str] = []
+    controller.status_changed.connect(reports.append)
+
+    controller.fill_inbetweens()
+    filler.filled.emit(filler.result)
+
+    adopted = {kf.frame: kf for kf in controller.state.keyframes}
+    assert adopted[1] is filler.result.keyframes[0]  # anchors untouched, same object
+    assert adopted[5] is filler.result.keyframes[4]
+    assert adopted[1].pose["Pelvis"].rotation == _zq(0.0)
+    for frame in (2, 3, 4):
+        assert adopted[frame].pose["Pelvis"].rotation.w > _zq(60.0).w  # eased
+    assert any("Feathered 3 seam frame(s)" in report for report in reports)
+
+
+def test_adoption_treats_reasserted_guides_as_anchors_too() -> None:
+    """R2 S5: a guide row is a boundary too - never eased itself, and the
+    generated rows next to it ease toward it."""
+    source = _FakeSource()
+    filler = _FakeInbetweener(
+        result=TimelineState(
+            skeleton=_skeleton(),
+            keyframes=(
+                Keyframe(frame=1, pose=_rotated(0.0)),
+                Keyframe(frame=2, pose=_rotated(60.0)),
+                Keyframe(frame=3, pose=_rotated(0.0)),  # the reasserted guide
+                Keyframe(frame=4, pose=_rotated(60.0)),
+                Keyframe(frame=5, pose=_rotated(0.0)),
+            ),
+            fps=24.0,
+            frame_end=10,
+        )
+    )
+    controller = CaptureController(
+        source,
+        TimelineState(
+            skeleton=_skeleton(), keyframes=_keys(1, 5), fps=24.0, frame_end=10
+        ),
+        extractor=None,
+        inbetweener=filler,
+    )
+    reports: list[str] = []
+    controller.status_changed.connect(reports.append)
+
+    controller.fill_inbetweens()
+    controller._guides = {3: _rotated(0.0)}  # what the gather handed over
+
+    filler.filled.emit(filler.result)
+
+    adopted = {kf.frame: kf for kf in controller.state.keyframes}
+    assert adopted[3] is filler.result.keyframes[2]  # the guide survives untouched
+    assert adopted[2].pose["Pelvis"].rotation.w > _zq(60.0).w
+    assert adopted[4].pose["Pelvis"].rotation.w > _zq(60.0).w
+    assert any("Feathered 2 seam frame(s)" in report for report in reports)
