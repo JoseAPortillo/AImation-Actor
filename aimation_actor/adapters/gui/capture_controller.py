@@ -297,6 +297,18 @@ class CaptureController(QObject):
         return self._video_path
 
     @property
+    def depth_calibrated(self) -> bool:
+        """Whether this clip's depth calibration is already fixed (M8 S8).
+
+        The scale is computed once, against ``subject_distance_m`` at the
+        first captured frame (``_build_production_pose``), and then holds for
+        the whole clip; loading a new clip resets it. A GUI setting for the
+        distance disables itself once this turns true, because changing it
+        mid-clip would silently do nothing.
+        """
+        return self._root_origin is not None
+
+    @property
     def has_media(self) -> bool:
         """Whether a clip is loaded and its timeline is usable."""
         return self._video_path is not None

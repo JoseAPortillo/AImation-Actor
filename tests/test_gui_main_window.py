@@ -183,6 +183,36 @@ def test_k_marks_the_playhead_and_delete_removes_it(
     assert window.timeline.key_strip.keys == ()
 
 
+def test_the_subject_distance_setting_writes_the_controller(window: MainWindow) -> None:
+    """M8 S8: the GUI surface for the clip's depth-calibration distance.
+
+    The spin starts at the controller's 3 m default and forwards every change
+    to ``controller.subject_distance_m``, which ``_compute_depth_scale`` reads
+    when the first captured frame locks the clip's calibration.
+    """
+    assert window.subject_distance.value() == pytest.approx(3.0)
+
+    window.subject_distance.setValue(2.5)
+    assert window.controller.subject_distance_m == pytest.approx(2.5)
+
+
+def test_the_subject_distance_locks_after_the_first_key_and_frees_on_a_new_clip(
+    qtbot, window: MainWindow, source: _FakeSource
+) -> None:
+    # Once per clip: the scale is fixed at the first captured frame, so a
+    # mid-clip change would be a silent no-op — the GUI disables the setting
+    # instead, and a freshly loaded clip re-arms it.
+    _load_two_seconds(window, source)
+    assert window.subject_distance.isEnabled()
+
+    window.action_mark.trigger()
+    qtbot.waitUntil(lambda: window.controller.has_key(0), timeout=5000)
+    assert not window.subject_distance.isEnabled()
+
+    _load_two_seconds(window, source)
+    assert window.subject_distance.isEnabled()
+
+
 def test_shift_arrows_jump_between_golden_poses(
     qtbot, window: MainWindow, source: _FakeSource
 ) -> None:

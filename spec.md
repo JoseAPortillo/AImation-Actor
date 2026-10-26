@@ -378,8 +378,12 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   assumption, so the controller calibrates the relative depth once per clip by
   `subject_distance_m / tz_first` (default 3 m, the animator's real distance
   to the subject at the first key — lateral and vertical channels
-  self-calibrate through the projection); a GUI setting for that distance is
-  still pending. **Measured frame conventions (2026-10-26, S9).** The engine's
+  self-calibrate through the projection). The GUI setting landed
+  (2026-10-26): the capture window ships a "Subject distance" control beside
+  the timeline writing `controller.subject_distance_m`; it stays editable
+  until the first Golden Pose locks the clip's calibration
+  (`CaptureController.depth_calibrated`) and re-enables on the next clip
+  load, because a mid-clip change would be a silent no-op. **Measured frame conventions (2026-10-26, S9).** The engine's
   root translation lives in the camera's Y-down frame: domain depth is
   `+tz` (a person in front of the camera sits at positive depth, facing the
   canonical `-Y` front) and height is `-ty`; the earlier `(x, -tz, +ty)`

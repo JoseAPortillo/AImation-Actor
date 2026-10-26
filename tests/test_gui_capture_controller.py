@@ -187,6 +187,26 @@ def test_depth_is_calibrated_by_the_subject_distance_at_the_first_key(
     assert keys[1]["Main"].translation == Vector3(x=-5.0, y=-25.0, z=-2.0)
 
 
+def test_depth_calibration_reports_when_it_locks(
+    controller: CaptureController, source: _FakeSource, extractor: _FakeExtractor
+) -> None:
+    """M8 S8: the clip's depth calibration is fixed once, at the first capture.
+
+    ``subject_distance_m`` only matters before the first captured frame: after
+    it, the scale is locked for the whole clip (once per clip), so a changed
+    setting mid-clip would be a silent no-op. ``depth_calibrated`` tells the
+    GUI when that point has passed; loading a fresh clip starts a new one.
+    """
+    controller.open_video("calibration-lock.mp4")
+    _load_clip(source)
+    assert controller.depth_calibrated is False
+
+    source.frame_index = 0
+    controller.mark_current()
+
+    assert controller.depth_calibrated is True
+
+
 def test_depth_without_a_credible_origin_is_not_calibrated(
     controller: CaptureController, source: _FakeSource, extractor: _FakeExtractor
 ) -> None:

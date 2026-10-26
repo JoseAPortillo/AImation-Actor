@@ -24,7 +24,9 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QDoubleSpinBox,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QSplitter,
@@ -108,6 +110,7 @@ class MainWindow(QMainWindow):
         self.exporter = exporter
         self.viewport = SkeletonViewport(self)
         self.timeline = TimelineBar(self)
+        self._build_distance_control()
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.splitter.addWidget(self._video_pane)
@@ -117,7 +120,11 @@ class MainWindow(QMainWindow):
         central = QWidget(self)
         layout = QVBoxLayout(central)
         layout.addWidget(self.splitter, 1)
-        layout.addWidget(self.timeline)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.timeline, 1)
+        bottom.addWidget(self._distance_label)
+        bottom.addWidget(self.subject_distance)
+        layout.addLayout(bottom)
         self.setCentralWidget(central)
 
         self._build_actions()
@@ -243,6 +250,32 @@ class MainWindow(QMainWindow):
 
     # -- following the controller ------------------------------------------ #
 
+    def _build_distance_control(self) -> None:
+        """Build the subject-distance control (M8 S8).
+
+        It writes ``controller.subject_distance_m``, which the controller
+        reads once per clip when its first captured frame fixes the depth
+        scale; once that happens the control disables itself (a mid-clip
+        change would be a silent no-op) until the next clip load re-arms it.
+        """
+        self._distance_label = QLabel("Subject distance", self)
+        self.subject_distance = QDoubleSpinBox(self)
+        self.subject_distance.setSuffix(" m")
+        self.subject_distance.setDecimals(1)
+        self.subject_distance.setSingleStep(0.1)
+        self.subject_distance.setRange(0.5, 50.0)
+        self.subject_distance.setValue(self.controller.subject_distance_m)
+        self.subject_distance.setToolTip(
+            "Camera-to-subject distance at the first captured frame. It "
+            "calibrates the clip's relative depth once, at the first Golden "
+            "Pose, and stays fixed until a new clip is loaded."
+        )
+        self.subject_distance.valueChanged.connect(self._on_distance_changed)
+
+    def _on_distance_changed(self, value: float) -> None:
+        """Forward the animator's distance to the controller."""
+        self.controller.subject_distance_m = value
+
     def _connect(self) -> None:
         self.timeline.frame_requested.connect(self.controller.go_to_frame)
         self.controller.frame_changed.connect(self.timeline.set_frame)
@@ -267,6 +300,10 @@ class MainWindow(QMainWindow):
             fps=state.fps,
         )
         self.timeline.set_keys(state.frames())
+        # The depth calibration locks at the first capture and resets on a new
+        # clip: both moments arrive through this slot, so it is the one place
+        # the distance control's enabled state needs refreshing (M8 S8).
+        self.subject_distance.setEnabled(not self.controller.depth_calibrated)
 
     def _on_media_changed(self) -> None:
         self._refresh_timeline()
