@@ -57,10 +57,10 @@ alone) + `.venv\Scripts\ruff.exe check .`. Real-clip work is
 
 | ID | S#  | Route  | Status  | Commit |
 | -- | --- | ------ | ------- | ------ |
-| T1 | S2  | inline | running | — |
-| T2 | S3  | inline | pending | — |
-| T3 | S4  | user   | pending | — |
-| T4 | S5  | inline | pending | — |
+| T1 | S2  | inline | done    | see log |
+| T2 | S3  | inline | done    | probe |
+| T3 | S4  | user   | running | - |
+| T4 | S5  | inline | pending | - |
 
 ## Log
 
@@ -75,3 +75,25 @@ alone) + `.venv\Scripts\ruff.exe check .`. Real-clip work is
 - **L3.** Sizing: medium (one additive API extension with preserved
   defaults, one sweep probe, then a user decision). Route: parent inline
   (no writer trigger; the probe is the deliverable's evidence).
+- **L4.** Sweep (T2, `.engine/_sim_pin_sweep.py`, user's real fill, the 16
+  golden keys, ground_z=0 like the app; per-bar `pin_foot_contacts` via the
+  new pass-throughs): tol 5.5 finds 5/15 spans already planted - the app's
+  adoption pin DID fire on the low-noise spans (their inside-slide is
+  0.29 cm/frame, effectively straight). The visible slide lives in the
+  OTHER spans: not planted because the bar is below the capture noise.
+- **L5.** Raised bars: tol=8 catches 3 more spans (8/15), inside-slide
+  p90 3.53 -> 2.06 cm/frame, max slightly up (7.27->8.28, feet clamped on
+  reach); tol=12 first frozen-step evidence (1 pinned span with >6 cm
+  key-to-key z travel = a step misdetected as a plant); tol 16-25 produce
+  a 34.65 cm/frame AFTER-pin max (median target beyond leg reach -> clamp
+  snap) and 3 step-like false plants. Rejected on evidence: 12+.
+  Defensible: 8 (modest real gain, no new artifacts class).
+- **L6.** The structural residual the bar cannot fix: FR-GEN-01 keeps the
+  KEYS byte-exact, and the keys themselves disagree 6.9-23.9 cm on this
+  clip (diag). Pinning straightens interior rows to the run median but the
+  key rows stay noisy -> a step at every planted key boundary remains.
+  Correcting that means grounding mode (preserve_original_keys=False, the
+  opt-in trial M8 already implements) - it rewrites captured golden poses,
+  which is a product decision (T3), not a threshold retune. The
+  keys-only export has no interior rows: no pass runs there by design
+  today; grounding on a sparse timeline would also need a new mode.
