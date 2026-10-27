@@ -132,3 +132,11 @@ alone) + `.venv\Scripts\ruff.exe check .`. Real-clip work is
   rewritten (12.0, grounding history, pass-throughs, residual
   clip-dependence) and the afinar agenda gains item (4) closed. Full
   suite two-step green, ruff clean. R5 closed.
+- **L11.** User froze the area (2026-10-27, verbatim): *"El resultado al
+  generar los enbetween no es lo que busco, lo dejamos como esta."* The
+  R5 retune stays committed (it is harmless infrastructure), but the
+  inbetween-quality agenda - bent-knee prior included - is CLOSED by the
+  user's decision, not by measurement. If fill content is ever pursued
+  again, the documented direction is a different model class
+  (sequence-native engines; spec.md item (3)), not more post-processing
+  of this one's output.
