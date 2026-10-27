@@ -403,3 +403,101 @@ def test_adoption_treats_reasserted_guides_as_anchors_too() -> None:
     assert adopted[2].pose["Pelvis"].rotation.w > _zq(60.0).w
     assert adopted[4].pose["Pelvis"].rotation.w > _zq(60.0).w
     assert any("Feathered 2 seam frame(s)" in report for report in reports)
+
+
+# --------------------------------------------------------------------------- #
+# R3 jitter damping at adoption
+# --------------------------------------------------------------------------- #
+
+
+def _high_freq_energy(state: TimelineState) -> float:
+    """Sum over interior rows of the angle between the row and the slerp
+    midpoint of its neighbours - the tremor signature the user reported."""
+    from aimation_actor.core.resampling import slerp
+
+    rows = {kf.frame: kf.pose for kf in state.keyframes}
+    frames = sorted(rows)
+    energy = 0.0
+    for prev, cur, nxt in zip(frames, frames[1:], frames[2:], strict=False):
+        centre = rows[cur].get("Pelvis")
+        first = rows[prev].get("Pelvis")
+        last = rows[nxt].get("Pelvis")
+        if centre is None or first is None or last is None:
+            continue
+        mid = slerp(first.rotation, last.rotation, 0.5)
+        dot = abs(
+            centre.rotation.w * mid.w
+            + centre.rotation.x * mid.x
+            + centre.rotation.y * mid.y
+            + centre.rotation.z * mid.z
+        )
+        energy += math.degrees(2.0 * math.acos(min(1.0, dot)))
+    return energy
+
+
+def _tremor_fill() -> TimelineState:
+    """Keys at 1/9 with a period-2 arm tremor in the generated rows."""
+    return TimelineState(
+        skeleton=_skeleton(),
+        keyframes=tuple(
+            Keyframe(
+                frame=frame,
+                pose=_rotated(
+                    0.0 if frame in (1, 9) else (60.0 if frame % 2 else 0.0)
+                ),
+            )
+            for frame in range(1, 10)
+        ),
+        fps=24.0,
+        frame_end=10,
+    )
+
+
+def _tremor_setup(result: TimelineState):
+    filler = _FakeInbetweener(result=result)
+    controller = CaptureController(
+        _FakeSource(),
+        TimelineState(
+            skeleton=_skeleton(), keyframes=_keys(1, 9), fps=24.0, frame_end=10
+        ),
+        extractor=None,
+        inbetweener=filler,
+    )
+    reports: list[str] = []
+    controller.status_changed.connect(reports.append)
+    return controller, filler, reports
+
+
+def test_adoption_damps_generated_jitter_and_reports_it() -> None:
+    """R3 S3/S5: the tremor in the free rows is filtered at adoption and the
+    note names the damped frames; the anchor rows survive byte-exact."""
+    result = _tremor_fill()
+    controller, filler, reports = _tremor_setup(result)
+
+    controller.fill_inbetweens()
+    filler.filled.emit(result)
+
+    adopted = {kf.frame: kf for kf in controller.state.keyframes}
+    assert adopted[1] is result.keyframes[0]
+    assert adopted[9] is result.keyframes[8]
+    from aimation_actor.core.seam import feather_anchor_seams
+
+    feathered_only, _count = feather_anchor_seams(result, (1, 9))
+    assert _high_freq_energy(controller.state) < _high_freq_energy(feathered_only)
+    assert any("Damped" in report and "jitter frame(s)" in report for report in reports)
+
+
+def test_adoption_treats_guides_as_jitter_anchors_too() -> None:
+    """R3 S2/S5: a reasserted guide row is an anchor - never damped itself."""
+    result = _tremor_fill()
+    controller, filler, reports = _tremor_setup(result)
+
+    controller.fill_inbetweens()
+    controller._guides = {6: _rotated(0.0)}  # what the gather handed over
+
+    filler.filled.emit(result)
+
+    adopted = {kf.frame: kf for kf in controller.state.keyframes}
+    assert adopted[6] is result.keyframes[5]  # the guide survives untouched
+    assert adopted[6].pose["Pelvis"].rotation == _zq(0.0)
+    assert any("Damped" in report for report in reports)

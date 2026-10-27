@@ -38,6 +38,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from aimation_actor.core.foot_contacts import FOOT_JOINTS
 from aimation_actor.core.foot_ik import pin_foot_contacts
+from aimation_actor.core.jitter import damp_generated_jitter
 from aimation_actor.core.models import (
     CapturedFrame,
     FrameImage,
@@ -916,16 +917,19 @@ class CaptureController(QObject):
         open: the previous clip's keys must not rewrite a replacement's
         timeline, for the same reason an extraction result is (M5, S5).
 
-        Before adopting, two cleanup passes run on the GENERATED rows only:
+        Before adopting, cleanup passes run on the GENERATED rows only:
         seam feathering (R2, S5) eases the frames beside a captured anchor
         toward it — the model's content can disagree with the capture by
-        tens of degrees and the boundary snaps — and the pin pass (M7,
-        FR-IK-01) then holds the planted contacts the pre-fill keys agree on
-        (pinning keeps the final word on contact rows, which is why it runs
-        last; detection needs the original keys too, so neither runs at
-        export time). Neither pass may block adoption: a skeleton without
-        foot joints degrades pinning with a note, and feathering simply has
-        nothing to blend when the capture already matches.
+        tens of degrees and the boundary snaps — jitter damping (R3, S5)
+        low-passes the frame-to-frame tremor the diffusion leaves in the
+        free rows, and the pin pass (M7, FR-IK-01) then holds the planted
+        contacts the pre-fill keys agree on (pinning keeps the final word
+        on contact rows, which is why it runs last; detection needs the
+        original keys too, so neither runs at export time). No pass may
+        block adoption: a skeleton without foot joints degrades pinning
+        with a note, feathering has nothing to blend when the capture
+        already matches, and damping leaves smooth arcs exactly where they
+        are.
         """
         if self._inbetween_generation != self._generation:
             self._report(_INBETWEENS_STALE)
@@ -943,6 +947,10 @@ class CaptureController(QObject):
         anchors = tuple(self._fill_original_keys) + tuple(self._guides)
         filled, seam_fixed = feather_anchor_seams(filled, anchors)
         seam_note = f" Feathered {seam_fixed} seam frame(s)." if seam_fixed else ""
+        # R3 S5: damp the frame-to-frame tremor the diffusion leaves in the
+        # free rows (never the anchors), before pinning's final word.
+        filled, jitter_fixed = damp_generated_jitter(filled, anchors)
+        jitter_note = f" Damped {jitter_fixed} jitter frame(s)." if jitter_fixed else ""
         corrected, pin_note = self._pin_filled(filled)
         self._state = corrected
         self.timeline_changed.emit()
@@ -950,7 +958,7 @@ class CaptureController(QObject):
         self._emit_status(
             actionable=(
                 f"Generated {len(key_frames(filled)) - before} inbetween frames "
-                f"between {before} golden poses.{seam_note}{pin_note}"
+                f"between {before} golden poses.{seam_note}{jitter_note}{pin_note}"
             )
         )
 
