@@ -37,17 +37,12 @@ Orchestration per gap between consecutive keys (S1 is structural here):
 
 from __future__ import annotations
 
-import contextlib
-import json
 import os
-import queue
-import subprocess
 import sys
-import threading
-import time
 from collections.abc import Mapping, Set
 from pathlib import Path
 
+from aimation_actor.adapters.ai.engine_bridge import EngineWorkerBridge
 from aimation_actor.core.models import JointPose, Quaternion, TimelineState, Vector3
 from aimation_actor.core.resampling import fill_gap_synthetically, resample_dense_poses
 from aimation_actor.core.services import key_frames
@@ -57,8 +52,6 @@ __all__ = ["CondMDIAdapter", "CondMDIEngineError"]
 
 _READY_TIMEOUT_S = 300.0  # the checkpoint + CLIP load takes minutes (T5 measures)
 _REQUEST_TIMEOUT_S = 600.0  # diffusion sampling per gap: budgeted, T5 measures
-_TERMINATE_GRACE_S = 5.0
-_CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 #: The engine-side worker module, run by the engine's own interpreter.
 _WORKER_MODULE = Path(__file__).resolve().parent / "condmdi_worker.py"
@@ -230,38 +223,23 @@ class CondMDIAdapter(InbetweeningPort):
         self.half_precision = half_precision
         self.pid_file = Path(pid_file) if pid_file is not None else None
         self._env = dict(env) if env is not None else None
-        self._worker: subprocess.Popen[str] | None = None
-        self._lines: queue.Queue[str] | None = None
-        self._ready: dict | None = None
+        self._bridge = EngineWorkerBridge(
+            python_executable=self.python_executable,
+            worker_script=self.worker_script,
+            env=self._env,
+            ready_timeout_s=_READY_TIMEOUT_S,
+            request_timeout_s=_REQUEST_TIMEOUT_S,
+            engine_label="CondMDI",
+            activity="fill",
+            checkpoint=self.checkpoint,
+            error=CondMDIEngineError,
+        )
 
     # -- lifecycle ------------------------------------------------------------- #
 
-    def _discard_worker(self) -> None:
-        """Tear the worker down: terminate the process, forget all state.
-
-        Same reason as the capture engine's: an orphaned worker holds VRAM
-        no one can reach, and a stale ``ready`` would block respawning.
-        """
-        worker = self._worker
-        self._worker = None
-        self._lines = None
-        self._ready = None
-        if worker is None:
-            return
-        with contextlib.suppress(OSError):
-            worker.stdin.close()
-        try:
-            worker.wait(timeout=_TERMINATE_GRACE_S)
-        except subprocess.TimeoutExpired:
-            worker.terminate()
-            try:
-                worker.wait(timeout=_TERMINATE_GRACE_S)
-            except subprocess.TimeoutExpired:
-                worker.kill()
-
     def shutdown(self) -> None:
         """Terminate the engine worker; idempotent (safe at app close)."""
-        self._discard_worker()
+        self._bridge.shutdown()
 
     # -- InbetweeningPort ------------------------------------------------------- #
 
@@ -306,7 +284,7 @@ class CondMDIAdapter(InbetweeningPort):
                 self._refuse_oversized_gaps(
                     frames, timeline, motion_fps=_MOTION_FPS, max_samples=_MAX_SAMPLES_DEFAULT
                 )
-                ready = self._ensure_worker()
+                ready = self._bridge.ensure_ready(self._validate, self._bootstrap)
                 motion_fps = float(ready.get("motion_fps") or _MOTION_FPS)
                 max_samples = int(ready.get("max_frames") or _MAX_SAMPLES_DEFAULT)
                 self._refuse_oversized_gaps(
@@ -348,11 +326,11 @@ class CondMDIAdapter(InbetweeningPort):
                 # free generation (a bare keys-lerp prior risks trading the
                 # splay for a static glide).
                 request["skip_timesteps"] = _CAPTURE_PRIOR_SKIP_TIMESTEPS
-            response = self._request(request)
+            response = self._bridge.request(request)
             if response.get("status") != "ok":
                 message = str(response.get("message", "the engine request failed"))
                 if response.get("fatal"):
-                    self._discard_worker()
+                    self._bridge.discard()
                 raise CondMDIEngineError(
                     f"the CondMDI engine failed to fill the gap {left}..{right}: {message}"
                 )
@@ -365,7 +343,7 @@ class CondMDIAdapter(InbetweeningPort):
             )
         return filled
 
-    # -- the bridge (mirrors the HMR2.0 adapter's subprocess lifecycle) --------- #
+    # -- the bridge (R4: the subprocess mechanics live in engine_bridge) -------- #
 
     def _refuse_oversized_gaps(
         self,
@@ -413,43 +391,8 @@ class CondMDIAdapter(InbetweeningPort):
                 f"feature document (weights are never vendored)."
             )
 
-    def _ensure_worker(self) -> dict:
-        """Validate everything, spawn the worker, and wait for its ready line."""
-        if self._ready is not None:
-            return self._ready
-        self._validate()
-        self._spawn()
-        line = self._next_protocol_line(_READY_TIMEOUT_S)
-        if line is None:
-            self._discard_worker()
-            raise CondMDIEngineError(
-                f"the CondMDI engine worker exited before becoming ready "
-                f"(checkpoint: {self.checkpoint}); run the engine probe to diagnose it"
-            )
-        ready = json.loads(line)
-        if ready.get("status") != "ready":
-            self._discard_worker()
-            raise CondMDIEngineError(
-                f"the CondMDI engine cannot start: {ready.get('message', ready)}"
-            )
-        self._ready = ready
-        return ready
-
-    def _spawn(self) -> None:
-        self._worker = subprocess.Popen(
-            [str(self.python_executable), str(self.worker_script)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-            env=self._env,
-            creationflags=_CREATE_NO_WINDOW,
-        )
-        collected = queue.Queue()
-        threading.Thread(target=self._read_lines, args=(collected,), daemon=True).start()
-        self._lines = collected
+    def _bootstrap(self) -> dict:
+        """The adapter -> worker launch payload (the wire contract, M6)."""
         bootstrap = {
             "engine_root": str(self.engine_root),
             "repo_dir": str(self.repo_dir),
@@ -460,65 +403,4 @@ class CondMDIAdapter(InbetweeningPort):
         }
         if self.pid_file is not None:
             bootstrap["fake_pid_file"] = str(self.pid_file)
-        assert self._worker.stdin is not None
-        self._worker.stdin.write(json.dumps(bootstrap) + "\n")
-        self._worker.stdin.flush()
-
-    def _read_lines(self, collected: queue.Queue[str | None]) -> None:
-        worker = self._worker
-        if worker is None or worker.stdout is None:
-            collected.put(None)
-            return
-        for line in worker.stdout:
-            collected.put(line)
-        collected.put(None)  # EOF: the worker exited
-
-    def _next_protocol_line(self, timeout: float) -> str | None:
-        """The next protocol line, skipping anything the engine printed."""
-        assert self._lines is not None
-        deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0.0:
-                self._discard_worker()
-                raise CondMDIEngineError(
-                    f"the CondMDI engine did not answer within {timeout:.0f} s; check "
-                    f"the GPU and the engine environment"
-                )
-            try:
-                line = self._lines.get(timeout=remaining)
-            except queue.Empty:
-                continue
-            if line is None:
-                return None
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except ValueError:
-                continue  # stray engine print, not a protocol line
-            if isinstance(payload, dict) and "status" in payload:
-                return line
-
-    def _request(self, request: dict) -> dict:
-        worker = self._worker
-        if worker is None or worker.stdin is None:
-            raise CondMDIEngineError("the CondMDI engine worker is not running")
-        try:
-            worker.stdin.write(json.dumps(request) + "\n")
-            worker.stdin.flush()
-        except OSError:
-            self._discard_worker()
-            raise CondMDIEngineError(
-                "the CondMDI engine worker stopped responding; the next fill restarts it"
-            ) from None
-        line = self._next_protocol_line(_REQUEST_TIMEOUT_S)
-        if line is None:
-            self._discard_worker()
-            return {
-                "status": "error",
-                "fatal": True,
-                "message": "the engine worker exited mid-request",
-            }
-        return json.loads(line)
+        return bootstrap
