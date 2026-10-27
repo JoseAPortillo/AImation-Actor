@@ -46,7 +46,11 @@ import dataclasses
 import math
 from statistics import median
 
-from aimation_actor.core.foot_contacts import contact_spans
+from aimation_actor.core.foot_contacts import (
+    GROUND_CONTACT_HEIGHT_CM,
+    PLANT_POSITION_TOLERANCE_CM,
+    contact_spans,
+)
 from aimation_actor.core.kinematics import (
     compose,
     inverse,
@@ -98,12 +102,23 @@ def pin_foot_contacts(
     ground_z: float = 0.0,
     preserve_original_keys: bool = True,
     ground_contacts: bool = False,
+    position_tolerance_cm: float = PLANT_POSITION_TOLERANCE_CM,
+    ground_height_cm: float = GROUND_CONTACT_HEIGHT_CM,
 ) -> tuple[TimelineState, PinReport]:
     """Hold every detected planted foot across its span.
 
     ``original_key_frames`` lists the pre-fill human keys - detection's input,
     because after a fill the dense keyframes are indistinguishable from the
     generated ones. Returns the corrected timeline and a :class:`PinReport`.
+
+    The two detection bars (R5, S2) pass straight through to
+    :func:`contact_spans`, defaulting to the named constants: without
+    arguments the pass behaves exactly as it always has, and a caller
+    re-tuning for a noisier clip (a rotating camera inflates the
+    planted-key drift - measured on the real clip at body-relative
+    medians of 6.9-8.2 cm, above the default bar) never needs a logic
+    change. OQ8's "adjustable without logic changes" now holds on the
+    pin path, not just on detection.
 
     The timeline itself is never mutated: poses are copied per frame and a new
     state is composed, so callers can compare keyframe equality freely and the
@@ -113,7 +128,13 @@ def pin_foot_contacts(
     ``ground_contacts`` makes those individual targets land on ``ground_z``.
     Neither option moves ``Main`` or lowers the pelvis.
     """
-    spans = contact_spans(timeline, original_key_frames, ground_z=ground_z)
+    spans = contact_spans(
+        timeline,
+        original_key_frames,
+        ground_z=ground_z,
+        position_tolerance_cm=position_tolerance_cm,
+        ground_height_cm=ground_height_cm,
+    )
     skeleton = timeline.skeleton
     active = [(span, feet) for span, feet in sorted(spans.items()) if feet]
     if active:

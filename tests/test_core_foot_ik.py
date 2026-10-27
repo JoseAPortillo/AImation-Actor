@@ -371,3 +371,62 @@ def test_pin_refuses_a_non_keyed_original() -> None:
 
     with pytest.raises(ValueError):
         pin_foot_contacts(state, (46, 72))
+
+
+# --------------------------------------------------------------------------- #
+# R5 S2: detection re-tune pass-throughs
+# --------------------------------------------------------------------------- #
+
+
+def test_position_tolerance_argument_widens_planting_detection() -> None:
+    """The user's clip shape: planted keys whose captures disagree by 8 cm.
+
+    At the 5.5 cm default the span is not a contact and nothing is pinned;
+    the caller's wider bar sees the plant and pins the interior rows to the
+    run's median target. Without arguments the pass behaves exactly as
+    before - the defaults are the named constants, not new numbers. R is
+    lifted clear off the ground so only L is a detection candidate.
+    """
+    airborne = JointPose(rotation=Quaternion.identity(), translation=Vector3(z=30.0))
+    left = _pose(R_Foot=airborne)
+    right = _pose(
+        L_Foot=JointPose(rotation=Quaternion.identity(), translation=Vector3(x=8.0)),
+        R_Foot=airborne,
+    )
+    keyframes = [_key(10, left)]
+    for frame in range(11, 20):
+        keyframes.append(_key(frame, _pose(Pelvis=JointPose(rotation=rotation_x(2.0)))))
+    keyframes.append(_key(20, right))
+    state = _state(keyframes)
+
+    _default, report = pin_foot_contacts(state, (10, 20))
+    assert report.spans_pinned == ()
+    assert report.frames_corrected == 0
+
+    widened, report = pin_foot_contacts(state, (10, 20), position_tolerance_cm=10.0)
+    assert report.spans_pinned == ((10, 20),)
+    assert report.frames_corrected == 9  # every interior row moved
+    toe = _toe(widened, 15, "L_Foot")
+    assert abs(toe.x + 6.0) < 0.5  # the run's median of the keys' -10 and -2
+
+
+def test_ground_height_argument_widens_the_contact_bar() -> None:
+    """The same story for the ground bar: a foot resting 12 cm above
+    ground_z (a reading the animator calls a contact) is invisible at the
+    8 cm default and pinned when the caller raises the bar. R is lifted
+    past even the raised bar so only L tests it."""
+    lifted = JointPose(rotation=Quaternion.identity(), translation=Vector3(z=12.0))
+    airborne = JointPose(rotation=Quaternion.identity(), translation=Vector3(z=30.0))
+    keyframes = [_key(10, _pose(L_Foot=lifted, R_Foot=airborne))]
+    for frame in range(11, 20):
+        keyframes.append(_key(frame, _pose(Pelvis=JointPose(rotation=rotation_x(2.0)))))
+    keyframes.append(_key(20, _pose(L_Foot=lifted, R_Foot=airborne)))
+    state = _state(keyframes)
+
+    _default, report = pin_foot_contacts(state, (10, 20))
+    assert report.spans_pinned == ()
+
+    raised, report = pin_foot_contacts(state, (10, 20), ground_height_cm=15.0)
+    assert report.spans_pinned == ((10, 20),)
+    assert "L_Foot" in report.feet_pinned
+    assert _toe(raised, 15, "L_Foot").z > 8.0  # held at the raised reading
