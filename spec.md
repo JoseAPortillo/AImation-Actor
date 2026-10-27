@@ -36,7 +36,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 
 | ID | Pri | Status | Requirement | Acceptance criteria |
 | -- | --- | ------ | ----------- | ------------------- |
-| FR-CAP-01 | Must | ✅ | Open a reference video (`.mp4`/`.mov`, H.264/ProRes). | Opens the file; corrupt input errors out and leaves the app usable. *(A missing or unreadable file fails immediately with a message, and a clip already loaded is kept.)* |
+| FR-CAP-01 | Must | ✅ | Open a reference video (`.mp4`/`.mov`, H.264/ProRes). | Opens the file; corrupt input errors out and leaves the app usable. *(A missing or unreadable file fails immediately with a message, and a clip already loaded is kept. ProRes itself was exercised 2026-10-27: the animator opened a 6 s ProRes 422 HQ 1080p30 clip — `ffmpeg -c:v prores_ks -profile:v 3` from the real JACE reference — with no issue; H.264-only had been the standing gap since the MVP.)* |
 | FR-CAP-02 | Must | ✅ | Video streams; never fully decoded into RAM. | No path reads all frames; peak RAM does not scale with clip length. *(Measured through the FFmpeg backend: a 48-frame clip and a 1440-frame clip both peak ≈ 8 MiB above the window-only baseline.)* |
 | FR-CAP-03 | Must | ✅ | Frame-accurate timeline (current/total frames; clip fps on state). | Position changes by ±1 per step; `fps` matches the clip (default 24). *(Frame 0 is the first frame — the range is 0-based, matching FBX time; a 2 s / 24 fps clip reports 48 frames. While the clip plays, the playhead follows the frame the decoder delivered, not the backend's rarer position events, so the number and the video pane cannot disagree.)* |
 | FR-CAP-04 | Must | ✅ | Shortcuts: `Space` play/pause, `←`/`→` ±1 frame, `K` mark, `Delete` remove, `Shift+←/→` jump between keys. | Each shortcut behaves as described, clamped to the frame range. *(`Ctrl+O` opens a clip; `Delete` removes the key at the playhead, the MVP having no separate selection.)* |
@@ -538,10 +538,14 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   refactor: suites green with zero assertion edits except the one test
   pin that followed the mechanics (`_worker` -> `_bridge.worker`).
   Feature doc: `odd/tasks/r4-aiport-bridge.md`.
-- **ProRes (FR-CAP-01) was never exercised** — only H.264 has been played. The
-  requirement says `.mp4`/`.mov` with H.264/ProRes, and ProRes is common on real
-  workstations, so this needs a real ProRes clip before FR-CAP-01 can be called
-  fully verified.
+- **ProRes (FR-CAP-01) — verified 2026-10-27.** Until the R5 close-out
+  only H.264 had been played. A real ProRes clip was produced with the
+  tooling already in the pipeline (`ffmpeg -c:v prores_ks -profile:v 3`
+  = ProRes 422 HQ, 1920x1080, 30 fps, 6 s from the JACE reference) and
+  the animator opened it in the app with no issue. No code change was
+  needed — QtMultimedia's FFmpeg backend decodes it through the same
+  streaming path as H.264. The test clip is disposable
+  (`.engine/jace_prores_6s.mov`, 164 MB, untracked).
 - A mark pressed immediately after a scrub can be refused with "Could not read
   the frame at the playhead." — refusing is deliberate (the alternative is
   extracting a neighbouring frame silently), but the capture could instead wait
