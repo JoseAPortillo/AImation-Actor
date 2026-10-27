@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from aimation_actor.adapters.io.fbx import binary, document
 from aimation_actor.adapters.io.fbx.binary import FBXNode
-from aimation_actor.core.models import TimelineState
+from aimation_actor.core.models import TimelineState, Vector3, WorldPose
+from aimation_actor.core.services import build_production_pose, mark_pose
 
 
 def _parse(state: TimelineState) -> dict[str, FBXNode]:
@@ -93,6 +96,20 @@ def test_pelvis_rest_translation_is_mapped_to_y_up(sample_state: TimelineState) 
     assert [prop.value for prop in translation.props[-3:]] == pytest.approx([0.0, 100.0, 0.0])
 
 
+def test_exported_pelvis_carries_the_world_hip_height(sample_state: TimelineState) -> None:
+    pose = build_production_pose(
+        WorldPose(translation=Vector3(z=95.0), rotations={}),
+        sample_state.skeleton,
+    )
+    state = mark_pose(sample_state, 15, pose)
+
+    channels = _animation_channels(_parse(state))
+
+    # Frame 15: 95 cm of world height (100 cm bind - 5). Frame 42 has no pelvis
+    # pose, so the bind translation (100 cm) applies. FBX is Y-up.
+    assert channels["Pelvis"]["Lcl Translation"]["d|Y"] == pytest.approx((95.0, 100.0))
+
+
 def test_keys_are_sparse_sorted_and_stepped(sample_state: TimelineState) -> None:
     objects = _parse(sample_state)["Objects"]
     times = [_time(15, 24.0), _time(42, 24.0)]
@@ -123,3 +140,27 @@ def test_channel_values_match_the_domain_poses(sample_state: TimelineState) -> N
     assert channels["Spine_1"]["Lcl Rotation"]["d|Y"] == pytest.approx((30.0, 90.0))
     # Head: only keyed at frame 42 (identity at frame 15).
     assert channels["Head"]["Lcl Rotation"]["d|X"] == pytest.approx((0.0, 60.0))
+
+
+def test_definitions_list_only_real_object_types(sample_state: TimelineState) -> None:
+    definitions = _parse(sample_state)["Definitions"]
+    object_types = {
+        node.props[0].value: node.find("Count").props[0].value
+        for node in definitions.find_all("ObjectType")
+    }
+
+    # ``GlobalSettings`` is a top-level section, never an FBX object.
+    assert "GlobalSettings" not in object_types
+    assert object_types["Model"] == 5  # Main, Pelvis, Spine_1, Spine_2, Head.
+    assert object_types["NodeAttribute"] == 5
+    # The declared total must match the sum of the per-type counts.
+    assert definitions.find("Count").props[0].value == sum(object_types.values())
+
+
+def test_build_document_rejects_duplicate_frames(sample_state: TimelineState) -> None:
+    duplicated = dataclasses.replace(
+        sample_state, keyframes=(*sample_state.keyframes, sample_state.keyframes[0])
+    )
+
+    with pytest.raises(ValueError, match="duplicated frames: \\[15\\]"):
+        document.build_document(duplicated)

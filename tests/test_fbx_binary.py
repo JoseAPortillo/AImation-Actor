@@ -39,3 +39,34 @@ def test_round_trip_preserves_typed_arrays() -> None:
 def test_parse_rejects_a_foreign_magic() -> None:
     with pytest.raises(ValueError, match="magic"):
         binary.parse(b"not an fbx file, not at all........")
+
+
+@pytest.mark.parametrize(
+    ("factory", "value"),
+    [
+        (binary.int16, 2**15),
+        (binary.int16, -(2**15) - 1),
+        (binary.int32, 2**31),
+        (binary.int32, -(2**31) - 1),
+        (binary.int64, 2**63),
+        (binary.int64, -(2**63) - 1),
+    ],
+)
+def test_integer_properties_reject_out_of_range_values(factory, value: int) -> None:
+    with pytest.raises(ValueError, match="does not fit"):
+        factory(value)
+
+
+def test_integer_arrays_reject_out_of_range_values() -> None:
+    with pytest.raises(ValueError, match="does not fit"):
+        binary.int32_array([0, 2**31])
+    with pytest.raises(ValueError, match="does not fit"):
+        binary.int64_array([0, 2**63])
+
+
+def test_coerce_rejects_integers_beyond_int64() -> None:
+    with pytest.raises(ValueError, match="does not fit"):
+        binary.coerce(2**63)
+    # In-range values keep their int32/int64 tagging.
+    assert binary.coerce(7).tag == binary.int32(0).tag
+    assert binary.coerce(2**32).tag == binary.int64(0).tag

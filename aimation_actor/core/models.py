@@ -3,7 +3,7 @@
 Pure Python: this module must import nothing outside the standard library, and
 nothing from `ports/` or `adapters/`.
 
-Conventions (see `docs/AGENTS.md` and `docs/Plan_AImation_Actor_EN.md`):
+Conventions (see `AGENTS.md` and `docs/Plan_AImation_Actor_EN.md`):
 
 - Global motion lives on the ``Main`` root joint, as a translation.
 - The ``Pelvis`` carries only its height (translation ``z``); its local ``x``/``y``
@@ -91,6 +91,68 @@ class Keyframe:
 
     frame: int
     pose: Mapping[str, JointPose]
+
+
+@dataclass(frozen=True, slots=True)
+class WorldPose:
+    """A raw, world-space pose as an AI backend reports it, before production mapping.
+
+    ``translation`` is the actor's hip position in world space (centimetres,
+    Z-up). ``root_translation`` is an optional absolute root-position estimate
+    in the same frame; the controller subtracts the first captured value before
+    production mapping. ``rotations`` maps a joint name to that joint's local
+    rotation; a joint absent from the mapping keeps its bind rotation.
+    """
+
+    translation: Vector3
+    rotations: Mapping[str, Quaternion]
+    #: Absolute/root-position estimate before the session origin is applied.
+    #: It is optional because older engines may only report hip height.
+    root_translation: Vector3 = Vector3()
+
+
+@dataclass(frozen=True, slots=True)
+class FrameImage:
+    """One decoded RGB frame, as an AI engine consumes it.
+
+    ``rgb`` is a flat, row-major ``bytes`` buffer of ``width * height * 3``
+    RGB888 samples, starting at the top-left pixel. A plain buffer — rather than
+    a decoder handle — is what keeps ``ports/`` free of any third-party type: the
+    video adapter converts its toolkit's frame into this, and the engine never
+    has to know which toolkit produced it.
+    """
+
+    width: int
+    height: int
+    rgb: bytes
+
+    def __post_init__(self) -> None:
+        expected = self.width * self.height * 3
+        if len(self.rgb) != expected:
+            raise ValueError(
+                f"rgb buffer holds {len(self.rgb)} bytes, expected {expected} "
+                f"for {self.width}x{self.height}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class CapturedFrame:
+    """A frame handed over for extraction, paired with the frame it belongs to.
+
+    The pixels alone are not enough to key a pose: the timeline follows the
+    backend's *position* events, which arrive far less often than frames, so
+    after a playback the playhead can lag the pane by one to three frames.
+    Pairing the image with the frame index the source can prove makes that
+    mismatch impossible to write unnoticed — the key lands on the frame the
+    animator was looking at, and the playhead is moved there.
+
+    ``frame_index`` is ``None`` when the source cannot establish it (a backend
+    reporting no timestamps, or an unknown frame rate); the caller then falls
+    back to its own playhead rather than refusing the capture.
+    """
+
+    image: FrameImage
+    frame_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

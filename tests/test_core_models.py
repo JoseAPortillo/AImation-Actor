@@ -1,6 +1,9 @@
 """Tests for the core domain entities."""
 
+import pytest
+
 from aimation_actor.core.models import (
+    FrameImage,
     JointData,
     JointPose,
     Keyframe,
@@ -39,3 +42,18 @@ def test_timeline_state_holds_sparse_stepped_keys() -> None:
     )
 
     assert state.frames() == (15, 42)
+
+
+def test_a_frame_image_carries_a_flat_rgb_buffer() -> None:
+    # M5 S2: what an engine receives is plain bytes, so the port layer never has
+    # to know which toolkit decoded the video.
+    frame = FrameImage(width=2, height=3, rgb=bytes(2 * 3 * 3))
+
+    assert len(frame.rgb) == 18
+
+
+def test_a_frame_image_whose_buffer_does_not_fit_is_rejected() -> None:
+    # A truncated buffer would be a silently corrupted picture inside the engine,
+    # so it fails at the boundary instead.
+    with pytest.raises(ValueError, match=r"holds 17 bytes, expected 18"):
+        FrameImage(width=2, height=3, rgb=bytes(17))

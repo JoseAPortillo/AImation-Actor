@@ -1,0 +1,293 @@
+"""Tests for the pure keyframe-management services (spec FR-CAP-04, FR-CAP-07, FR-EXP-02)."""
+
+from __future__ import annotations
+
+import pytest
+from fbx_helpers import rotation_z
+
+from aimation_actor.core.models import (
+    JointData,
+    JointPose,
+    Keyframe,
+    Quaternion,
+    Skeleton,
+    TimelineState,
+    Vector3,
+    WorldPose,
+)
+from aimation_actor.core.services import (
+    build_production_pose,
+    clamp_frame,
+    find_key,
+    key_frames,
+    mark_pose,
+    neutral_pose,
+    next_key_frame,
+    previous_key_frame,
+    remove_pose,
+    smooth_root_path,
+    smooth_root_trajectory,
+)
+
+
+def _state(*frames: int, frame_start: int = 0, frame_end: int = 100) -> TimelineState:
+    skeleton = Skeleton(joints=(JointData(name="Main", parent=None),))
+    keyframes = tuple(
+        Keyframe(frame=frame, pose={"Main": JointPose(rotation=Quaternion.identity())})
+        for frame in frames
+    )
+    return TimelineState(
+        skeleton=skeleton,
+        keyframes=keyframes,
+        fps=24.0,
+        frame_start=frame_start,
+        frame_end=frame_end,
+    )
+
+
+def test_key_frames_are_sorted_and_unique() -> None:
+    state = _state(42, 15, 42)
+
+    assert key_frames(state) == (15, 42)
+
+
+def test_find_key_returns_the_keyframe_or_none() -> None:
+    state = _state(15)
+
+    assert find_key(state, 15) is not None
+    assert find_key(state, 16) is None
+
+
+def test_mark_pose_inserts_in_frame_order() -> None:
+    state = _state(15, 42)
+
+    marked = mark_pose(state, 30, {"Main": JointPose(rotation=Quaternion.identity())})
+
+    assert key_frames(marked) == (15, 30, 42)
+
+
+def test_mark_pose_overwrites_without_duplicating() -> None:
+    state = _state(15)
+    replacement = {"Main": JointPose(rotation=Quaternion.identity(), translation=Vector3(x=5.0))}
+
+    marked = mark_pose(state, 15, replacement)
+
+    assert key_frames(marked) == (15,)  # still one key at frame 15
+    assert find_key(marked, 15).pose["Main"].translation == Vector3(x=5.0)
+
+
+def test_remove_pose_drops_the_key_and_ignores_empty_frames() -> None:
+    state = _state(15, 42)
+
+    removed = remove_pose(state, 15)
+    assert key_frames(removed) == (42,)
+    assert remove_pose(removed, 15) is removed  # absent frame -> same state
+
+
+def test_navigation_lands_on_the_neighbouring_keys() -> None:
+    state = _state(15, 42, 60)
+
+    assert next_key_frame(state, 15) == 42
+    assert next_key_frame(state, 20) == 42
+    assert next_key_frame(state, 60) is None
+    assert previous_key_frame(state, 42) == 15
+    assert previous_key_frame(state, 41) == 15
+    assert previous_key_frame(state, 15) is None
+
+
+def test_operations_leave_the_input_untouched() -> None:
+    state = _state(15)
+    before = state.keyframes
+
+    mark_pose(state, 42, {"Main": JointPose(rotation=Quaternion.identity())})
+    remove_pose(state, 15)
+
+    assert state.keyframes == before  # frozen: inputs are never mutated
+
+
+def test_clamp_frame_keeps_the_frame_within_the_span() -> None:
+    state = _state(frame_start=15, frame_end=42)
+
+    assert clamp_frame(state, 0) == 15
+    assert clamp_frame(state, 30) == 30
+    assert clamp_frame(state, 99) == 42
+
+
+# --------------------------------------------------------------------------- #
+# Offset calculation (plan §5.B): splitting a world pose over Main / Pelvis.
+# --------------------------------------------------------------------------- #
+
+BIND_HIP_HEIGHT = 100.0
+
+
+def _production_skeleton() -> Skeleton:
+    return Skeleton(
+        joints=(
+            JointData(name="Main", parent=None),
+            JointData(name="Pelvis", parent="Main", rest_translation=Vector3(z=BIND_HIP_HEIGHT)),
+            JointData(name="Spine_1", parent="Pelvis"),
+            JointData(name="Head", parent="Spine_1"),
+        )
+    )
+
+
+def test_build_production_pose_keeps_the_ground_root_clean_for_the_animator() -> None:
+    pose = WorldPose(translation=Vector3(x=10.0, y=20.0, z=95.0), rotations={})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    # ``Main`` is the animator's world control: the capture never writes it, so
+    # the blocking export ships "in place" and the recovered horizontal
+    # displacement is deliberately dropped.
+    assert built["Main"].translation == Vector3()
+    assert built["Main"].rotation == Quaternion.identity()
+
+
+def test_build_production_pose_carries_relative_root_motion_on_main() -> None:
+    pose = WorldPose(
+        translation=Vector3(z=105.0),
+        root_translation=Vector3(x=12.0, y=-4.0, z=5.0),
+        rotations={},
+    )
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert built["Main"].translation == Vector3(x=12.0, y=-4.0, z=5.0)
+    assert built["Pelvis"].translation == Vector3(z=0.0)
+
+
+def test_build_production_pose_turns_the_world_hip_height_into_a_bind_offset() -> None:
+    pose = WorldPose(translation=Vector3(x=10.0, y=20.0, z=95.0), rotations={})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    pelvis = built["Pelvis"]
+    # 95 cm of world height against a 100 cm bind -> a -5 cm local offset, which
+    # the FBX writer adds back to the bind translation.
+    assert (pelvis.translation.x, pelvis.translation.y, pelvis.translation.z) == pytest.approx(
+        (0.0, 0.0, 95.0 - BIND_HIP_HEIGHT)
+    )
+
+
+def test_build_production_pose_keeps_body_rotations_and_zeroes_their_translation() -> None:
+    rotation = rotation_z(30.0)
+    pose = WorldPose(translation=Vector3(), rotations={"Spine_1": rotation})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert built["Spine_1"] == JointPose(rotation=rotation, translation=Vector3())
+
+
+def test_build_production_pose_returns_a_full_pose_with_bind_defaults() -> None:
+    pose = WorldPose(translation=Vector3(), rotations={"Spine_1": rotation_z(30.0)})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert set(built) == {"Main", "Pelvis", "Spine_1", "Head"}
+    assert built["Head"].rotation == Quaternion.identity()
+
+
+def test_build_production_pose_ignores_a_raw_rotation_for_the_ground_root() -> None:
+    pose = WorldPose(translation=Vector3(), rotations={"Main": rotation_z(90.0)})
+
+    built = build_production_pose(pose, _production_skeleton())
+
+    assert built["Main"].rotation == Quaternion.identity()
+
+
+# --------------------------------------------------------------------------- #
+# Neutral pose (plan §3.B): what the viewer shows on a frame without a key.
+# --------------------------------------------------------------------------- #
+
+
+def test_neutral_pose_puts_every_joint_at_its_bind() -> None:
+    skeleton = _production_skeleton()
+
+    pose = neutral_pose(skeleton)
+
+    assert set(pose) == set(skeleton.names())
+    for joint_name in skeleton.names():
+        assert pose[joint_name].rotation == Quaternion.identity()
+        assert pose[joint_name].translation == Vector3()
+
+
+def test_neutral_pose_covers_a_joint_that_is_missing_from_a_raw_pose() -> None:
+    skeleton = _production_skeleton()
+
+    pose = neutral_pose(skeleton)
+
+    # Unlike ``build_production_pose``, nothing is derived from a capture: the
+    # neutral pose is the same for every joint, keyed or not.
+    assert pose["Pelvis"].translation == Vector3()
+    assert pose["Head"] == pose["Main"]
+
+def test_root_path_smoothing_keeps_anchors_and_linear_motion() -> None:
+    ramp = {frame: Vector3(x=frame * 0.5, y=frame * 0.25, z=frame) for frame in range(21)}
+
+    smoothed = smooth_root_path(ramp, anchors=[0, 20])
+
+    assert smoothed[0] == ramp[0]
+    assert smoothed[20] == ramp[20]
+    # The anchors pad every filter window, so linear motion survives exactly,
+    # boundary frames included.
+    for frame in range(1, 20):
+        assert smoothed[frame] == pytest.approx(ramp[frame], abs=1e-9)
+
+
+def test_root_path_smoothing_damps_alternating_jitter() -> None:
+    A = 30.0
+    zigzag = {frame: Vector3(x=A if frame % 2 else -A) for frame in range(1, 20)}
+    values = {0: Vector3(), 20: Vector3(), **zigzag}
+
+    smoothed = smooth_root_path(values, anchors=[0, 20])
+
+    for frame in range(1, 20):
+        assert abs(smoothed[frame].x) <= A / 2, frame
+
+
+def test_root_path_smoothing_removes_a_single_outlier_frame() -> None:
+    flat = {frame: Vector3(z=5.0) for frame in range(21)}
+    flat[10] = Vector3(z=25.0)
+
+    smoothed = smooth_root_path(flat, anchors=[0, 20])
+
+    for frame in range(1, 20):
+        assert smoothed[frame].z == pytest.approx(5.0, abs=0.01), frame
+
+
+def test_root_trajectory_smoothing_leaves_original_keys_untouched() -> None:
+    skeleton = Skeleton(
+        joints=(
+            JointData(name="Main", parent=None),
+            JointData(name="Pelvis", parent="Main", rest_translation=Vector3(z=100.0)),
+        )
+    )
+    key_pose = {
+        "Main": JointPose(rotation=Quaternion.identity(), translation=Vector3(x=7.0)),
+        "Pelvis": JointPose(rotation=Quaternion.identity()),
+    }
+    jitter_a = {
+        "Main": JointPose(rotation=Quaternion.identity(), translation=Vector3(x=30.0)),
+        "Pelvis": JointPose(rotation=Quaternion.identity()),
+    }
+    jitter_b = {
+        "Main": JointPose(rotation=Quaternion.identity(), translation=Vector3(x=-30.0)),
+        "Pelvis": JointPose(rotation=Quaternion.identity()),
+    }
+    timeline = TimelineState(
+        skeleton=skeleton,
+        keyframes=(
+            Keyframe(frame=0, pose=key_pose),
+            Keyframe(frame=1, pose=jitter_a),
+            Keyframe(frame=2, pose=jitter_b),
+            Keyframe(frame=3, pose=key_pose),
+        ),
+    )
+
+    smoothed, count = smooth_root_trajectory(timeline, anchors=(0, 3))
+
+    assert smoothed.keyframes[0].pose is timeline.keyframes[0].pose
+    assert smoothed.keyframes[3].pose is timeline.keyframes[3].pose
+    assert smoothed.keyframes[1].pose["Main"].translation.x <= 15.0
+    assert smoothed.keyframes[2].pose["Main"].translation.x >= -15.0
+    assert count == 2
