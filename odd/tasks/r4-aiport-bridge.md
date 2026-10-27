@@ -35,10 +35,12 @@ alone) + `.venv\Scripts\ruff.exe check .`.
   `.engine/` is never patched.
 - **S3.** Each adapter keeps what is genuinely engine-specific: path
   discovery, `_validate`, the bootstrap payload, and its port methods —
-  composing the bridge instead of repeating it. The known micro-difference
-  (hmr2's `_request` asserts, condmdi's raises "worker is not running")
-  unifies to the typed error: an unreachable programmer-error path,
-  never a production or test observable.
+  composing the bridge instead of repeating it. The known
+  micro-difference (hmr2's `_request` asserted, condmdi's raised
+  "worker is not running") unifies to the typed error on BOTH sides:
+  an unreachable programmer-error path, never a production or test
+  observable, so the honest outcome is one consistent contract rather
+  than two preserved inconsistencies.
 - **S4.** New `adapters/ai/thread_runner.py`: a `ThreadedEngineRunner`
   base owning the batch-1 lifecycle both runners mirror — busy state,
   the job-onto-thread wiring (started→run, outcome→relay+quit,
@@ -59,10 +61,10 @@ alone) + `.venv\Scripts\ruff.exe check .`.
 
 | ID | S#       | Route  | Status  | Commit |
 | -- | -------- | ------ | ------- | ------ |
-| T1 | S1,S2,S3 | inline | pending | — |
-| T2 | S1,S2,S3 | inline | pending | — |
-| T3 | S4       | inline | pending | — |
-| T4 | S6       | inline | pending | — |
+| T1 | S1,S2,S3 | inline | done | `e2e54d0` |
+| T2 | S1,S2,S3 | inline | done | `ba1d107` |
+| T3 | S4       | inline | done | next |
+| T4 | S6       | inline | done | next |
 
 ## Log
 
@@ -85,3 +87,28 @@ alone) + `.venv\Scripts\ruff.exe check .`.
   message byte-preservation demands diff-level care). Route: parent
   inline — no writer trigger (one behavior across shared files, and the
   whole verification is the parent running the suites between edits).
+- **L4.** Byte-check during T1: a fully faithful rewire is byte-identical
+  EXCEPT one hmr2 timeout message — the deleted text ended "check the GPU
+  and the engine environment" without the serial comma condmdi's carried
+  (the two mirrors were never 100% identical). The shared template uses
+  the condmdi spelling, so hmr2's timeout note gained one comma; every
+  other message — ready, cannot-start, stopped-responding, mid-request
+  envelope, not-running — is byte-identical by construction. S2 amended.
+- **L5.** T1 (`e2e54d0`) + T2 (`ba1d107`): engine_bridge.py (245 lines,
+  richly documented — the adapters lost ~250 mechanics lines and gained
+  composition; combined diffstat 289+/280- with the bridge's docstrings).
+  Fake-worker suites green: hmr2 18 tests (timeout-kill and respawn
+  included) with only the S5 pin edit, condmdi 17 with zero edits. The
+  test patching `hmr2_adapter._REQUEST_TIMEOUT_S` before construction
+  still drives the value (constructor-read timeouts, as designed).
+- **L6.** T3: thread_runner.py — `ThreadedEngineRunner` owns the batch-1
+  lifecycle (busy, _launch wiring with relay signals, shutdown with
+  _release, finished cleanup); the concrete runners keep typed start(),
+  jobs and outcome signals. Both runner suites + the extraction pipeline
+  green with ZERO assertion edits; 3 files, 164+/165- (one documented
+  rule set replacing two mirrored ones).
+- **L7.** T4: spec.md AIPort note rewritten from parked to landed with
+  the mechanism names and the honest exception list (L4's comma, S5's
+  pin). R4 closed: no GPU rerun needed - the bridge is the exact code
+  the fakes already exercised, and the real-engine path was unchanged
+  protocol-wise.

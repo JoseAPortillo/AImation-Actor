@@ -494,10 +494,20 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   pure joints with identity bind, so the animator should import the FBX as-is
   and change only viewport display settings, never rest positions.
 - **AIPort has both implementations landed** (T11/T12/T13 for capture,
-  T3/T5/T9 for inbetweening); the parked refactor from M6 L8/L10 stands: the
-  two adapters carry ~120 duplicated subprocess-bridge lines and the two
-  runners are near-mirrors — one shared worker-bridge/runner extraction after
-  both engine lifecycles stabilize.
+  T3/T5/T9 for inbetweening). The refactor M6 L8/L10 parked — "the two
+  adapters carry ~120 duplicated subprocess-bridge lines and the two
+  runners are near-mirrors" — **landed as R4 (2026-10-27)**:
+  `adapters/ai/engine_bridge.py` now owns the JSON-lines worker lifecycle
+  both adapters repeated (Popen flags, reader thread, protocol-line
+  filter, ready handshake, request round trip, the teardown that must
+  never orphan a CUDA context), with the engine-specific timeouts,
+  validation, bootstrap payload and typed error composed in — every
+  user-visible message byte-identical. `adapters/ai/thread_runner.py`
+  owns the batch-1 QThread lifecycle both runners mirrored; the concrete
+  runners keep their typed `start(...)` and outcome signals. Pure
+  refactor: suites green with zero assertion edits except the one test
+  pin that followed the mechanics (`_worker` -> `_bridge.worker`).
+  Feature doc: `odd/tasks/r4-aiport-bridge.md`.
 - **ProRes (FR-CAP-01) was never exercised** — only H.264 has been played. The
   requirement says `.mp4`/`.mov` with H.264/ProRes, and ProRes is common on real
   workstations, so this needs a real ProRes clip before FR-CAP-01 can be called
