@@ -416,12 +416,27 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   boundary jump 78.8 -> 42.0 deg (-47%) with 24 of ~47 interior rows eased
   and worst single-joint motion 96.9 deg; the aggressive `w6/s1.0` reached
   30.1 deg but pushed some joints 130 deg off the model's content — trading
-  the pop for an anchor-hugging glide, rejected on evidence. Residual
-  boundary pop and (2) free-row content itself remain model-limited (a
-  different checkpoint/backbone, e.g. sequence-native models, is the
-  prepared direction — see §4.12's superseded GVHMR analysis for why
-  single-image engines cannot fix it alone). Feature doc:
-  `odd/tasks/r2-anchor-seam.md`.
+  the pop for an anchor-hugging glide, rejected on evidence. Feature doc:
+  `odd/tasks/r2-anchor-seam.md`. (2) the **generated-row tremor — damped
+  (R3, 2026-10-27)**: the user's matiz relocated the old "residual capture
+  noise" label — the Golden Poses are clean; the frame-to-frame vibration
+  lives in the engine's free rows. Adoption now runs
+  `core/jitter.py::damp_generated_jitter` (after feathering, before
+  pinning): each free row's joint rotations blend by
+  `slerp(original, kernel_mean, strength)` toward a sign-aligned binomial
+  neighbourhood mean (`[1 4 6 4 1]` at radius 2, renormalised at sequence
+  edges, >=3 samples required); anchors byte-exact, `Main` never filtered,
+  translations never move. The measured grid (one real fill, feathered
+  first — production order — radius 1/2/3 x strength 0.5/0.75/1.0) adopted
+  `radius=2, strength=0.75`: mean tremor signature (a free row's angle off
+  the slerp-midpoint of its neighbours, 968 row-joint samples) 2.55 ->
+  1.70 deg (-33%) with worst single-joint motion 9.0 deg; `r2/s1.0`
+  reached -40.6% but moved joints 12.0 deg, and `r3` bought nothing over
+  `r2`. Residual boundary pop and (3) free-row content itself remain
+  model-limited (a different checkpoint/backbone, e.g. sequence-native
+  models, is the prepared direction — see §4.12's superseded GVHMR
+  analysis for why single-image engines cannot fix it alone). Feature
+  doc: `odd/tasks/r3-generated-jitter.md`.
 - **Root trajectory quality remains model-limited.** M8 now captures the HMR2
   pelvis/camera translation where available, makes the first captured frame the
   origin, carries relative X/Y/Z through `Main`, preserves it through the

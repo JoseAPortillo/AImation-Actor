@@ -10,8 +10,8 @@ neighbours, never touching the anchors themselves.
 Pinned here at the pure-function level: anchor survival (S2), the
 neighbour kernel with sign-aligned quaternions and the decay-free blend
 (S3), the untouched channels (S4), the fully-present window requirement,
-and the damped-frame count. Radius/strength defaults are provisional
-until the R3 T3 probe measures them (odd/tasks/r3-generated-jitter.md).
+and the damped-frame count. Radius/strength defaults are the measured
+settings adopted from the R3 T3 probe (odd/tasks/r3-generated-jitter.md).
 """
 
 from __future__ import annotations

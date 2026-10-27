@@ -22,8 +22,9 @@ cancels), then normalised (nlerp) and reached by ``slerp`` with a blend
 Channels stay split like the passes around it: ``Main``'s rotation is
 identity by domain invariant and never filtered, translations belong to
 root smoothing and pinning, and joints missing from the neighbourhood
-window keep their value. Radius/strength are provisional until the R3 T3
-probe measures them on the real clip (``odd/tasks/r3-generated-jitter.md``).
+window keep their value. Radius 2 / strength 0.75 are the measured
+defaults from the R3 T3 probe on the real clip
+(``odd/tasks/r3-generated-jitter.md``).
 """
 
 from __future__ import annotations
@@ -36,11 +37,17 @@ from aimation_actor.core.models import Keyframe, Quaternion, TimelineState
 from aimation_actor.core.resampling import slerp
 
 #: Neighbour frames on each side a free row averages over. Binomial, so
-#: radius 2 is the [1 4 6 4 1] kernel (T3 measures).
+#: radius 2 is the [1 4 6 4 1] kernel. Measured (R3 T3 probe, real clip,
+#: feathered first): the mean tremor signature (row off the neighbour
+#: midpoint, 968 samples) drops 2.55 -> 1.70 deg (-33%); radius 3 bought
+#: another 0.02 deg while moving joints 10.2 deg - no extra smoothing to
+#: pay for.
 JITTER_KERNEL_RADIUS = 2
 #: How far a free row moves toward its kernel mean per adoption
-#: (1.0 = replace with the mean). 0.75 keeps a quarter of the model's own
-#: frame value as authorship (T3 measures).
+#: (1.0 = replace with the mean). Measured point on the same grid: 0.75
+#: halves the tremor's visible half while the worst single-joint move
+#: stays at 9.0 deg; strength 1.0 reached -40.6% but pushed joints 12 deg
+#: off the model's own rows.
 JITTER_DAMP_STRENGTH = 0.75
 #: A row whose blend turns out this small is not rewritten at all: it
 #: keeps its Keyframe object and the count stays honest.
