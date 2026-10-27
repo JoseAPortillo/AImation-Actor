@@ -24,26 +24,19 @@ never needs torch installed.
 
 from __future__ import annotations
 
-import contextlib
-import json
 import math
 import os
-import queue
-import subprocess
 import sys
 import tempfile
-import threading
-import time
 from collections.abc import Mapping
 from pathlib import Path
 
+from aimation_actor.adapters.ai.engine_bridge import EngineWorkerBridge
 from aimation_actor.core.models import FrameImage, Quaternion, Vector3, WorldPose
 from aimation_actor.ports.ai_port import AIPort
 
 _READY_TIMEOUT_S = 300.0  # first load: 2.7 GB checkpoint + CUDA context init
 _REQUEST_TIMEOUT_S = 120.0
-_TERMINATE_GRACE_S = 5.0
-_CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 #: The engine-side worker module, run by the engine's own interpreter.
 _WORKER_MODULE = Path(__file__).resolve().parent / "hmr2_worker.py"
@@ -196,77 +189,42 @@ class Hmr2Adapter(AIPort):
         self.half_precision = half_precision
         self.pid_file = Path(pid_file) if pid_file is not None else None
         self._env = dict(env) if env is not None else None
-        self._worker: subprocess.Popen[str] | None = None
-        self._lines: queue.Queue[str] | None = None
-        self._ready: dict | None = None
+        self._bridge = EngineWorkerBridge(
+            python_executable=self.python_executable,
+            worker_script=self.worker_script,
+            env=self._env,
+            ready_timeout_s=_READY_TIMEOUT_S,
+            request_timeout_s=_REQUEST_TIMEOUT_S,
+            engine_label="HMR2.0",
+            activity="extraction",
+            checkpoint=self.checkpoint,
+            error=Hmr2EngineError,
+        )
 
     # -- lifecycle ------------------------------------------------------------- #
 
-    def _discard_worker(self) -> None:
-        """Tear the worker down: terminate the process, forget all state.
-
-        Every failure path goes through this. Dropping the references without
-        stopping the process would leak an orphan worth 2.67 GB of VRAM
-        (T10's measured footprint) with no way to reach it, and keeping a
-        stale ``ready`` would stop the next extraction from respawning.
-        """
-        worker = self._worker
-        self._worker = None
-        self._lines = None
-        self._ready = None
-        if worker is None:
-            return
-        with contextlib.suppress(OSError):
-            worker.stdin.close()
-        try:
-            worker.wait(timeout=_TERMINATE_GRACE_S)
-        except subprocess.TimeoutExpired:
-            worker.terminate()
-            try:
-                worker.wait(timeout=_TERMINATE_GRACE_S)
-            except subprocess.TimeoutExpired:
-                worker.kill()
-
     def shutdown(self) -> None:
         """Terminate the engine worker; idempotent (safe at app close)."""
-        self._discard_worker()
+        self._bridge.shutdown()
 
     # -- AIPort ---------------------------------------------------------------- #
 
     def extract_pose(self, image: FrameImage, *, frame_index: int) -> WorldPose:
         """One frame -> one ``WorldPose``, blocking (the runner owns the thread)."""
-        self._ensure_worker()
+        self._bridge.ensure_ready(self._validate, self._bootstrap)
         with tempfile.TemporaryDirectory(prefix="aimation-frame-") as frame_dir:
             frame_path = _write_png(image, Path(frame_dir) / f"frame-{frame_index}.png")
-            response = self._request({"image_path": str(frame_path), "frame_index": frame_index})
+            response = self._bridge.request(
+                {"image_path": str(frame_path), "frame_index": frame_index}
+            )
         if response.get("status") != "ok":
             message = str(response.get("message", "the engine request failed"))
             if response.get("fatal"):
-                self._discard_worker()
+                self._bridge.discard()
             raise Hmr2EngineError(f"the HMR2.0 engine failed on frame {frame_index}: {message}")
         return self._to_world_pose(response)
 
-    # -- the bridge ------------------------------------------------------------ #
-
-    def _ensure_worker(self) -> dict:
-        """Validate everything, spawn the worker, and wait for its ready line."""
-        if self._ready is not None:
-            return self._ready
-        self._validate()
-        self._spawn()
-        line = self._next_protocol_line(_READY_TIMEOUT_S)
-        if line is None:
-            self._discard_worker()
-            raise Hmr2EngineError(
-                f"the HMR2.0 engine worker exited before becoming ready "
-                f"(checkpoint: {self.checkpoint}); run the engine probe to diagnose it"
-            )
-        ready = json.loads(line)
-        if ready.get("status") != "ready":
-            self._discard_worker()
-            raise Hmr2EngineError(f"the HMR2.0 engine cannot start: {ready.get('message', ready)}")
-        self._ready = ready
-        return ready
+    # -- the bridge (R4: the subprocess mechanics live in engine_bridge) -------- #
 
     def bind_offsets(self) -> dict[str, Vector3] | None:
         """The engine's template bind offsets for the production rig (T13).
@@ -277,7 +235,7 @@ class Hmr2Adapter(AIPort):
         until the worker reports ready — the rig cannot be invented before the
         engine speaks, so callers adopt it on the first successful extraction.
         """
-        ready = self._ready
+        ready = self._bridge.ready
         raw = (ready or {}).get("bind_offsets_cm")
         if not isinstance(raw, dict) or not raw:
             return None
@@ -311,21 +269,8 @@ class Hmr2Adapter(AIPort):
                 f"see spec.md 4.14."
             )
 
-    def _spawn(self) -> None:
-        self._worker = subprocess.Popen(
-            [str(self.python_executable), str(self.worker_script)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-            env=self._env,
-            creationflags=_CREATE_NO_WINDOW,
-        )
-        collected = queue.Queue()
-        threading.Thread(target=self._read_lines, args=(collected,), daemon=True).start()
-        self._lines = collected
+    def _bootstrap(self) -> dict:
+        """The adapter -> worker launch payload (the wire contract, M5)."""
         bootstrap = {
             "engine_root": str(self.engine_root),
             "hmr2_root": str(self.engine_root / "hmr2"),
@@ -335,70 +280,7 @@ class Hmr2Adapter(AIPort):
         }
         if self.pid_file is not None:
             bootstrap["fake_pid_file"] = str(self.pid_file)
-        assert self._worker.stdin is not None
-        self._worker.stdin.write(json.dumps(bootstrap) + "\n")
-        self._worker.stdin.flush()
-
-    def _read_lines(self, collected: queue.Queue[str | None]) -> None:
-        worker = self._worker
-        if worker is None or worker.stdout is None:
-            collected.put(None)
-            return
-        for line in worker.stdout:
-            collected.put(line)
-        collected.put(None)  # EOF: the worker exited
-
-    def _next_protocol_line(self, timeout: float) -> str | None:
-        """The next protocol line, skipping anything the engine printed.
-
-        ``None`` means the worker exited before answering.
-        """
-        assert self._lines is not None
-        deadline = time.monotonic() + timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0.0:
-                self._discard_worker()
-                raise Hmr2EngineError(
-                    f"the HMR2.0 engine did not answer within {timeout:.0f} s; check the GPU and "
-                    f"the engine environment"
-                )
-            try:
-                line = self._lines.get(timeout=remaining)
-            except queue.Empty:
-                continue
-            if line is None:
-                return None
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except ValueError:
-                continue  # stray engine print, not a protocol line
-            if isinstance(payload, dict) and "status" in payload:
-                return line
-
-    def _request(self, request: dict) -> dict:
-        worker = self._worker
-        assert worker is not None and worker.stdin is not None and self._lines is not None
-        try:
-            worker.stdin.write(json.dumps(request) + "\n")
-            worker.stdin.flush()
-        except OSError:
-            self._discard_worker()
-            raise Hmr2EngineError(
-                "the HMR2.0 engine worker stopped responding; the next extraction restarts it"
-            ) from None
-        line = self._next_protocol_line(_REQUEST_TIMEOUT_S)
-        if line is None:
-            self._discard_worker()
-            return {
-                "status": "error",
-                "fatal": True,
-                "message": "the engine worker exited mid-request",
-            }
-        return json.loads(line)
+        return bootstrap
 
     # -- the conversion (T12) -------------------------------------------------- #
 
@@ -428,7 +310,7 @@ class Hmr2Adapter(AIPort):
           local rotation — pre-, not conjugated, and never applied to the
           body-pose locals (they are parent-relative and frame-correct).
         """
-        ready = self._ready or {}
+        ready = self._bridge.ready or {}
         hip_height_cm = float(ready.get("template_hip_height_cm", 0.0))
         rotations: dict[str, Quaternion] = {}
         response_rotations = response.get("rotations") or {}

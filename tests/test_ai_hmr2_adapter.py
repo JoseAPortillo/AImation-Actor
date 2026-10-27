@@ -146,7 +146,7 @@ def test_a_worker_death_mid_request_is_a_typed_failure_and_then_respawns(tmp_pat
     with pytest.raises(Hmr2EngineError):
         adapter.extract_pose(_frame(), frame_index=0)
     # The dead worker is discarded, so the next call starts a fresh one.
-    assert adapter._worker is None
+    assert adapter._bridge.worker is None
     first_pid = int(adapter.pid_file.read_text())
     try:
         pose = adapter.extract_pose(_frame(), frame_index=1)
