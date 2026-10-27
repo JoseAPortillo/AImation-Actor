@@ -59,8 +59,8 @@ alone) + `.venv\Scripts\ruff.exe check .`. Real-clip work is
 | -- | --- | ------ | ------- | ------ |
 | T1 | S2  | inline | done    | see log |
 | T2 | S3  | inline | done    | probe |
-| T3 | S4  | user   | running | - |
-| T4 | S5  | inline | pending | - |
+| T3 | S4  | user   | done    | this |
+| T4 | S5  | inline | done    | this |
 
 ## Log
 
@@ -97,3 +97,38 @@ alone) + `.venv\Scripts\ruff.exe check .`. Real-clip work is
   which is a product decision (T3), not a threshold retune. The
   keys-only export has no interior rows: no pass runs there by design
   today; grounding on a sparse timeline would also need a new mode.
+- **L7. CORRECTION to the product framing (honest one).** "Option 2"
+  (grounding) was NOT missing from the app: since M8 (`e23308e`,
+  "ground planted feet with per-leg IK correction")
+  `CaptureController._pin_filled` already calls pin with
+  preserve_original_keys=False + ground_contacts=True - the user's own
+  fill export was grounded on its 5 detected spans. The only real gap is
+  the DETECTION BAR. The parent's A/B/C question was partially stale;
+  S4's decision reduces to the bar retune (option 1), which stands.
+- **L8.** Grounding sweep (T2b, `.engine/_sim_ground_sweep.py`, user's
+  fill, per-bar re-ground): the plain-pin clamp-snap artifact (34.65
+  cm/frame at 16+) does NOT reproduce under grounding - key-boundary
+  jumps fall from ~4.3-4.5 max to ~1.75 cm at every bar; ~13 planted keys
+  rewritten at 8/12. Freeze risk is the discriminator: bar 8 = 0, bar 12
+  = 1 - the span (77,93), R_Foot z-travel 7.3 cm between keys (a step,
+  not a plant) gets pinned to the run median. Bar 16 catches 10/15 with
+  the same single risk. Eye-test variants on the Desktop
+  (fill_ground_tol{5.5,8,12}.fbx; 5.5 = today's app output).
+- **T3 decision (pending user): bar 8 (evidence-safe, recommended) vs 12
+  (animator eye preferred among plain variants; freezes key span
+  77->93).** Awaiting: the user's answer after viewing the ground files.
+- **L9.** User decision (2026-10-27, verbatim): *"me sigue convenciendo
+  mas el resultado del 12"* - after viewing the GROUNDING variants, the
+  animator approved PLANT_POSITION_TOLERANCE_CM = 12.0 (the OQ8 precedent:
+  the animator's eye sets the number). The honest caveat was delivered
+  and weighed by them: the (77,93) R_Foot span (7.3 cm key-to-key z
+  travel - step-LIKE by the >6 cm heuristic, possibly capture noise)
+  gets pinned; their eye preferred the pinned output.
+- **L10.** Retune landed: constant 5.5 -> 12.0 with its full evidence
+  chain in the comment; OQ8 record test updated (asserts 12.0/8.0, names
+  both amendments); the T1 pass-through fixture drift raised 8 -> 14 so
+  it still straddles the CURRENT bar (8 would now be inside 12 - the
+  suite was green because no fixture sat in (5.5,12]); spec.md OQ8 entry
+  rewritten (12.0, grounding history, pass-throughs, residual
+  clip-dependence) and the afinar agenda gains item (4) closed. Full
+  suite two-step green, ruff clean. R5 closed.

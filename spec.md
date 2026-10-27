@@ -100,16 +100,30 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 8. *(Resolved 2026-10-23, M7 planning — the animator chose the balanced
    option; amended 2026-10-24 — the animator approved re-tuning after the
    M8 S7 detection crop moved planted readings ~1 cm: drift 5.24, toe z 6.5
-   on the real JACE clip, while the genuinely moving foot measured 10.86.)*
-   **Planting** = a foot's world position differs ≤ **5.5 cm**
+   on the real JACE clip, while the genuinely moving foot measured 10.86;
+   amended again 2026-10-27 at R5 — the animator approved 12.0 after the
+   rotating-camera clip measured planted-key drift at body-relative medians
+   6.9–8.2 (max 23.9): the 5.5 bar found only 5/15 planted spans and the
+   animator read the rest as sliding; at 12.0 the grounded pin found 9/15
+   with key-boundary jumps cut from 4.5 to 1.7 cm, accepting the one
+   step-like span ((77,93) R_Foot, 7.3 cm z travel) whose pinned output
+   the animator preferred on the eye test.)*
+   **Planting** = a foot's world position differs ≤ **12.0 cm**
    between the two bounding ORIGINAL keys of a span AND sits at ground contact
-   (world z ≤ ground + **8.0 cm**) at both; the IK then pins the ankle to the
-   first key's contact position, holding it within **0.5 cm** across the whole
-   pinned span. Calibrated against the measured HMR2 per-frame noise (M6 T8:
+   (world z ≤ ground + **8.0 cm**) at both; the IK then pins the toe across
+   each continuous planted run to that run's componentwise-median contact
+   reading (M8: one stable target, not the first key's noisy one), holding
+   it within **0.5 cm** across the whole pinned span; since M8's grounding
+   mode the adoption pass also corrects the span's contact KEYS through
+   each leg's own IK (FR-GEN-01's byte-exact keys survive only on
+   non-planted spans — an explicit, measured trade against slide).
+   Calibrated against the measured HMR2 per-frame noise (M6 T8:
    guide hits mean 3.1–6.3 cm; original balanced option 4.0/6.0 cm); the three
    numbers live as named constants in `core/foot_contacts.py` /
    `core/foot_ik.py`, adjustable without logic
-   changes. Evidence in `odd/tasks/m7-ik-foot-pinning.md` S4/L4.*
+   changes (`pin_foot_contacts` gained the two detection pass-throughs at
+   R5, so re-tuning the PIN path needs no code either). Evidence in
+   `odd/tasks/m7-ik-foot-pinning.md` S4/L4 and `odd/tasks/r5-foot-slide.md`.*
 9. *(Superseded by M8 root motion, 2026-10-23.)* "Offset calculation" in
     `core/services.py`: `build_production_pose` maps a raw `WorldPose` onto the
     production hierarchy — `Main` carries the session-relative root
@@ -436,7 +450,23 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
   model-limited (a different checkpoint/backbone, e.g. sequence-native
   models, is the prepared direction — see §4.12's superseded GVHMR
   analysis for why single-image engines cannot fix it alone). Feature
-  doc: `odd/tasks/r3-generated-jitter.md`.
+  doc: `odd/tasks/r3-generated-jitter.md`. (4) the **planted-foot slide —
+  re-tuned (R5, 2026-10-27)**: the user's app test reported the feet
+  sliding "bastante" whenever they should be planted, worst when the
+  camera rotates — and in the KEYS-ONLY export too, which no pass ever
+  processed. The `.engine/_diag_foot_slide.py` probe over the user's own
+  pair measured planted-key drift at body-relative medians 6.9-8.2 cm
+  (max 23.9): M8's grounding pin was ON but its 5.5 cm planting bar saw
+  only 5/15 spans on this clip. `pin_foot_contacts` gained the two
+  detection pass-throughs (OQ8's "adjustable without logic changes" is
+  now true on the pin path too), and the grounding sweep showed the
+  clamp-snap artefacts of a raised bar under plain pinning do NOT
+  reproduce with grounding (key-boundary jumps 4.5 -> 1.7 cm at every
+  bar). The animator chose the bar at **12.0** by eye (9/15 planted,
+  accepting the one step-like span (77,93) whose pinned output they
+  preferred); the residual is clip-dependent by nature — a quieter clip
+  may over-freeze at 12, which the pass-throughs exist to re-tune
+  without code. Feature doc: `odd/tasks/r5-foot-slide.md`.
 - **Root trajectory quality remains model-limited.** M8 now captures the HMR2
   pelvis/camera translation where available, makes the first captured frame the
   origin, carries relative X/Y/Z through `Main`, preserves it through the

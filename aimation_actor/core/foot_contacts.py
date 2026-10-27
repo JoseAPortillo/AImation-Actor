@@ -49,10 +49,19 @@ FOOT_JOINTS: tuple[tuple[str, str], ...] = (
     ("R_Foot", "R_Ankle"),
 )
 
-#: Open question 8 (2026-10-23, the balanced option; re-tuned 2026-10-24 after
-#: the M8 S7 detection crop, at the animator's decision): the two bounding
-#: original keys agree on a planted foot within this much world drift.
-PLANT_POSITION_TOLERANCE_CM = 5.5
+#: Open question 8 (2026-10-23, the balanced option; re-tuned 2026-10-24
+#: after the M8 S7 detection crop; re-tuned again 2026-10-27 at R5, at the
+#: animator's decision): the two bounding original keys agree on a planted
+#: foot within this much world drift. R5 evidence: on the real rotating
+#: camera clip the planted-key drift measures 6.9-8.2 cm body-relative
+#: (median), up to 23.9 (max) - above the old 5.5 cm bar the detector saw
+#: only 5/15 spans and the animator's eyes read the rest as sliding. At
+#: 12 cm the sweep found 9/15 planted with no new artifact class under
+#: grounding (key-boundary jumps 4.5 -> 1.7 cm); the one accepted cost is
+#: a span with 7.3 cm key-to-key z travel ((77,93) R_Foot, step-LIKE -
+#: either a real step or capture noise, and the animator's eye test of
+#: the pinned output preferred the pin).
+PLANT_POSITION_TOLERANCE_CM = 12.0
 
 #: ... and the toe ball reads this close to the ground plane to count as a
 #: contact (a reading below it is penetration, still planted).

@@ -379,18 +379,19 @@ def test_pin_refuses_a_non_keyed_original() -> None:
 
 
 def test_position_tolerance_argument_widens_planting_detection() -> None:
-    """The user's clip shape: planted keys whose captures disagree by 8 cm.
+    """The user's clip shape: planted keys whose captures disagree by 14 cm.
 
-    At the 5.5 cm default the span is not a contact and nothing is pinned;
-    the caller's wider bar sees the plant and pins the interior rows to the
-    run's median target. Without arguments the pass behaves exactly as
-    before - the defaults are the named constants, not new numbers. R is
-    lifted clear off the ground so only L is a detection candidate.
+    At the 12 cm default bar the span is not a contact and nothing is
+    pinned; the caller's wider bar sees the plant and pins the interior
+    rows to the run's median target. Without arguments the pass behaves
+    exactly as before - the defaults are the named constants, not new
+    numbers. R is lifted clear off the ground so only L is a detection
+    candidate.
     """
     airborne = JointPose(rotation=Quaternion.identity(), translation=Vector3(z=30.0))
     left = _pose(R_Foot=airborne)
     right = _pose(
-        L_Foot=JointPose(rotation=Quaternion.identity(), translation=Vector3(x=8.0)),
+        L_Foot=JointPose(rotation=Quaternion.identity(), translation=Vector3(x=14.0)),
         R_Foot=airborne,
     )
     keyframes = [_key(10, left)]
@@ -403,11 +404,11 @@ def test_position_tolerance_argument_widens_planting_detection() -> None:
     assert report.spans_pinned == ()
     assert report.frames_corrected == 0
 
-    widened, report = pin_foot_contacts(state, (10, 20), position_tolerance_cm=10.0)
+    widened, report = pin_foot_contacts(state, (10, 20), position_tolerance_cm=16.0)
     assert report.spans_pinned == ((10, 20),)
     assert report.frames_corrected == 9  # every interior row moved
     toe = _toe(widened, 15, "L_Foot")
-    assert abs(toe.x + 6.0) < 0.5  # the run's median of the keys' -10 and -2
+    assert abs(toe.x + 3.0) < 0.5  # the run's median of the keys' -10 and +4
 
 
 def test_ground_height_argument_widens_the_contact_bar() -> None:

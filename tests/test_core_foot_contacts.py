@@ -174,9 +174,9 @@ def test_measured_tight_crop_planting_noise_stays_planted() -> None:
     measured 5.24 cm between keys 40/55 (dx -4.14, dy 1.14, dz 3.0). A
     3-degree pitch difference between the two keys reproduces that magnitude
     on this rig: the toe drifts 100 cm * sin(3 deg) = 5.23 while staying at
-    ground height — inside the re-tuned 5.5 cm tolerance the animator
-    approved (Q8 amendment: 4.0/6.0 was calibrated on full-frame-box noise;
-    the tight crop moved the standing subject's readings by ~1 cm).
+    ground height - inside the tolerance (5.5 cm when this re-tune was
+    approved, 12.0 since R5) the animator's call still counts the reading
+    as planted.
     """
     state = _timeline(
         _key(46, _stand()),
@@ -196,15 +196,19 @@ def test_a_footless_gap_is_not_reported() -> None:
 
 
 def test_the_thresholds_match_open_question_8() -> None:
-    """Q8 as amended: 5.5 cm drift, 8.0 cm ground (animator, 2026-10-24).
+    """Q8 as amended twice: 12.0 cm drift, 8.0 cm ground (animator, 2026-10-27).
 
     The 2026-10-23 balanced option (4.0/6.0) was calibrated on the old
     full-frame-box noise. The M8 S7 production crop moved the standing
-    subject's planted readings to 5.24 cm drift with a 6.5 cm toe z, and the
-    animator approved re-tuning so real contacts are still flagged (the
-    genuinely moving foot, 10.86 cm, stays excluded).
+    subject's planted readings to 5.24 cm drift with a 6.5 cm toe z, and
+    the animator approved re-tuning to 5.5/8.0 (2026-10-24). R5 measured
+    the rotating-camera clip: planted-key drift at body-relative medians
+    of 6.9-8.2 cm - the 5.5 bar then saw 5/15 spans and the animator read
+    the rest as sliding; the animator approved 12.0 (9/15 spans, jumps
+    4.5 -> 1.7 cm under grounding, accepting the one step-like span). The
+    ground bar stays 8.0: the z-travel discriminator, not the drift one.
     """
-    assert (PLANT_POSITION_TOLERANCE_CM, GROUND_CONTACT_HEIGHT_CM) == (5.5, 8.0)
+    assert (PLANT_POSITION_TOLERANCE_CM, GROUND_CONTACT_HEIGHT_CM) == (12.0, 8.0)
 
 
 def test_detection_does_not_mutate_the_timeline() -> None:
