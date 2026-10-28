@@ -415,3 +415,52 @@ def test_a_live_frame_without_a_frame_rate_reports_no_index(qtbot) -> None:
 
     assert captured is not None
     assert captured.frame_index is None
+
+
+def test_reopening_a_second_clip_hands_the_backend_a_stopped_pipeline(
+    workspace: Path, qtbot
+) -> None:
+    """Second-clip black viewer (user report 2026-10-28, pinned by contract).
+
+    Measured against the real FFmpeg backend (.engine/_diag_second_open.py):
+    ``setSource()`` onto the still-loaded first pipeline races - the backend
+    fires LoadedMedia while the old pipeline still plays, the priming nudge
+    steps aside for a playing state, and the reload that follows delivers no
+    frames: the pane, deliberately cleared, stays black. The fix's contract:
+    EVERY open stops the player before handing over the new source, so the
+    reload runs on a clean pipeline and priming works again.
+    """
+    first = workspace / "first.mp4"
+    first.write_bytes(b"placeholder for a reference clip")
+    second = workspace / "second.mp4"
+    second.write_bytes(b"placeholder for another reference clip")
+
+    player = VideoPlayer()
+    qtbot.addWidget(player)
+
+    calls: list[str] = []
+    real_stop = player.media_player.stop
+    real_set_source = player.media_player.setSource
+    real_play = player.media_player.play
+    player.media_player.stop = lambda: calls.append("stop") or real_stop()
+    player.media_player.setSource = (
+        lambda url: calls.append(f"setSource:{url.fileName()}") or real_set_source(url)
+    )
+    player.media_player.play = lambda: calls.append("play") or real_play()
+
+    player.open(str(first))
+    player.open(str(second))
+
+    # Every open: stop the old pipeline, load the new source, and nudge play
+    # once itself. Waiting for the backend's LoadedMedia to trigger the nudge
+    # lost the race on reload (measured: a stale-pipeline LoadedMedia arrives
+    # while the state still reads Playing, the guard steps aside, and the
+    # reset that follows delivers no frames - black pane, 3/3 probe runs).
+    assert calls == [
+        "stop",
+        "setSource:first.mp4",
+        "play",
+        "stop",
+        "setSource:second.mp4",
+        "play",
+    ]
