@@ -222,7 +222,25 @@ class VideoPlayer(QWidget):
         self._wanted_us = None
         self._span = None
         self._surface.set_image(QImage())  # drop the previous clip's frame
+        # Stop before loading: ``setSource`` onto the first clip's pipeline -
+        # still Loaded and, during priming, even Playing - races the backend's
+        # reset. Measured (.engine/_diag_second_open.py on the real FFmpeg
+        # backend): the old pipeline's LoadedMedia fires while the state is
+        # still Playing, the status-triggered nudge steps aside for it, the
+        # reload that follows never delivers frames, and the cleared pane
+        # stays black on every clip after the first. A stopped pipeline
+        # reloads cleanly; the nudge below then lands.
+        self._player.stop()
         self._player.setSource(QUrl.fromLocalFile(str(candidate)))
+        # Nudge directly, not through _prime_first_frame: measured on reload
+        # (.engine/_diag_second_open.py), right after stop+setSource the
+        # backend's state transiently reads Playing from the dying pipeline
+        # and that guard refused the nudge (0/3); forcing the priming here
+        # delivered frames 6/6. _on_frame pauses after the first frame like
+        # any priming run, and _prime_first_frame stays as the re-arm should
+        # the reset swallow this play.
+        self._priming = True
+        self._player.play()
 
     def play(self) -> None:
         """Start playback."""
@@ -324,11 +342,16 @@ class VideoPlayer(QWidget):
         """Coax one frame out of a backend that will not decode until it plays.
 
         Measured against the real backend, not assumed: a freshly loaded player
-        delivers no frames at all — seeking does not help — so without this the
+        delivers no frames at all - seeking does not help - so without this the
         pane stays blank and the animator's first ``K`` finds nothing to grab.
         One frame is enough, and the pause lands in :meth:`_on_frame`.
+
+        A primed nudge the backend swallowed (the play landed mid-reset) is
+        retried on the next status signal: ``_priming`` alone does not block a
+        re-arm, only a frame actually seen or the animator's own play does.
+        A repeated ``play()`` on a player that did take it is a Qt no-op.
         """
-        if self._seen_frame or self._priming or self._user_playing:
+        if self._seen_frame or self._user_playing:
             return
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             return
