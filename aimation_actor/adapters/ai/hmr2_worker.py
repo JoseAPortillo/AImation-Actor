@@ -213,6 +213,10 @@ def _prepare_environment(engine_root: str) -> None:
     """Set the env the engine stack requires before any engine import."""
     os.environ.setdefault("HOME", engine_root)
     os.environ.setdefault("PYOPENGL_PLATFORM", "win32")
+    os.environ.setdefault(
+        "AIMATION_MEDIAPIPE_POSE_MODEL",
+        os.path.join(engine_root, ".cache", "mediapipe", "pose_landmarker_full.task"),
+    )
 
 
 # -- automatic person detection (M8, S7) --------------------------------------- #
@@ -531,26 +535,40 @@ def refine_end_effectors_from_pose_landmarks(
 
 
 def _get_pose_landmark_detector():
-    """Lazy-load MediaPipe BlazePose inside the engine process only."""
+    """Lazy-load MediaPipe Tasks PoseLandmarker inside the engine only."""
     global _POSE_LANDMARK_DETECTOR, _POSE_LANDMARK_DETECTOR_FAILED
     if _POSE_LANDMARK_DETECTOR is not None or _POSE_LANDMARK_DETECTOR_FAILED:
         return _POSE_LANDMARK_DETECTOR
     try:
         import mediapipe as mp
+        from mediapipe.tasks import python
+        from mediapipe.tasks.python import vision
 
-        pose = mp.solutions.pose.Pose(
-            static_image_mode=True,
-            model_complexity=2,
-            enable_segmentation=False,
-            min_detection_confidence=0.5,
+        model_path = os.environ.get("AIMATION_MEDIAPIPE_POSE_MODEL", "")
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(
+                f"the MediaPipe pose model was not found at {model_path}; "
+                "download pose_landmarker_full.task into the engine cache"
+            )
+        landmarker = vision.PoseLandmarker.create_from_options(
+            vision.PoseLandmarkerOptions(
+                base_options=python.BaseOptions(model_asset_path=model_path),
+                running_mode=vision.RunningMode.IMAGE,
+                min_pose_detection_confidence=0.5,
+                min_pose_presence_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
         )
 
         def detect(image_bgr):
             try:
-                result = pose.process(image_bgr[:, :, ::-1])
+                rgb = image_bgr[:, :, ::-1].copy()
+                result = landmarker.detect(
+                    mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                )
             except Exception:  # noqa: BLE001 - endpoint refinement is optional
                 return None
-            return None if result.pose_landmarks is None else result.pose_landmarks.landmark
+            return result.pose_landmarks[0] if result.pose_landmarks else None
 
         _POSE_LANDMARK_DETECTOR = detect
     except Exception as error:  # noqa: BLE001 - HMR2 remains the fallback

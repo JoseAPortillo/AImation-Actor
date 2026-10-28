@@ -156,3 +156,10 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
   extrapolate `Hand` (35%) and `Foot` (25%) in image space; uncertain bases
   keep HMR2's original end points. The real probe and full two-step suite
   remain green.
+- L7 (2026-10-28, visual end-effector landmarks): directional extrapolation
+  was insufficient because it could not know the actual hand/foot orientation.
+  Added MediaPipe 1.2 `PoseLandmarker` in the engine, using normalized
+  `index`/`pinky` midpoints for hands and `foot_index` (heel fallback) for
+  feet. The `.task` model lives in `.engine/.cache/mediapipe/`; the worker
+  reports `pose_landmark_refinement: True` in the real probe. The application
+  still has no MediaPipe dependency.
