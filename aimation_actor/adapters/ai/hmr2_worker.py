@@ -128,6 +128,8 @@ _COCO_TO_SMPL = {
     16: "R_Ankle",
 }
 _KEYPOINT_MIN_SCORE = 0.35
+_HAND_EXTENSION = 0.35
+_FOOT_EXTENSION = 0.25
 
 
 def refine_projected_joints(
@@ -145,6 +147,7 @@ def refine_projected_joints(
     HMR2's other joints remain untouched.
     """
     refined = dict(projected)
+    confident_points: set[str] = set()
     confident_hips: set[str] = set()
     confident_shoulders: set[str] = set()
     for index, name in _COCO_TO_SMPL.items():
@@ -156,6 +159,7 @@ def refine_projected_joints(
             continue
         if score >= min_score and math.isfinite(x) and math.isfinite(y):
             refined[name] = (x, y)
+            confident_points.add(name)
             if name in {"L_Hip", "R_Hip"}:
                 confident_hips.add(name)
             if name in {"L_Shoulder", "R_Shoulder"}:
@@ -189,6 +193,19 @@ def refine_projected_joints(
                     neck[0] + (shoulder[0] - neck[0]) * 0.5,
                     neck[1] + (shoulder[1] - neck[1]) * 0.5,
                 )
+    for side in ("L", "R"):
+        elbow, wrist, hand = f"{side}_Elbow", f"{side}_Wrist", f"{side}_Hand"
+        if {elbow, wrist} <= confident_points:
+            refined[hand] = (
+                refined[wrist][0] + (refined[wrist][0] - refined[elbow][0]) * _HAND_EXTENSION,
+                refined[wrist][1] + (refined[wrist][1] - refined[elbow][1]) * _HAND_EXTENSION,
+            )
+        knee, ankle, foot = f"{side}_Knee", f"{side}_Ankle", f"{side}_Foot"
+        if {knee, ankle} <= confident_points:
+            refined[foot] = (
+                refined[ankle][0] + (refined[ankle][0] - refined[knee][0]) * _FOOT_EXTENSION,
+                refined[ankle][1] + (refined[ankle][1] - refined[knee][1]) * _FOOT_EXTENSION,
+            )
     return refined
 
 

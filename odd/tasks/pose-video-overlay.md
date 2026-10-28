@@ -151,3 +151,8 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
   unreliable 3D torso cannot pull otherwise-correct COCO limb points into
   crossed connections. Full two-step tests, ruff, and the real engine probe
   pass; the probe reports `keypoint_refinement: True`.
+- L6 (2026-10-28, end-effector refinement): COCO has no hand or foot
+  landmarks. Confident `Elbow → Wrist` and `Knee → Ankle` segments now
+  extrapolate `Hand` (35%) and `Foot` (25%) in image space; uncertain bases
+  keep HMR2's original end points. The real probe and full two-step suite
+  remain green.

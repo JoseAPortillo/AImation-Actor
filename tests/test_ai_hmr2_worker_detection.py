@@ -226,6 +226,29 @@ def test_keypoint_refinement_rebuilds_the_torso_from_confident_shoulders() -> No
     assert refined["R_Collar"] == (25.0, 10.0)
 
 
+def test_keypoint_refinement_extrapolates_hands_and_feet_from_observed_limbs() -> None:
+    projected = {
+        "L_Elbow": (10.0, 10.0),
+        "L_Wrist": (20.0, 20.0),
+        "L_Hand": (0.0, 0.0),
+        "L_Knee": (30.0, 30.0),
+        "L_Ankle": (40.0, 40.0),
+        "L_Foot": (0.0, 0.0),
+    }
+    keypoints = [[0.0, 0.0]] * 17
+    keypoints[7] = [10.0, 10.0]
+    keypoints[9] = [20.0, 20.0]
+    keypoints[13] = [30.0, 30.0]
+    keypoints[15] = [40.0, 40.0]
+    scores = [0.0] * 17
+    scores[7] = scores[9] = scores[13] = scores[15] = 0.95
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["L_Hand"] == (23.5, 23.5)
+    assert refined["L_Foot"] == (42.5, 42.5)
+
+
 def test_keypoint_detection_selects_the_person_overlapping_the_capture_box() -> None:
     keypoints = [[[float(index), float(index + 1)] for index in range(17)]] * 2
     detector = _FakeDetector(
