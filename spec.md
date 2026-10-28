@@ -6,7 +6,7 @@
 > [`docs/Plan_AImation_Actor_EN.md`](docs/Plan_AImation_Actor_EN.md). Where this
 > file and the plan disagree on behavior, **the plan wins**.
 
-Status: Draft · v0.6.4 · Scope: MVP only
+Status: Draft · v0.6.5 · Scope: MVP only
 
 ## How to use (SDD)
 
@@ -60,6 +60,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | FR-IMP-01 | Must | ✅ | Import a Refined FBX; validate hierarchy (must include `Main`). | Hand-edited file loads; missing/renamed critical bone → clear error, no silent import. |
 | FR-IMP-02 | Must | ✅ | Only keyed frames become snapshots; interpolation types ignored; each snapshot is a full pose. | Bézier/Linear inputs yield the same set as Constant. |
 | FR-IMP-03 | Must | ✅ | Read via Blender subprocess only; never `import bpy` in-process. | No `bpy` in the app; a subprocess crash does not kill the app. |
+| FR-IMP-04 | Must | ✅ | File ▸ Import FBX… (`Ctrl+I`) adopts the imported timeline as the session (plan §3 step 2). | The imported keys, rig, fps and range replace the session's; an open clip stays loaded for reference. Replacing a session that holds captured keys asks for confirmation first (the user's decision, 2026-10-28); an empty session imports without asking. Capture-only state (overlay snapshots, depth calibration) resets; an in-flight fill refuses the import and says why; a failed read leaves the session untouched and reports. *(`CaptureController.adopt_imported` owns the swap (generation bump retires late extractions, playhead clamps); `MainWindow.import_fbx` runs the read BEFORE the confirmation question — a rejected file must not cost a dialog.)* |
 
 ### Generative inbetweening, IK & delivery
 
@@ -227,6 +228,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.6.1   | 2026-10-24 | **M8 root-motion iteration**: captured HMR2 root trajectory on `Main` (first captured frame as origin, `Pelvis` residual height) + anchor-padded root-jitter smoothing at fill adoption + root-invariant planted-foot detection (`_planting_read`) — the last one fixed real sliding feet the root noise had un-detected (real e2e restored: (40,55) detected, 14 rows pinned, hold ≤ 0.5 cm). |
 | 0.6.3   | 2026-10-28 | **Pose video overlay**: engine-side full-frame projection, stepped colored skeleton overlay, hidden legacy viewport, COCO limb refinement, and MediaPipe PoseLandmarker hand/foot refinement. |
 | 0.6.4   | 2026-10-28 | **Recent videos (FR-CAP-09)**: File ▸ Recent Files keeps the last five clips that actually loaded, most recent first, reopened by selecting the entry; persists through `QSettings`; pure rule in `core/recent_files`. |
+| 0.6.5   | 2026-10-28 | **FBX import action (FR-IMP-04)**: File ▸ Import FBX… (`Ctrl+I`) adopts the refined FBX as the session timeline — confirmation before discarding captured keys, capture-only state reset, honest refusals. |
 | 0.6.2   | 2026-10-24 | **M8 final generative export landed**: File-menu "Export FBX…" / `Ctrl+E` writes the approved timeline (keys + fills) through the real binary FBX writer with the approved KTime range declared; honest status-bar refusals; real-file round-trip through Blender verified 48 frames / float32-exact / pinned foot held (FR-GEN-04 ✅). Feature doc: `odd/tasks/m8-final-export.md`. |
 
 ## 6. Session state (resume here)

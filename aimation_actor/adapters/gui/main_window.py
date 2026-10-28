@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QProgressBar,
     QSplitter,
     QVBoxLayout,
@@ -213,6 +214,9 @@ class MainWindow(QMainWindow):
         self.action_export = self._action(
             "Export &FBX…", "Ctrl+E", self.export_fbx
         )
+        self.action_import = self._action(
+            "&Import FBX…", "Ctrl+I", self.import_fbx
+        )
 
         self._shortcuts = (
             self.action_play_pause,
@@ -240,6 +244,7 @@ class MainWindow(QMainWindow):
         file_menu.addMenu(self._recent_menu)
         self._refresh_recent_menu()
         file_menu.addAction(self.action_export)
+        file_menu.addAction(self.action_import)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
 
@@ -301,6 +306,58 @@ class MainWindow(QMainWindow):
             return
         keys = len(self.controller.state.keyframes)
         self.statusBar().showMessage(f"Exported {keys} Golden Pose(s) to {path}.")
+
+    def import_fbx(self) -> None:
+        """Read an FBX and adopt its timeline as the session (FR-IMP-04).
+
+        Plan §3 step 2: the animator refines the exported file in
+        Maya/Blender and re-imports it here, where it becomes the truth for
+        the gaps (``G``) and the final export. The read runs BEFORE any
+        question — a file the adapter rejects must not cost the animator a
+        dialog — and it is read-only, so a cancelled or refused import
+        changes nothing. Every failure is a status-bar message (NFR-03).
+        """
+        if self.exporter is None:
+            self.statusBar().showMessage(
+                "Cannot import: no FBX reader is configured in this build."
+            )
+            return
+        path_text, _chosen_filter = QFileDialog.getOpenFileName(
+            self,
+            "Import FBX",
+            "",
+            _FBX_FILTER,
+        )
+        if not path_text:
+            self.statusBar().showMessage("Import cancelled.")
+            return
+        path = Path(path_text)
+        try:
+            state = self.exporter.load(path)
+        except Exception as exc:  # a bad file must not kill the session
+            self.statusBar().showMessage(f"Import failed: {exc}")
+            return
+        current = len(self.controller.state.keyframes)
+        if current and not self._confirm_replace(current):
+            self.statusBar().showMessage(
+                "Import cancelled: the current keys stay in the timeline."
+            )
+            return
+        if self.controller.adopt_imported(state):
+            self.statusBar().showMessage(
+                f"Imported {len(state.keyframes)} keyframe(s) from {path.name}."
+            )
+
+    def _confirm_replace(self, keys: int) -> bool:
+        """Ask before the imported timeline discards the animator's captures."""
+        answer = QMessageBox.question(
+            self,
+            "Import FBX",
+            f"The imported FBX will replace the timeline's {keys} captured key(s). "
+            "Discard the current keys?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     # -- following the controller ------------------------------------------ #
 
