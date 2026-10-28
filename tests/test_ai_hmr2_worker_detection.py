@@ -14,6 +14,8 @@ stay behind the ``detector`` callable seam so no test needs the engine stack.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from aimation_actor.adapters.ai.hmr2_worker import (
@@ -23,6 +25,7 @@ from aimation_actor.adapters.ai.hmr2_worker import (
     detect_person_box,
     detect_person_keypoints,
     pick_best_person,
+    refine_end_effectors_from_pose_landmarks,
     refine_projected_joints,
 )
 
@@ -247,6 +250,27 @@ def test_keypoint_refinement_extrapolates_hands_and_feet_from_observed_limbs() -
 
     assert refined["L_Hand"] == (23.5, 23.5)
     assert refined["L_Foot"] == (42.5, 42.5)
+
+
+def test_pose_landmarks_use_real_hand_and_toe_observations() -> None:
+    landmarks = [SimpleNamespace(x=0.0, y=0.0, visibility=0.0) for _ in range(33)]
+    landmarks[19] = SimpleNamespace(x=0.20, y=0.30, visibility=0.9)  # L index
+    landmarks[17] = SimpleNamespace(x=0.24, y=0.34, visibility=0.9)  # L pinky
+    landmarks[20] = SimpleNamespace(x=0.70, y=0.30, visibility=0.9)  # R index
+    landmarks[18] = SimpleNamespace(x=0.74, y=0.34, visibility=0.9)  # R pinky
+    landmarks[31] = SimpleNamespace(x=0.25, y=0.90, visibility=0.9)  # L toe
+    landmarks[32] = SimpleNamespace(x=0.75, y=0.90, visibility=0.9)  # R toe
+
+    refined = refine_end_effectors_from_pose_landmarks(
+        {"L_Hand": (0.0, 0.0), "R_Hand": (0.0, 0.0), "L_Foot": (0.0, 0.0)},
+        landmarks,
+        1000,
+        500,
+    )
+
+    assert refined["L_Hand"] == (220.0, 160.0)
+    assert refined["R_Hand"] == (720.0, 160.0)
+    assert refined["L_Foot"] == (250.0, 450.0)
 
 
 def test_keypoint_detection_selects_the_person_overlapping_the_capture_box() -> None:

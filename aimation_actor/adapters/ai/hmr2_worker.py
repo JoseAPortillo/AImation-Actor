@@ -321,6 +321,8 @@ _PERSON_DETECTOR: object | None = None
 _PERSON_DETECTOR_FAILED = False
 _PERSON_KEYPOINT_DETECTOR: object | None = None
 _PERSON_KEYPOINT_DETECTOR_FAILED = False
+_POSE_LANDMARK_DETECTOR: object | None = None
+_POSE_LANDMARK_DETECTOR_FAILED = False
 
 
 def _get_person_detector():
@@ -461,6 +463,105 @@ def detect_person_keypoints(detector, image, reference_box):
         return None
 
 
+# MediaPipe BlazePose's landmark indices (33-point model). Unlike COCO, it
+# observes the actual foot tip and hand landmarks needed by the overlay.
+_POSE_LEFT_INDEX = 19
+_POSE_RIGHT_INDEX = 20
+_POSE_LEFT_PINKY = 17
+_POSE_RIGHT_PINKY = 18
+_POSE_LEFT_HEEL = 29
+_POSE_RIGHT_HEEL = 30
+_POSE_LEFT_FOOT_INDEX = 31
+_POSE_RIGHT_FOOT_INDEX = 32
+
+
+def refine_end_effectors_from_pose_landmarks(
+    projected: dict[str, tuple[float, float]],
+    landmarks,
+    width: int,
+    height: int,
+    *,
+    min_visibility: float = 0.5,
+) -> dict[str, tuple[float, float]]:
+    """Replace hands/feet with observed BlazePose image landmarks.
+
+    ``landmarks`` is duck-typed for tests and accepts MediaPipe's normalized
+    landmark objects. Hands use the index/pinky midpoint; feet use the visible
+    foot-index landmark, which represents the toe direction rather than merely
+    continuing the shin vector.
+    """
+    refined = dict(projected)
+
+    def point(index: int) -> tuple[float, float] | None:
+        try:
+            landmark = landmarks[index]
+            visibility_value = getattr(landmark, "visibility", None)
+            x_value = getattr(landmark, "x", None)
+            y_value = getattr(landmark, "y", None)
+            if visibility_value is None or x_value is None or y_value is None:
+                visibility_value, x_value, y_value = landmark[3], landmark[0], landmark[1]
+            visibility = float(visibility_value)
+            x, y = float(x_value), float(y_value)
+        except (IndexError, TypeError, AttributeError, ValueError):
+            return None
+        if visibility < min_visibility or not math.isfinite(x) or not math.isfinite(y):
+            return None
+        return x * width, y * height
+
+    for side, index, pinky, heel, foot_index in (
+        ("L", _POSE_LEFT_INDEX, _POSE_LEFT_PINKY, _POSE_LEFT_HEEL, _POSE_LEFT_FOOT_INDEX),
+        ("R", _POSE_RIGHT_INDEX, _POSE_RIGHT_PINKY, _POSE_RIGHT_HEEL, _POSE_RIGHT_FOOT_INDEX),
+    ):
+        first_hand, second_hand = point(index), point(pinky)
+        if first_hand is not None and second_hand is not None:
+            refined[f"{side}_Hand"] = (
+                (first_hand[0] + second_hand[0]) / 2.0,
+                (first_hand[1] + second_hand[1]) / 2.0,
+            )
+        foot = point(foot_index)
+        if foot is not None:
+            refined[f"{side}_Foot"] = foot
+        else:
+            # The heel is a useful fallback when the toe is occluded; it is
+            # still a measured image point, never an extrapolated direction.
+            heel_point = point(heel)
+            if heel_point is not None:
+                refined[f"{side}_Foot"] = heel_point
+    return refined
+
+
+def _get_pose_landmark_detector():
+    """Lazy-load MediaPipe BlazePose inside the engine process only."""
+    global _POSE_LANDMARK_DETECTOR, _POSE_LANDMARK_DETECTOR_FAILED
+    if _POSE_LANDMARK_DETECTOR is not None or _POSE_LANDMARK_DETECTOR_FAILED:
+        return _POSE_LANDMARK_DETECTOR
+    try:
+        import mediapipe as mp
+
+        pose = mp.solutions.pose.Pose(
+            static_image_mode=True,
+            model_complexity=2,
+            enable_segmentation=False,
+            min_detection_confidence=0.5,
+        )
+
+        def detect(image_bgr):
+            try:
+                result = pose.process(image_bgr[:, :, ::-1])
+            except Exception:  # noqa: BLE001 - endpoint refinement is optional
+                return None
+            return None if result.pose_landmarks is None else result.pose_landmarks.landmark
+
+        _POSE_LANDMARK_DETECTOR = detect
+    except Exception as error:  # noqa: BLE001 - HMR2 remains the fallback
+        _POSE_LANDMARK_DETECTOR_FAILED = True
+        _emit(
+            {
+                "engine_notice": "hand/foot landmark refinement unavailable "
+                f"({type(error).__name__}: {error}); HMR2 endpoints kept"
+            }
+        )
+    return _POSE_LANDMARK_DETECTOR
 def _template_hip_height_cm(model) -> tuple[float, int]:
     """The betas=0 template's pelvis-to-contact distance, in centimetres.
 
@@ -700,6 +801,22 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
                 keypoint_scores,
             ).items()
         }
+    pose_landmarks = _get_pose_landmark_detector()
+    if pose_landmarks is not None:
+        landmarks = pose_landmarks(img_bgr)
+        if landmarks is not None:
+            projected_joints = {
+                name: [x, y]
+                for name, (x, y) in refine_end_effectors_from_pose_landmarks(
+                    {
+                        name: (pixel[0], pixel[1])
+                        for name, pixel in projected_joints.items()
+                    },
+                    landmarks,
+                    width,
+                    height,
+                ).items()
+            }
 
     return {
         "status": "ok",
@@ -708,6 +825,7 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
         "root_translation": [float(v) for v in root_translation],
         "projected_joints": projected_joints,
         "keypoint_refinement": keypoint_data is not None,
+        "pose_landmark_refinement": pose_landmarks is not None,
         "person_bbox": [float(v) for v in box],
         "detector": detector_name,
         "vram_allocated_mib": torch.cuda.memory_allocated() / 1024**2,

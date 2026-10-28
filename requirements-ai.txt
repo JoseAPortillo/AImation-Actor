@@ -1,3 +1,4 @@
 # Install ALWAYS with the CUDA index (see README):
 #   pip install -r requirements-ai.txt --index-url https://download.pytorch.org/whl/cu130
 torch>=2.14
+mediapipe>=0.10.30
