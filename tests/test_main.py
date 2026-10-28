@@ -22,6 +22,29 @@ def test_the_application_window_uses_the_real_player(qtbot) -> None:
     assert isinstance(window.splitter.widget(0), VideoPlayer)
 
 
+def test_frame_changes_push_the_controller_snapshot_onto_the_overlay(qtbot) -> None:
+    # pose-video-overlay T3: the playhead's frame selects the held capture and
+    # the window hands it to the overlay over the video pane.
+    window = build_window()
+    qtbot.addWidget(window)
+
+    snapshot = (((),), ())
+    window.controller.overlay_snapshot_at = lambda frame: snapshot
+    window.controller.frame_changed.emit(15)
+
+    assert window._video_overlay.snapshot is snapshot
+
+
+def test_reloading_media_clears_the_overlay(qtbot) -> None:
+    window = build_window()
+    qtbot.addWidget(window)
+
+    window._video_overlay.set_snapshot((((),), ()))
+    window.controller.media_changed.emit()
+
+    assert window._video_overlay.snapshot is None
+
+
 def test_the_application_window_starts_without_a_rig(qtbot) -> None:
     # M4 ships before the production skeleton exists (M5 builds it); the window
     # must run in that state rather than refusing to start (NFR-03).

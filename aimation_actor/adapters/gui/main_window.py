@@ -95,6 +95,9 @@ class MainWindow(QMainWindow):
         self._video_pane: QWidget = (
             player if isinstance(player, QWidget) else QLabel("No video pane.", self)
         )
+        # The skeleton overlay rides on the real player's video surface; a
+        # headless source pane has none (pose-video-overlay T3).
+        self._video_overlay = player.overlay if isinstance(player, VideoPlayer) else None
 
         self.extractor = None if engine is None else PoseExtractionRunner(engine, self)
         self.filler = (
@@ -334,6 +337,7 @@ class MainWindow(QMainWindow):
     def _connect(self) -> None:
         self.timeline.frame_requested.connect(self.controller.go_to_frame)
         self.controller.frame_changed.connect(self.timeline.set_frame)
+        self.controller.frame_changed.connect(self._refresh_overlay)
         self.controller.pose_changed.connect(self._on_pose_changed)
         self.controller.timeline_changed.connect(self._refresh_timeline)
         self.controller.media_changed.connect(self._on_media_changed)
@@ -353,6 +357,17 @@ class MainWindow(QMainWindow):
         # (plan §3.B, "Display on Empty Frames"), so the pane just draws it.
         self.viewport.set_pose(self.controller.state.skeleton, pose)
 
+    def _refresh_overlay(self, frame: int) -> None:
+        """The overlay figure for the playhead: the last capture at or before it.
+
+        The controller already froze each capture's own projection (S1); the
+        window only replays the one the playhead holds (S4). A pane without
+        the real player (a headless source) has no overlay to refresh.
+        """
+        if self._video_overlay is None:
+            return
+        self._video_overlay.set_snapshot(self.controller.overlay_snapshot_at(frame))
+
     def _refresh_timeline(self) -> None:
         state = self.controller.state
         self.timeline.set_timeline(
@@ -369,6 +384,9 @@ class MainWindow(QMainWindow):
 
     def _on_media_changed(self) -> None:
         self._refresh_timeline()
+        # A fresh clip has no captures yet: the overlay must not carry the
+        # previous clip's figure over.
+        self._refresh_overlay(self.controller.frame)
         clip = self.controller.video_path
         self.setWindowTitle("AImation Actor" if clip is None else f"AImation Actor — {clip.name}")
 

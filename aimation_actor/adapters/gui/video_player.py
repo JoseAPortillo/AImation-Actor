@@ -45,6 +45,7 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtMultimedia import QMediaMetaData, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from aimation_actor.adapters.gui.pose_overlay import PoseOverlay
 from aimation_actor.core.models import CapturedFrame, FrameImage
 
 __all__ = [
@@ -120,11 +121,22 @@ class _VideoSurface(QWidget):
         super().__init__(parent)
         self._image: QImage | None = None
         self.setMinimumSize(320, 180)
+        # The skeleton overlay lives exactly over the drawn frame (T3): it
+        # letterboxes with the same rule this surface paints by, so the two
+        # belong together.
+        self.overlay = PoseOverlay(self)
 
     def set_image(self, image: QImage) -> None:
         """Show ``image`` as the current frame."""
         self._image = image
+        # The overlay maps the engine's full-frame pixels onto this frame: it
+        # needs the frame's native size to apply the shared letterbox rule.
+        self.overlay.set_frame_size(image.width(), image.height())
         self.update()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt's naming, not ours
+        super().resizeEvent(event)
+        self.overlay.setGeometry(self.rect())
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt's naming, not ours
         painter = QPainter(self)
@@ -191,6 +203,13 @@ class VideoPlayer(QWidget):
         self._player.positionChanged.connect(self._on_position)
         self._player.playbackStateChanged.connect(self._on_playback_state)
         self._player.errorOccurred.connect(self._on_error)
+
+    # -- the video pane's skeleton overlay (pose-video-overlay T3) ---------- #
+
+    @property
+    def overlay(self) -> PoseOverlay:
+        """The skeleton overlay drawn over the pane, for the window to wire."""
+        return self._surface.overlay
 
     # -- what the controller sees ------------------------------------------ #
 
