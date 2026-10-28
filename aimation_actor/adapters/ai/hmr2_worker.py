@@ -471,7 +471,7 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     projected = perspective_projection(
         joints[:24].float().unsqueeze(0),
         translation=root_translation.float().unsqueeze(0),
-        focal_length=torch.tensor([[float(scaled_focal_length)]]),
+        focal_length=torch.tensor([[float(scaled_focal_length), float(scaled_focal_length)]]),
         camera_center=torch.tensor([[width / 2.0, height / 2.0]]),
     )[0]
     finite = torch.isfinite(projected).all(dim=-1)
