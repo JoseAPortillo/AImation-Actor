@@ -12,6 +12,7 @@ speaks a line-JSON protocol over stdin/stdout:
     response: {"status": "ok", "per_frame_hip_height_m",
                "root_translation": [x, y, z],
                "projected_joints": {joint_name: [x_px, y_px]},
+               "keypoint_refinement": bool,
                "person_bbox": [x1, y1, x2, y2] | None, "detector": name,
                "rotations": {joint_name: [9 floats, row-major 3x3]}}
                | {"status": "error", "message", "fatal": false}  (worker stays up)
@@ -58,6 +59,7 @@ each successful inference so VRAM does not grow across keys (FR-CAP-05).
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 
@@ -106,6 +108,61 @@ SMPL_BODY_JOINT_NAMES = (
     "L_Hand",
     "R_Hand",
 )
+
+# COCO's 17-keypoint model gives a useful 2D observation for the limbs, while
+# HMR2 remains the authority for the SMPL-only joints (spine, neck, head and
+# feet). The refinement is deliberately partial: an uncertain detector result
+# must never replace a better HMR2 point with a guess.
+_COCO_TO_SMPL = {
+    5: "L_Shoulder",
+    6: "R_Shoulder",
+    7: "L_Elbow",
+    8: "R_Elbow",
+    9: "L_Wrist",
+    10: "R_Wrist",
+    11: "L_Hip",
+    12: "R_Hip",
+    13: "L_Knee",
+    14: "R_Knee",
+    15: "L_Ankle",
+    16: "R_Ankle",
+}
+_KEYPOINT_MIN_SCORE = 0.35
+
+
+def refine_projected_joints(
+    projected: dict[str, tuple[float, float]],
+    keypoints,
+    scores,
+    *,
+    min_score: float = _KEYPOINT_MIN_SCORE,
+) -> dict[str, tuple[float, float]]:
+    """Blend confident COCO 2D limb observations into HMR2's projection.
+
+    ``keypoints``/``scores`` are intentionally duck-typed so this helper stays
+    testable without torch. COCO and SMPL share the limb landmarks listed in
+    ``_COCO_TO_SMPL``; pelvis is derived only when both hips are confident.
+    HMR2's other joints remain untouched.
+    """
+    refined = dict(projected)
+    confident_hips: set[str] = set()
+    for index, name in _COCO_TO_SMPL.items():
+        try:
+            point = keypoints[index]
+            score = float(scores[index])
+            x, y = float(point[0]), float(point[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if score >= min_score and math.isfinite(x) and math.isfinite(y):
+            refined[name] = (x, y)
+            if name in {"L_Hip", "R_Hip"}:
+                confident_hips.add(name)
+    if confident_hips == {"L_Hip", "R_Hip"}:
+        refined["Pelvis"] = (
+            (refined["L_Hip"][0] + refined["R_Hip"][0]) / 2.0,
+            (refined["L_Hip"][1] + refined["R_Hip"][1]) / 2.0,
+        )
+    return refined
 
 
 def _prepare_environment(engine_root: str) -> None:
@@ -218,6 +275,8 @@ def _resolve_request_box(detector, image, image_size, fallback_box, *, margin=DE
 
 _PERSON_DETECTOR: object | None = None
 _PERSON_DETECTOR_FAILED = False
+_PERSON_KEYPOINT_DETECTOR: object | None = None
+_PERSON_KEYPOINT_DETECTOR_FAILED = False
 
 
 def _get_person_detector():
@@ -261,6 +320,101 @@ def _get_person_detector():
             }
         )
     return _PERSON_DETECTOR
+
+
+def _get_person_keypoint_detector():
+    """Lazy-load torchvision's COCO 2D keypoint refiner.
+
+    This stays in the engine process beside the existing person detector. The
+    application never imports torchvision or cv2. A missing package, weights,
+    or CUDA support disables refinement for the worker lifetime and leaves the
+    HMR2 projection as the honest fallback.
+    """
+    global _PERSON_KEYPOINT_DETECTOR, _PERSON_KEYPOINT_DETECTOR_FAILED
+    if _PERSON_KEYPOINT_DETECTOR is not None or _PERSON_KEYPOINT_DETECTOR_FAILED:
+        return _PERSON_KEYPOINT_DETECTOR
+    try:
+        import torch
+        import torchvision
+
+        model = torchvision.models.detection.keypointrcnn_resnet50_fpn(
+            weights="DEFAULT"
+        )
+        model.eval()
+        model.cuda()
+
+        def detect(image_bgr):
+            rgb = image_bgr[:, :, ::-1].copy()
+            tensor = torch.as_tensor(rgb).permute(2, 0, 1).float().div_(255.0)
+            return model([tensor.cuda(non_blocking=True)])
+
+        _PERSON_KEYPOINT_DETECTOR = detect
+    except Exception as error:  # noqa: BLE001 - HMR2 remains usable without it
+        _PERSON_KEYPOINT_DETECTOR_FAILED = True
+        _emit(
+            {
+                "engine_notice": "2D keypoint refinement unavailable "
+                f"({type(error).__name__}: {error}); HMR2 projection kept"
+            }
+        )
+    return _PERSON_KEYPOINT_DETECTOR
+
+
+def _box_iou(left, right) -> float:
+    """Intersection-over-union for two ``[x1, y1, x2, y2]`` boxes."""
+    ix1, iy1 = max(float(left[0]), float(right[0])), max(float(left[1]), float(right[1]))
+    ix2, iy2 = min(float(left[2]), float(right[2])), min(float(left[3]), float(right[3]))
+    intersection = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    left_area = max(0.0, float(left[2]) - float(left[0])) * max(
+        0.0, float(left[3]) - float(left[1])
+    )
+    right_area = max(0.0, float(right[2]) - float(right[0])) * max(
+        0.0, float(right[3]) - float(right[1])
+    )
+    union = left_area + right_area - intersection
+    return intersection / union if union > 0.0 else 0.0
+
+
+def detect_person_keypoints(detector, image, reference_box):
+    """Return the best COCO keypoint set matching ``reference_box``.
+
+    The person detector and keypoint model can see multiple people. Matching
+    by IoU prevents a background person's limbs from being blended into the
+    HMR2 subject. The return is plain nested data for a torch-free test seam.
+    """
+    if detector is None or image is None:
+        return None
+    try:
+        try:
+            import torch
+
+            context = torch.no_grad()
+        except ImportError:
+            context = _NullContext()
+        with context:
+            output = detector(image)[0]
+        boxes = _as_plain_list(output["boxes"])
+        scores = _as_plain_list(output["scores"])
+        labels = _as_plain_list(output["labels"])
+        keypoints = _as_plain_list(output["keypoints"])
+        keypoint_scores = output.get("keypoints_scores")
+        if keypoint_scores is None:
+            keypoint_scores = [row[2] for row in keypoints]
+        else:
+            keypoint_scores = _as_plain_list(keypoint_scores)
+        candidates = [
+            (index, float(score), _box_iou(box, reference_box))
+            for index, (box, score, label) in enumerate(zip(boxes, scores, labels, strict=True))
+            if int(label) == COCO_PERSON_LABEL
+            and float(score) >= MIN_PERSON_SCORE
+            and _box_iou(box, reference_box) > 0.0
+        ]
+        if not candidates:
+            return None
+        index, _score, _iou = max(candidates, key=lambda item: (item[2], item[1]))
+        return keypoints[index], keypoint_scores[index]
+    except Exception:  # noqa: BLE001 - refinement must never fail extraction
+        return None
 
 
 def _template_hip_height_cm(model) -> tuple[float, int]:
@@ -477,10 +631,31 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     finite = torch.isfinite(projected).all(dim=-1)
     projected_joints = {
         name: [float(pixel[0]), float(pixel[1])]
-        for name, pixel in zip(
-            ("Pelvis", *SMPL_BODY_JOINT_NAMES), projected[finite].tolist(), strict=False
+        for index, (name, pixel) in enumerate(
+            zip(("Pelvis", *SMPL_BODY_JOINT_NAMES), projected.tolist(), strict=True)
         )
+        if bool(finite[index])
     }
+    # HMR2 supplies the 3D-aware baseline. A second, image-space observation
+    # corrects the limb landmarks when COCO's detector is confident; the
+    # fallback remains the HMR2 result, so a missing/uncertain refiner cannot
+    # turn a usable extraction into a failure or fabricated geometry.
+    keypoint_data = detect_person_keypoints(
+        _get_person_keypoint_detector(), img_bgr, box
+    )
+    if keypoint_data is not None:
+        keypoints, keypoint_scores = keypoint_data
+        projected_joints = {
+            name: [x, y]
+            for name, (x, y) in refine_projected_joints(
+                {
+                    name: (pixel[0], pixel[1])
+                    for name, pixel in projected_joints.items()
+                },
+                keypoints,
+                keypoint_scores,
+            ).items()
+        }
 
     return {
         "status": "ok",
@@ -488,6 +663,7 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
         "per_frame_hip_height_m": per_frame,
         "root_translation": [float(v) for v in root_translation],
         "projected_joints": projected_joints,
+        "keypoint_refinement": keypoint_data is not None,
         "person_bbox": [float(v) for v in box],
         "detector": detector_name,
         "vram_allocated_mib": torch.cuda.memory_allocated() / 1024**2,

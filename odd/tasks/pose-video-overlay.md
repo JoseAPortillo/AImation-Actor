@@ -134,3 +134,13 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
 - PENDING (user): the eye test on real clips — S1 alignment with the
   captured person, S2/S3 look, S4 stepping during playback. Then `spec.md`
   (GUI section + OQ5) and the single PR to main.
+- L4 (2026-10-28, user-authorized refinement): the real HMR2 projection was
+  mathematically correct but the single-image pose estimate was anatomically
+  unreliable across three captures. Added an optional engine-side COCO
+  Keypoint R-CNN refinement: confident limb observations replace HMR2's
+  `L_/R_Hip`, `Knee`, `Ankle`, `Shoulder`, `Elbow`, and `Wrist` pixels;
+  `Pelvis` is recomputed from confident hips; spine/head/feet remain HMR2.
+  Missing weights, CUDA, or low confidence preserve the HMR2 result. The
+  application still has no cv2/torch dependency. The real engine probe
+  downloaded the model into the engine cache and returned
+  `keypoint_refinement: True`.

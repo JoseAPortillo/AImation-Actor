@@ -21,7 +21,9 @@ from aimation_actor.adapters.ai.hmr2_worker import (
     _box_with_margin,
     _resolve_request_box,
     detect_person_box,
+    detect_person_keypoints,
     pick_best_person,
+    refine_projected_joints,
 )
 
 FALLBACK = [0.0, 0.0, 1920.0, 1080.0]
@@ -142,3 +144,72 @@ def test_resolve_request_box_falls_back_to_the_full_frame_box() -> None:
 
         assert box == FALLBACK
         assert name == FULL_FRAME_DETECTOR
+
+
+def test_keypoint_refinement_replaces_confident_coco_joints_only() -> None:
+    projected = {
+        "L_Hip": (10.0, 10.0),
+        "R_Hip": (20.0, 20.0),
+        "L_Knee": (30.0, 30.0),
+        "R_Knee": (40.0, 40.0),
+        "L_Ankle": (50.0, 50.0),
+        "R_Ankle": (60.0, 60.0),
+        "L_Shoulder": (70.0, 70.0),
+        "R_Shoulder": (80.0, 80.0),
+        "L_Elbow": (90.0, 90.0),
+        "R_Elbow": (100.0, 100.0),
+        "L_Wrist": (110.0, 110.0),
+        "R_Wrist": (120.0, 120.0),
+        "Head": (130.0, 130.0),
+    }
+    keypoints = [[float(index), float(index + 1)] for index in range(17)]
+    scores = [0.95] * 17
+    scores[8] = 0.1  # right elbow: keep HMR2 when COCO is uncertain
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["L_Shoulder"] == (5.0, 6.0)
+    assert refined["R_Shoulder"] == (6.0, 7.0)
+    assert refined["L_Elbow"] == (7.0, 8.0)
+    assert refined["R_Elbow"] == (100.0, 100.0)
+    assert refined["L_Wrist"] == (9.0, 10.0)
+    assert refined["R_Wrist"] == (10.0, 11.0)
+    assert refined["L_Hip"] == (11.0, 12.0)
+    assert refined["R_Hip"] == (12.0, 13.0)
+    assert refined["L_Knee"] == (13.0, 14.0)
+    assert refined["R_Knee"] == (14.0, 15.0)
+    assert refined["L_Ankle"] == (15.0, 16.0)
+    assert refined["R_Ankle"] == (16.0, 17.0)
+    assert refined["Head"] == (130.0, 130.0)
+
+
+def test_keypoint_refinement_updates_pelvis_from_confident_hips() -> None:
+    projected = {"Pelvis": (0.0, 0.0), "L_Hip": (0.0, 0.0), "R_Hip": (0.0, 0.0)}
+    keypoints = [[0.0, 0.0]] * 17
+    keypoints[11] = [10.0, 20.0]
+    keypoints[12] = [30.0, 40.0]
+    scores = [0.0] * 17
+    scores[11] = scores[12] = 0.95
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["L_Hip"] == (10.0, 20.0)
+    assert refined["R_Hip"] == (30.0, 40.0)
+    assert refined["Pelvis"] == (20.0, 30.0)
+
+
+def test_keypoint_detection_selects_the_person_overlapping_the_capture_box() -> None:
+    keypoints = [[[float(index), float(index + 1)] for index in range(17)]] * 2
+    detector = _FakeDetector(
+        {
+            "boxes": [[0.0, 0.0, 20.0, 20.0], [100.0, 100.0, 300.0, 500.0]],
+            "scores": [0.99, 0.8],
+            "labels": [1, 1],
+            "keypoints": keypoints,
+            "keypoints_scores": [[0.2] * 17, [0.9] * 17],
+        }
+    )
+
+    found = detect_person_keypoints(detector, object(), [90.0, 90.0, 310.0, 510.0])
+
+    assert found == (keypoints[1], [0.9] * 17)
