@@ -94,6 +94,23 @@ class Keyframe:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectionCamera:
+    """The engine's full-frame projection parameters for one captured frame.
+
+    ``focal_px`` is the focal the engine's own projection uses on the full
+    frame (HMR2 scales its fixed focal to the frame's size); the principal
+    point is the frame centre. The pose that reports a camera can be drawn
+    back onto that frame with the plane pinhole rule ``pixel = focal *
+    (point / depth) + centre`` (``core.overlay``); engines that do not
+    report one leave this ``None`` and their poses simply stay unprojected.
+    """
+
+    focal_px: float
+    width_px: int
+    height_px: int
+
+
+@dataclass(frozen=True, slots=True)
 class WorldPose:
     """A raw, world-space pose as an AI backend reports it, before production mapping.
 
@@ -102,6 +119,8 @@ class WorldPose:
     in the same frame; the controller subtracts the first captured value before
     production mapping. ``rotations`` maps a joint name to that joint's local
     rotation; a joint absent from the mapping keeps its bind rotation.
+    ``camera`` is the optional projection data the pose was captured with
+    (the video overlay), never animation data.
     """
 
     translation: Vector3
@@ -109,6 +128,7 @@ class WorldPose:
     #: Absolute/root-position estimate before the session origin is applied.
     #: It is optional because older engines may only report hip height.
     root_translation: Vector3 = Vector3()
+    camera: ProjectionCamera | None = None
 
 
 @dataclass(frozen=True, slots=True)
