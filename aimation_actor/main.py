@@ -61,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     """Run the capture application and return its exit code."""
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("AImation Actor")
+    # The recent-videos store (FR-CAP-09) uses QSettings, whose scope is
+    # organization + application: name both here, before the window builds.
+    app.setOrganizationName("AImation Actor")
     window = build_window()
     window.show()
     return app.exec()

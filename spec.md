@@ -6,7 +6,7 @@
 > [`docs/Plan_AImation_Actor_EN.md`](docs/Plan_AImation_Actor_EN.md). Where this
 > file and the plan disagree on behavior, **the plan wins**.
 
-Status: Draft · v0.6.3 · Scope: MVP only
+Status: Draft · v0.6.4 · Scope: MVP only
 
 ## How to use (SDD)
 
@@ -44,6 +44,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | FR-CAP-06 | Must | ✅ | Extracted pose is remapped to the production hierarchy (per AGENTS.md). | Result matches the documented skeleton naming/hierarchy. *(`build_production_pose` performs the mapping and every extraction now goes through it, verified end to end on a real clip: a stand-in hip height of 140 with a Pelvis bind of 100 wrote an offset of exactly 40.0, and `Main` came back at `(0, 0, 0)` with identity rotation. The mapping is engine-independent. The **real production rig** is built by `core/production_skeleton.py` - SMPL's chain mirrored under `Main`, the 23 canonical body names and their kintree parents - from **bind offsets the engine reports with its ready line** (`J_regressor @ v_template` of the user-supplied body model, in SMPL's frame; the adapter converts them to the domain). The controller adopts the rig at the first successful extraction and keeps it for the session (open question 10 resolved); until then the pane stays honestly blank.)* |
 | FR-CAP-07 | Should | ✅ | At most one key per frame; extraction failure is non-fatal. | Re-marking a frame does not duplicate; a failed `K` keeps prior keys and reports. *(Re-marking overwrites by frame; a failure keeps every prior key and writes none; a second `K` while an engine runs is refused instead of queued; a late answer from a clip that is no longer open is discarded. M4's neutral placeholder is retired — it would have passed a failure off as a capture.)* |
 | FR-CAP-08 | Must | ✅ | Show the captured skeleton over the reference video with side colors, joint dots, and stepped snapshots between captures. | The overlay uses the engine's full-frame projection; left/right bones are red/blue, trunk/head bones yellow, joints have dark/light gray dots, the latest capture holds until the next key, and the legacy 3D viewport stays hidden while this preview is active. *(The HMR2 worker projects the SMPL joints and refines visible limb landmarks with COCO Keypoint R-CNN plus MediaPipe PoseLandmarker hands/feet; the application receives only pixel snapshots. The user validated three real captures on 2026-10-28. A capture refreshes immediately without slider motion.)* |
+| FR-CAP-09 | Should | ✅ | File ▸ Recent Files lists the last five video clips the animator opened, most recent first, and each entry reopens its clip. | A clip is recorded only when its media actually loaded (a failed open never pollutes the list); reopening a known clip moves it to the top instead of duplicating; the list is capped at five and persists across sessions through `QSettings`; an empty list shows a disabled placeholder; paths display verbatim (ampersands escaped, never swallowed as mnemonics). *(`core/recent_files.push_recent` holds the pure rule; `adapters/gui/recent_files.QSettingsRecentFilesStore` is the injected seam.)* |
 
 ### Blocking export
 
@@ -225,6 +226,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.6.0   | 2026-10-23 | **M7 IK foot pinning landed**: contact spans detected in the original keys (balanced thresholds: 4.0 cm between keys, 6.0 cm above ground), analytic two-bone pin holds planted toes within 0.5 cm with zero clamps, wired at fill adoption. FR-IK-01 ✅. |
 | 0.6.1   | 2026-10-24 | **M8 root-motion iteration**: captured HMR2 root trajectory on `Main` (first captured frame as origin, `Pelvis` residual height) + anchor-padded root-jitter smoothing at fill adoption + root-invariant planted-foot detection (`_planting_read`) — the last one fixed real sliding feet the root noise had un-detected (real e2e restored: (40,55) detected, 14 rows pinned, hold ≤ 0.5 cm). |
 | 0.6.3   | 2026-10-28 | **Pose video overlay**: engine-side full-frame projection, stepped colored skeleton overlay, hidden legacy viewport, COCO limb refinement, and MediaPipe PoseLandmarker hand/foot refinement. |
+| 0.6.4   | 2026-10-28 | **Recent videos (FR-CAP-09)**: File ▸ Recent Files keeps the last five clips that actually loaded, most recent first, reopened by selecting the entry; persists through `QSettings`; pure rule in `core/recent_files`. |
 | 0.6.2   | 2026-10-24 | **M8 final generative export landed**: File-menu "Export FBX…" / `Ctrl+E` writes the approved timeline (keys + fills) through the real binary FBX writer with the approved KTime range declared; honest status-bar refusals; real-file round-trip through Blender verified 48 frames / float32-exact / pinned foot held (FR-GEN-04 ✅). Feature doc: `odd/tasks/m8-final-export.md`. |
 
 ## 6. Session state (resume here)

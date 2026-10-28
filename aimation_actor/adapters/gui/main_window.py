@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QProgressBar,
     QSplitter,
     QVBoxLayout,
@@ -38,10 +39,15 @@ from PySide6.QtWidgets import (
 from aimation_actor.adapters.ai.inbetween_runner import InbetweeningRunner
 from aimation_actor.adapters.ai.pose_runner import PoseExtractionRunner
 from aimation_actor.adapters.gui.capture_controller import CaptureController, VideoSource
+from aimation_actor.adapters.gui.recent_files import (
+    QSettingsRecentFilesStore,
+    RecentFilesStore,
+)
 from aimation_actor.adapters.gui.timeline_bar import TimelineBar
 from aimation_actor.adapters.gui.video_player import VideoPlayer
 from aimation_actor.adapters.gui.viewport_3d import SkeletonViewport
 from aimation_actor.core.models import JointPose, Skeleton, TimelineState
+from aimation_actor.core.recent_files import push_recent
 from aimation_actor.ports.ai_port import AIPort, InbetweeningPort
 from aimation_actor.ports.io_port import IOPort
 
@@ -64,6 +70,7 @@ class MainWindow(QMainWindow):
         skeleton_source: Callable[[], Skeleton | None] | None = None,
         inbetween_engine: InbetweeningPort | None = None,
         exporter: IOPort | None = None,
+        recents: RecentFilesStore | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build the window.
@@ -82,8 +89,13 @@ class MainWindow(QMainWindow):
         source, ``K`` reports what is missing rather than writing a pose nobody
         computed. ``exporter`` (FR-GEN-04) is the FBX writer behind ``Ctrl+E``:
         without one, exporting reports the gap rather than writing nothing.
+        ``recents`` is where the File menu's recent videos persist
+        (FR-CAP-09); the default is the user's own ``QSettings``.
         """
         super().__init__(parent)
+        self._recents: RecentFilesStore = (
+            recents if recents is not None else QSettingsRecentFilesStore()
+        )
         self.setWindowTitle("AImation Actor")
         self.resize(1280, 800)
 
@@ -155,6 +167,31 @@ class MainWindow(QMainWindow):
         if chosen:
             self.load_video(chosen)
 
+    def _refresh_recent_menu(self) -> None:
+        """Rebuild File ▸ Recent Files as a view of the store (FR-CAP-09).
+
+        Each action reopens its clip verbatim; the displayed text escapes
+        ``&`` so paths with ampersands keep showing them literally. An empty
+        store says so honestly instead of hiding the entry.
+        """
+        self._recent_menu.clear()
+        paths = self._recents.load()
+        if not paths:
+            placeholder = QAction("(No recent videos)", self._recent_menu)
+            placeholder.setEnabled(False)
+            self._recent_menu.addAction(placeholder)
+            return
+        for path in paths:
+            action = QAction(path.replace("&", "&&"), self._recent_menu)
+            action.triggered.connect(
+                lambda checked=False, target=path: self.load_video(target)
+            )
+            self._recent_menu.addAction(action)
+
+    def _record_recent(self, clip: Path) -> None:
+        self._recents.save(push_recent(self._recents.load(), str(clip)))
+        self._refresh_recent_menu()
+
     def _build_actions(self) -> None:
         self.action_open = self._action("&Open Video…", "Ctrl+O", self.open_video_dialog)
         self.action_play_pause = self._action(
@@ -197,6 +234,11 @@ class MainWindow(QMainWindow):
 
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.action_open)
+        # FR-CAP-09: the last five opened clips, a view of the store rebuilt
+        # here and on every recorded open (never a second source of truth).
+        self._recent_menu = QMenu("Recent Files", file_menu)
+        file_menu.addMenu(self._recent_menu)
+        self._refresh_recent_menu()
         file_menu.addAction(self.action_export)
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
@@ -398,6 +440,10 @@ class MainWindow(QMainWindow):
         # previous clip's figure over.
         self._refresh_overlay(self.controller.frame)
         clip = self.controller.video_path
+        if clip is not None:
+            # FR-CAP-09: only a clip that truly loaded becomes "recent"; a
+            # failed open never pollutes the list.
+            self._record_recent(clip)
         self.setWindowTitle("AImation Actor" if clip is None else f"AImation Actor — {clip.name}")
 
     # -- teardown ----------------------------------------------------------- #
