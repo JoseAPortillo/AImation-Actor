@@ -159,6 +159,14 @@ while costing ViTPose (~2.55 GB), a detector, and a much heavier pipeline.
   measurement; and no VRAM/latency figure is published for HMR2.0. Both are
   measured before the adapter is specified in detail (`spec.md` §4.13).
 
+- **2D overlay refinement — engine-only.** The HMR2 worker optionally runs
+  torchvision COCO Keypoint R-CNN for visible limb landmarks and MediaPipe
+  Tasks `PoseLandmarker` for hand/foot landmarks (`foot_index`, `heel`,
+  `index`, `pinky`). These dependencies and the `pose_landmarker_full.task`
+  asset stay in the Python 3.10 engine environment; the Qt application never
+  imports `cv2`, `torch`, or MediaPipe. If either model is unavailable or its
+  landmarks are below confidence, the worker preserves the HMR2 projection.
+
 ## Domain invariants (do not break)
 
 - **SMPL → production hierarchy** is remapped under a ground root bone `Main`.

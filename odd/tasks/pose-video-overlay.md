@@ -131,9 +131,12 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
   notes: QWidget tests need `qtbot` for the QApplication; the letterbox
   paint is verified by rendering into a transparent QImage and sampling
   pixels (midpoint of a bone must be pure RED — no palette guessing).
-- PENDING (user): the eye test on real clips — S1 alignment with the
-  captured person, S2/S3 look, S4 stepping during playback. Then `spec.md`
-  (GUI section + OQ5) and the single PR to main.
+- Closure (2026-10-28): the user validated the overlay on three real captures:
+  alignment is good, including the refined hands and feet; occasional errors
+  under occlusion or low confidence are accepted model limitations. S1
+  alignment, S2/S3 appearance, and S4 stepping are accepted. `spec.md` and
+  `AGENTS.md` are synchronized; only the single PR to `main` remains as a
+  delivery action.
 - L4 (2026-10-28, user-authorized refinement): the real HMR2 projection was
   mathematically correct but the single-image pose estimate was anatomically
   unreliable across three captures. Added an optional engine-side COCO
