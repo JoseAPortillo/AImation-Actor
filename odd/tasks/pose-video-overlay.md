@@ -62,11 +62,20 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
   `tests/test_ai_extraction_pipeline.py`, 2 adapter tests in
   `tests/test_ai_hmr2_adapter.py` (fake worker mode `projected`). Full
   two-step suite + ruff green.
-- T3 (S1, S2, S3, S4, widget): a transparent `PoseOverlay` widget over the
-  video pane, wired to the controller: snapshot at-or-before the playhead,
-  colored segments, joint dots. Tests with the existing `_Fake*` harness.
-- T4 (S5): hide the old viewport pane in `MainWindow` (qtbot test); code
-  unchanged for later re-enable.
+- T3 (S1, S2, S3, S4, widget) — **DONE**, commit `6b5c5ba`: `PoseOverlay`
+  (`adapters/gui/pose_overlay.py`) — a mouse-transparent widget over the video
+  surface that maps the engine's full-frame pixels with the surface's own
+  letterbox rule (`display_transform`, tested pure), paints the pinned side
+  colors and dots, and draws nothing it cannot map honestly (no snapshot, or
+  unknown native frame size). The surface owns it (child, resized with it,
+  fed the frame's native size on every delivered frame); `VideoPlayer.overlay`
+  exposes it; `MainWindow` replays `controller.overlay_snapshot_at` per
+  `frame_changed` and clears on `media_changed` (headless source panes skip
+  it). RED/GREEN: `tests/test_gui_pose_overlay.py` 9/9 (real rendering into
+  QImage, pixel-sampled), wiring tests in `tests/test_main.py` 2.
+- T4 (S5) — **DONE**, commit `c41b4dd`: `SkeletonViewport` composed in the
+  splitter but `setVisible(False)`; qtbot test pins it and pins that the
+  code stays composed for re-enable.
 - Docs: update this doc per task; update `spec.md` (GUI section + OQ5 nota)
   at closure; AGENTS.md summary if interfaces change.
 
@@ -113,3 +122,15 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
   second capture in one test must wait `not controller.extraction_busy`; and
   `_load`'s default 1000 ms clip clamps to 24 frames (use a longer
   `duration_ms` for captures past frame 24).
+- L3 (2026-10-28, T3/T4): widget and hide-out done (`6b5c5ba`, `c41b4dd`).
+  `PoseOverlay` consumes `(segments, dots)` directly — the controller already
+  froze `overlay_items` per key, so the widget owns only the letterbox
+  mapping and painting. The overlay is owned by `_VideoSurface` (fed the
+  native frame size on every delivered frame, resized with the surface), so
+  its pixels land on the video's pixels by construction. Test-harness
+  notes: QWidget tests need `qtbot` for the QApplication; the letterbox
+  paint is verified by rendering into a transparent QImage and sampling
+  pixels (midpoint of a bone must be pure RED — no palette guessing).
+- PENDING (user): the eye test on real clips — S1 alignment with the
+  captured person, S2/S3 look, S4 stepping during playback. Then `spec.md`
+  (GUI section + OQ5) and the single PR to main.
