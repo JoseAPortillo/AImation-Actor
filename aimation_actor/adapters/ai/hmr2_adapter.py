@@ -334,10 +334,25 @@ class Hmr2Adapter(AIPort):
             root_translation = Vector3(x=x, y=y, z=z)
         else:
             root_translation = Vector3()
+        # The video overlay's projection (pose-video-overlay S1): the engine's
+        # own projected joints, JSON lists on the wire, float tuples in the
+        # domain. A malformed entry drops just that joint — an overlay that
+        # loses one bone beats an extraction that dies for it.
+        raw_projected = response.get("projected_joints")
+        projected: dict[str, tuple[float, float]] | None = None
+        if isinstance(raw_projected, Mapping):
+            projected = {}
+            for name, pixel in raw_projected.items():
+                if isinstance(pixel, (list, tuple)) and len(pixel) == 2:
+                    try:
+                        projected[str(name)] = (float(pixel[0]), float(pixel[1]))
+                    except (TypeError, ValueError):
+                        continue
         return WorldPose(
             translation=Vector3(x=0.0, y=0.0, z=hip_height_cm),
             rotations=rotations,
             root_translation=root_translation,
+            projected=projected or None,
         )
 
 

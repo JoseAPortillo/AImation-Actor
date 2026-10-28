@@ -44,15 +44,24 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
 
 ## Tasks
 
-- T1 (S1, S2, S3, core) — **DONE**, commit `T1`: `core/overlay.py` — joint/bone
-  color rule and world→pixel projection (domain Z-up cm → engine Y-down m →
-  pinhole); the camera record (`focal_px`, frame size) as an optional, additive
-  field on the domain `WorldPose`. RED/GREEN in `tests/test_core_overlay.py`.
-- T2 (S1, data path): the worker returns the full-frame focal it already
-  computes (`scaled_focal_length`); the adapter stamps `camera` on the pose;
-  the controller keeps a per-key pixel snapshot at capture time, clears it on
-  clip reload, and refuses nothing if the camera data is absent (S1's typed
-  unavailability). Tests in the adapter suite and the controller suite.
+- T1 (S1, S2, S3, core) — **DONE**, commit `1d5dca1`: the overlay's color rule
+  (`L_` red / `R_` blue / trunk-head yellow, dots pinned), later reworked in
+  T2 to consume the engine's own pixels.
+- T2 (S1, S4, data path) — **DONE**: `WorldPose.projected`
+  (`Mapping[str, tuple[float, float]] | None`) carries the engine's own
+  projection; `core/overlay.py` reworked to lay out that pixel mapping
+  (`overlay_items` → colored segments + dots); the HMR2 worker projects its
+  SMPL joints with the vendored `perspective_projection` + `cam_crop_to_full`
+  translation + scaled focal + frame centre and reports `projected_joints`;
+  the adapter normalizes the JSON lists to float tuples (missing → `None`);
+  the controller stores a per-key `(segments, dots)` snapshot at capture
+  (guides never snapshot), clears it on clip reload, and serves
+  `overlay_snapshot_at` (latest key ≤ playhead, `None` before the first —
+  S4's stepping) plus `overlay_availability()`. RED/GREEN:
+  `tests/test_core_overlay.py` 5/5, 4 controller tests in
+  `tests/test_ai_extraction_pipeline.py`, 2 adapter tests in
+  `tests/test_ai_hmr2_adapter.py` (fake worker mode `projected`). Full
+  two-step suite + ruff green.
 - T3 (S1, S2, S3, S4, widget): a transparent `PoseOverlay` widget over the
   video pane, wired to the controller: snapshot at-or-before the playhead,
   colored segments, joint dots. Tests with the existing `_Fake*` harness.
@@ -84,3 +93,23 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
   capturada, como si estuviese en step las curvas de animación. la vista que
   tenemos ahora mismo, la ocultamos hasta que esta funcione correctamente.
   recuerda trabajar esto en una nueva feature."
+- L2 (2026-10-28, T2 design change): T1's client-side `ProjectionCamera` /
+  `position_to_pixels` is **superseded and deleted**. Reconstructing the
+  projection in the app from the controller's production pose would misplace
+  the figure vertically: `build_production_pose` decouples pelvis height from
+  root depth (M8 S8 calibration) and couples it to the anchor, so the domain
+  pose is no longer the geometry the camera saw. The projection now happens
+  WHERE the truth lives — inside the HMR2 worker, reusing the vendored
+  `perspective_projection` (import, never patch) with `pred_cam_t_full`
+  (from `cam_crop_to_full`, already computed), the scaled focal, and the
+  frame centre — verified against `.engine/hmr2/demo.py`'s full-frame
+  overlay path (`renderer.py::cam_crop_to_full` + `geometry.py:64`). Raw
+  `smpl_output.joints` keep the network's baked camera flip; projecting with
+  the full-frame K needs NO extra flip and NO x-negation (those belong to
+  the demo's pyrender mesh path). `WorldPose.camera` → `WorldPose.projected`
+  (name → full-frame `(x, y)` pixels). S4's stepping comes free from
+  per-key frozen snapshots. Test-harness gotchas recorded: after
+  `waitUntil(has_key)`, the runner's `busy` release may still be queued, so a
+  second capture in one test must wait `not controller.extraction_busy`; and
+  `_load`'s default 1000 ms clip clamps to 24 frames (use a longer
+  `duration_ms` for captures past frame 24).

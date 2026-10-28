@@ -1,17 +1,17 @@
-"""Overlay math (pose-video-overlay S1..S3): color rule and full-frame projection.
+"""Overlay math (pose-video-overlay S1..S3): side coloring over projected joints.
 
-The projection is the same pinhole HMR2's demo renders the mesh with:
-``pixel = focal * (point / depth) + frame centre``. The world side is the
-domain's (Z-up centimetres); the engine side is Y-down metres. Both
-directions use the measured axis mapping the adapter applies to
-``root_translation`` (``(tx, ty, tz) -> (x, y, z) = (tx, tz, -ty) * 100``),
-so the overlay's inverse is consistent with capture by construction. Exact
-shades are pinned here so the widget lands them unchanged.
+The projection happens WHERE the truth lives: the HMR2 worker projects the
+engine's own SMPL joints with the engine's own camera rule (the vendored
+``perspective_projection``) and reports ``projected_joints`` as a mapping of
+joint name to full-frame ``(x, y)`` pixels. This module colors and lays out
+that mapping for the overlay widget: bones by the child joint's side rule,
+joint dots' shades, the ground root ``Main`` never drawn. Exact shades are
+pinned so the widget lands them unchanged.
 """
 
 from __future__ import annotations
 
-from aimation_actor.core.models import JointData, ProjectionCamera, Skeleton, Vector3
+from aimation_actor.core.models import JointData, Skeleton
 from aimation_actor.core.overlay import (
     BLUE,
     DOT_BORDER,
@@ -19,9 +19,7 @@ from aimation_actor.core.overlay import (
     RED,
     YELLOW,
     bone_side,
-    colored_bone_segments,
-    joint_dots,
-    position_to_pixels,
+    overlay_items,
 )
 
 
@@ -42,63 +40,49 @@ def test_the_side_colors_and_dot_shades_are_pinned() -> None:
     assert DOT_FILL == (210, 210, 210)
 
 
-def test_a_point_lands_on_full_frame_pixels_by_the_pinhole_rule() -> None:
-    camera = ProjectionCamera(focal_px=5000.0, width_px=1280, height_px=720)
-    # Domain (Z-up cm): 50 cm right of the camera axis, 5 m of depth, 1 m up.
-    # Engine metres: X = 0.5, Y = -1.0 (1 m up in a Y-down frame), Z = 5.0.
-    pixel = position_to_pixels(Vector3(x=50.0, y=500.0, z=100.0), camera)
-    assert pixel == (1140.0, -640.0)  # +500 px right of centre, 1000 px above it
-
-
-def test_the_projection_inverts_the_adapter_field_mapping() -> None:
-    """Engine [tx, ty, tz] -> domain (x, y, z) = (tx, tz, -ty) * 100 — and back."""
-    camera = ProjectionCamera(focal_px=5000.0, width_px=1280, height_px=720)
-    engine_m = (0.1, -1.0, 5.0)  # tx right, ty up in the engine's frame, tz depth
-    domain_cm = Vector3(
-        x=engine_m[0] * 100.0, y=engine_m[2] * 100.0, z=-engine_m[1] * 100.0
-    )
-    pixel = position_to_pixels(domain_cm, camera)
-    cx, cy = 640.0, 360.0
-    assert pixel == (
-        5000.0 * engine_m[0] / engine_m[2] + cx,
-        5000.0 * engine_m[1] / engine_m[2] + cy,
-    )
-
-
-def test_a_colored_bone_list_skips_the_ground_root_and_colors_by_child() -> None:
-    positions = {
-        "Main": Vector3(),
-        "Pelvis": Vector3(x=0, y=0, z=95.0),
-        "L_Hip": Vector3(x=-10.0, y=0, z=95.0),
-        "R_Hip": Vector3(x=10.0, y=0, z=95.0),
-        "L_Knee": Vector3(x=-12.0, y=0, z=50.0),
-        "Neck": Vector3(x=0, y=0, z=140.0),
-        "Head": Vector3(x=0, y=0, z=150.0),
+def test_bones_color_by_their_child_joint_and_the_ground_root_is_not_drawn() -> None:
+    skeleton = _skeleton()
+    projected = {
+        "Main": (640.0, 900.0),  # the ground root projects off the person
+        "Pelvis": (640.0, 360.0),
+        "L_Hip": (604.0, 360.0),
+        "R_Hip": (676.0, 360.0),
+        "L_Knee": (592.0, 560.0),
+        "Neck": (640.0, 220.0),
+        "Head": (640.0, 180.0),
     }
-    segments = colored_bone_segments(_skeleton(), positions)
-    colors = {f"{parent}->{child}": color for parent, child, color in segments}
+    segments, dots = overlay_items(skeleton, projected)
+    colors = {tuple(segment[:2]): segment[2] for segment in segments}
     assert colors == {
-        "Pelvis->L_Hip": RED,
-        "Pelvis->R_Hip": BLUE,
-        "L_Hip->L_Knee": RED,
-        "Pelvis->Neck": YELLOW,
-        "Neck->Head": YELLOW,
+        ((640.0, 360.0), (604.0, 360.0)): RED,
+        ((640.0, 360.0), (676.0, 360.0)): BLUE,
+        ((604.0, 360.0), (592.0, 560.0)): RED,
+        ((640.0, 360.0), (640.0, 220.0)): YELLOW,
+        ((640.0, 220.0), (640.0, 180.0)): YELLOW,
     }
+    assert ((640.0, 900.0), (640.0, 360.0)) not in colors  # no Main bone
 
 
-def test_dots_mark_every_drawn_joint_but_not_the_ground_root() -> None:
-    positions = {
-        "Main": Vector3(),
-        "Pelvis": Vector3(x=0, y=0, z=95.0),
-        "L_Hip": Vector3(x=-10.0, y=0, z=95.0),
-        "R_Hip": Vector3(x=10.0, y=0, z=95.0),
+def test_dots_mark_every_projected_joint_but_not_the_ground_root() -> None:
+    skeleton = _skeleton()
+    projected = {
+        "Main": (640.0, 900.0),
+        "Pelvis": (640.0, 360.0),
+        "L_Hip": (604.0, 360.0),
+        "R_Hip": (676.0, 360.0),
     }
-    joints = joint_dots(_skeleton(), positions)
-    assert {joint[0] for joint in joints} == {"Pelvis", "L_Hip", "R_Hip"}
-    # The dots share the segments' endpoint world positions, so the widget
-    # converts each exactly once with the same projection rule.
-    world = {joint[0]: joint[1] for joint in joints}
-    assert world["Pelvis"] == Vector3(x=0, y=0, z=95.0)
+    _segments, dots = overlay_items(skeleton, projected)
+    centers = {dot[0] for dot in dots}
+    assert centers == {(640.0, 360.0), (604.0, 360.0), (676.0, 360.0)}
+    assert all(dot[1] == DOT_BORDER and dot[2] == DOT_FILL for dot in dots)
+
+
+def test_a_partial_projection_drops_only_its_missing_bones() -> None:
+    skeleton = _skeleton()
+    segments, _dots = overlay_items(skeleton, {"Pelvis": (1.0, 1.0), "Neck": (2.0, 2.0)})
+    assert [tuple(segment[:2]) for segment in segments] == [((1.0, 1.0), (2.0, 2.0))]
+    _segments2, dots = overlay_items(skeleton, {"Pelvis": (1.0, 1.0)})
+    assert {dot[0] for dot in dots} == {(1.0, 1.0)}
 
 
 def _skeleton() -> Skeleton:

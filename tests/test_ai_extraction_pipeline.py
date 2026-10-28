@@ -68,14 +68,23 @@ class _FakeSource(QObject):
 class _Engine:
     """A deterministic engine: reports a fixed hip height, and can be made to fail."""
 
-    def __init__(self, *, z: float = 140.0, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        z: float = 140.0,
+        error: Exception | None = None,
+        projected: dict[str, list[float]] | None = None,
+    ) -> None:
         self.calls: list[int] = []
         self._z = z
         self._error = error
+        self._projected = projected
 
     def _report(self) -> WorldPose:
         return WorldPose(
-            translation=Vector3(z=self._z), rotations={"Pelvis": Quaternion.identity()}
+            translation=Vector3(z=self._z),
+            rotations={"Pelvis": Quaternion.identity()},
+            projected=self._projected,
         )
 
     def extract_pose(self, image: FrameImage, *, frame_index: int) -> WorldPose:
@@ -305,3 +314,101 @@ def test_a_result_from_a_clip_that_is_no_longer_open_is_discarded(qtbot, source,
 
     assert key_frames(controller.state) == ()  # nothing leaked onto the new clip
     assert "no longer open" in failures[0]
+
+
+# -- the video overlay's per-key projections (pose-video-overlay S1, S4) ----- #
+
+_PROJECTION = {"Pelvis": (640.0, 360.0), "Spine_1": (640.0, 300.0)}
+
+
+def test_a_captured_projection_reaches_the_overlay_for_its_frame(qtbot, source, rigged) -> None:
+    engine = _Engine(z=140.0, projected=_PROJECTION)
+    controller = rigged(engine)
+    controller.open_video("clip.mp4")
+    _load(source)
+    controller.go_to_frame(15)
+
+    controller.mark_current()
+    qtbot.waitUntil(lambda: controller.has_key(15), timeout=5000)
+
+    snapshot = controller.overlay_snapshot_at(15)
+    assert snapshot is not None
+    segments, dots = snapshot
+    assert ((640.0, 360.0), (640.0, 300.0)) in {tuple(s[:2]) for s in segments}
+    assert (640.0, 360.0) in {dot[0] for dot in dots}
+    # S4: before the first capture there is nothing to draw...
+    assert controller.overlay_snapshot_at(10) is None
+    # ... and after it the figure holds until the NEXT capture (stepped).
+    assert controller.overlay_snapshot_at(90) is snapshot
+
+
+def test_a_second_capture_steps_the_overlay_from_its_own_frame(qtbot, source, rigged) -> None:
+    first = {"Pelvis": (600.0, 360.0), "Spine_1": (600.0, 300.0)}
+    second = {"Pelvis": (700.0, 360.0), "Spine_1": (700.0, 300.0)}
+    engine = _SequenceEngine(z=140.0, projections=[first, second])
+    controller = rigged(engine)
+    controller.open_video("clip.mp4")
+    _load(source, duration_ms=4000)  # 96 frames: both captures fit the range
+
+    controller.go_to_frame(15)
+    controller.mark_current()
+    qtbot.waitUntil(lambda: controller.has_key(15), timeout=5000)
+    # The runner frees itself through its own queued event: wait for it, or the
+    # second mark would hit the batch-1 refusal (a race a human never hits).
+    qtbot.waitUntil(lambda: not controller.extraction_busy, timeout=5000)
+    controller.go_to_frame(40)
+    controller.mark_current()
+    qtbot.waitUntil(lambda: controller.has_key(40), timeout=5000)
+
+    first_snapshot = controller.overlay_snapshot_at(15)
+    second_snapshot = controller.overlay_snapshot_at(40)
+    assert first_snapshot is not None and second_snapshot is not None
+    assert first_snapshot is not second_snapshot
+    # S4: between the captures the FIRST figure keeps holding.
+    assert controller.overlay_snapshot_at(39) is first_snapshot
+
+
+def test_reloading_the_clip_discards_the_overlay_snapshots(qtbot, source, rigged) -> None:
+    engine = _Engine(z=140.0, projected=_PROJECTION)
+    controller = rigged(engine)
+    controller.open_video("first.mp4")
+    _load(source)
+    controller.go_to_frame(15)
+    controller.mark_current()
+    qtbot.waitUntil(lambda: controller.has_key(15), timeout=5000)
+
+    controller.open_video("second.mp4")
+    _load(source)
+    qtbot.waitUntil(lambda: not controller.has_key(15))
+    assert controller.overlay_snapshot_at(15) is None
+
+
+def test_a_pose_without_projection_marks_a_key_without_a_snapshot(qtbot, source, rigged) -> None:
+    engine = _Engine(z=140.0)  # an engine that reports no projected joints
+    controller = rigged(engine)
+    controller.open_video("clip.mp4")
+    _load(source)
+    controller.go_to_frame(15)
+
+    controller.mark_current()
+    qtbot.waitUntil(lambda: controller.has_key(15), timeout=5000)
+
+    assert controller.overlay_snapshot_at(15) is None  # no invented geometry
+    assert controller.overlay_availability() == "unavailable"
+
+
+class _SequenceEngine(_Engine):
+    """Hands out a queue of one projection per capture (a camera that drifts)."""
+
+    def __init__(self, *, z: float, projections: list[dict[str, list[float]]]) -> None:
+        super().__init__(z=z)
+        self._z_queue = z
+        self._queue = list(projections)
+
+    def _report(self) -> WorldPose:
+        projected = self._queue.pop(0) if self._queue else {}
+        return WorldPose(
+            translation=Vector3(z=self._z_queue),
+            rotations={"Pelvis": Quaternion.identity()},
+            projected=projected,
+        )

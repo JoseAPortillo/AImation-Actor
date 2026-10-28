@@ -11,6 +11,7 @@ speaks a line-JSON protocol over stdin/stdout:
     request   (adapter -> worker): {"image_path", "frame_index"}
     response: {"status": "ok", "per_frame_hip_height_m",
                "root_translation": [x, y, z],
+               "projected_joints": {joint_name: [x_px, y_px]},
                "person_bbox": [x1, y1, x2, y2] | None, "detector": name,
                "rotations": {joint_name: [9 floats, row-major 3x3]}}
                | {"status": "error", "message", "fatal": false}  (worker stays up)
@@ -456,11 +457,37 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     ]).argmax().item())
     per_frame = joints[8, axis].item() - vertices[:, axis].min().item()
 
+    # The video overlay's projection (pose-video-overlay S1): the engine's own
+    # SMPL body joints projected onto the FULL frame with the engine's own
+    # camera rule -- the vendored ``perspective_projection`` (imported, never
+    # patched) with the same ``cam_crop_to_full`` translation and scaled focal
+    # the engine's demo uses for its full-frame overlay, and the frame centre
+    # as principal point. No extra flip: the projection's axes are the image's
+    # (px = f*(x+tx)/z', py = f*(y+ty)/z' + centre), so head/feet land in
+    # frame as the demo renders them. A joint whose depth or pixels are not
+    # finite drops out of the mapping instead of poisoning it.
+    from hmr2.utils.geometry import perspective_projection
+
+    projected = perspective_projection(
+        joints[:24].float().unsqueeze(0),
+        translation=root_translation.float().unsqueeze(0),
+        focal_length=torch.tensor([[float(scaled_focal_length)]]),
+        camera_center=torch.tensor([[width / 2.0, height / 2.0]]),
+    )[0]
+    finite = torch.isfinite(projected).all(dim=-1)
+    projected_joints = {
+        name: [float(pixel[0]), float(pixel[1])]
+        for name, pixel in zip(
+            ("Pelvis", *SMPL_BODY_JOINT_NAMES), projected[finite].tolist(), strict=False
+        )
+    }
+
     return {
         "status": "ok",
         "frame_index": request.get("frame_index"),
         "per_frame_hip_height_m": per_frame,
         "root_translation": [float(v) for v in root_translation],
+        "projected_joints": projected_joints,
         "person_bbox": [float(v) for v in box],
         "detector": detector_name,
         "vram_allocated_mib": torch.cuda.memory_allocated() / 1024**2,
