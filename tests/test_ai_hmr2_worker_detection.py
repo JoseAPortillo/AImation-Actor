@@ -198,6 +198,34 @@ def test_keypoint_refinement_updates_pelvis_from_confident_hips() -> None:
     assert refined["Pelvis"] == (20.0, 30.0)
 
 
+def test_keypoint_refinement_rebuilds_the_torso_from_confident_shoulders() -> None:
+    projected = {
+        "Pelvis": (20.0, 30.0),
+        "L_Shoulder": (0.0, 0.0),
+        "R_Shoulder": (0.0, 0.0),
+        "Neck": (0.0, 0.0),
+        "Spine_1": (0.0, 0.0),
+        "Spine_2": (0.0, 0.0),
+        "Spine_3": (0.0, 0.0),
+        "L_Collar": (0.0, 0.0),
+        "R_Collar": (0.0, 0.0),
+    }
+    keypoints = [[0.0, 0.0]] * 17
+    keypoints[5] = [10.0, 10.0]
+    keypoints[6] = [30.0, 10.0]
+    scores = [0.0] * 17
+    scores[5] = scores[6] = 0.95
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["Neck"] == (20.0, 10.0)
+    assert refined["Spine_1"] == (20.0, 25.0)
+    assert refined["Spine_2"] == (20.0, 20.0)
+    assert refined["Spine_3"] == (20.0, 15.0)
+    assert refined["L_Collar"] == (15.0, 10.0)
+    assert refined["R_Collar"] == (25.0, 10.0)
+
+
 def test_keypoint_detection_selects_the_person_overlapping_the_capture_box() -> None:
     keypoints = [[[float(index), float(index + 1)] for index in range(17)]] * 2
     detector = _FakeDetector(

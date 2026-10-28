@@ -344,6 +344,12 @@ class MainWindow(QMainWindow):
         self.controller.frame_changed.connect(self._refresh_overlay)
         self.controller.pose_changed.connect(self._on_pose_changed)
         self.controller.timeline_changed.connect(self._refresh_timeline)
+        # A capture can finish on the current frame without moving the
+        # playhead, so frame_changed is not guaranteed. Refresh from the
+        # timeline mutation as well (T3: show the new snapshot immediately).
+        self.controller.timeline_changed.connect(
+            lambda: self._refresh_overlay(self.controller.frame)
+        )
         self.controller.media_changed.connect(self._on_media_changed)
         self.controller.status_changed.connect(self.statusBar().showMessage)
         self.controller.status_changed.connect(self._refresh_progress)
@@ -409,4 +415,3 @@ class MainWindow(QMainWindow):
         if self.filler is not None:
             self.filler.shutdown()
         super().closeEvent(event)
-

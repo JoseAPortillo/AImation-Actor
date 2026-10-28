@@ -45,6 +45,17 @@ def test_reloading_media_clears_the_overlay(qtbot) -> None:
     assert window._video_overlay.snapshot is None
 
 
+def test_a_capture_timeline_change_shows_the_overlay_without_slider_motion(qtbot) -> None:
+    window = build_window()
+    qtbot.addWidget(window)
+
+    snapshot = (((),), ())
+    window.controller.overlay_snapshot_at = lambda frame: snapshot
+    window.controller.timeline_changed.emit()
+
+    assert window._video_overlay.snapshot is snapshot
+
+
 def test_the_application_window_starts_without_a_rig(qtbot) -> None:
     # M4 ships before the production skeleton exists (M5 builds it); the window
     # must run in that state rather than refusing to start (NFR-03).

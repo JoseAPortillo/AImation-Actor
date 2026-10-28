@@ -146,6 +146,7 @@ def refine_projected_joints(
     """
     refined = dict(projected)
     confident_hips: set[str] = set()
+    confident_shoulders: set[str] = set()
     for index, name in _COCO_TO_SMPL.items():
         try:
             point = keypoints[index]
@@ -157,11 +158,37 @@ def refine_projected_joints(
             refined[name] = (x, y)
             if name in {"L_Hip", "R_Hip"}:
                 confident_hips.add(name)
+            if name in {"L_Shoulder", "R_Shoulder"}:
+                confident_shoulders.add(name)
     if confident_hips == {"L_Hip", "R_Hip"}:
         refined["Pelvis"] = (
             (refined["L_Hip"][0] + refined["R_Hip"][0]) / 2.0,
             (refined["L_Hip"][1] + refined["R_Hip"][1]) / 2.0,
         )
+    if confident_shoulders == {"L_Shoulder", "R_Shoulder"}:
+        refined["Neck"] = (
+            (refined["L_Shoulder"][0] + refined["R_Shoulder"][0]) / 2.0,
+            (refined["L_Shoulder"][1] + refined["R_Shoulder"][1]) / 2.0,
+        )
+        if "Pelvis" in refined:
+            pelvis, neck = refined["Pelvis"], refined["Neck"]
+            for name, fraction in (
+                ("Spine_1", 0.25),
+                ("Spine_2", 0.5),
+                ("Spine_3", 0.75),
+            ):
+                refined[name] = (
+                    pelvis[0] + (neck[0] - pelvis[0]) * fraction,
+                    pelvis[1] + (neck[1] - pelvis[1]) * fraction,
+                )
+            for name, shoulder in (
+                ("L_Collar", refined["L_Shoulder"]),
+                ("R_Collar", refined["R_Shoulder"]),
+            ):
+                refined[name] = (
+                    neck[0] + (shoulder[0] - neck[0]) * 0.5,
+                    neck[1] + (shoulder[1] - neck[1]) * 0.5,
+                )
     return refined
 
 

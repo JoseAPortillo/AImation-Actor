@@ -144,3 +144,10 @@ suite two-step with `tests/test_ai_hmr2_adapter.py` apart; ruff clean.
   application still has no cv2/torch dependency. The real engine probe
   downloaded the model into the engine cache and returned
   `keypoint_refinement: True`.
+- L5 (2026-10-28, follow-up capture verification): the snapshot now refreshes
+  immediately on `timeline_changed`, so capturing the current frame no longer
+  requires slider motion. Confident shoulders and hips also rebuild the 2D
+  torso chain (`Pelvis`, `Spine_1..3`, `Neck`, `L_/R_Collar`) so HMR2's
+  unreliable 3D torso cannot pull otherwise-correct COCO limb points into
+  crossed connections. Full two-step tests, ruff, and the real engine probe
+  pass; the probe reports `keypoint_refinement: True`.
