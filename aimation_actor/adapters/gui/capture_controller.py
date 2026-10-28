@@ -48,6 +48,7 @@ from aimation_actor.core.models import (
     Vector3,
     WorldPose,
 )
+from aimation_actor.core.overlay import overlay_items
 from aimation_actor.core.seam import feather_anchor_seams
 from aimation_actor.core.services import (
     build_production_pose,
@@ -261,6 +262,10 @@ class CaptureController(QObject):
         # The plan length of the fill in flight: the total the progress signal
         # reports against. Zero outside a fill.
         self._guide_total = 0
+        # The video overlay's per-key projections (pose-video-overlay): every
+        # captured key keeps the engine's own projected joints as ready segments
+        # and dots. Clip-local data like the keys themselves — a new clip resets.
+        self._projections: dict[int, tuple] = {}
 
         source.media_loaded.connect(self._on_media_loaded)
         source.position_changed.connect(self._on_position_changed)
@@ -304,6 +309,24 @@ class CaptureController(QObject):
     def video_path(self) -> Path | None:
         """The clip currently loaded, or ``None``."""
         return self._video_path
+
+    def overlay_snapshot_at(self, frame: int) -> object | None:
+        """The overlay figure the playhead shows at ``frame`` (S4), or ``None``.
+
+        The latest captured projection at or before ``frame`` — the animator
+        sees the last capture hold like a stepped animation curve until the
+        next capture, nothing before the first one. The snapshot is the
+        engine's own projection of that capture (S1), already laid out as
+        ``(segments, dots)`` in full-frame pixels by ``core.overlay``.
+        """
+        held = [key for key in self._projections if key <= frame]
+        if not held:
+            return None
+        return self._projections[max(held)]
+
+    def overlay_availability(self) -> str:
+        """Whether the current clip has any projected capture to draw."""
+        return "available" if self._projections else "unavailable"
 
     @property
     def depth_calibrated(self) -> bool:
@@ -404,6 +427,8 @@ class CaptureController(QObject):
         self._frames_are_indexed = False
         self._root_origin = None
         self._depth_scale = 1.0
+        # The projections belong to the clips whose captures produced them.
+        self._projections = {}
         fps = reported_fps if reported_fps > 0.0 else self._state.fps
         total = max(1, int(math.floor(duration_ms / 1000.0 * fps)))
         # Keys belong to the clip that was loaded when they were marked, so a new
@@ -615,6 +640,13 @@ class CaptureController(QObject):
             return
         built = self._build_production_pose(pose)
         self._state = mark_pose(self._state, frame_index, built)
+        # The overlay stores the engine's own projection of this capture (S1):
+        # never a reconstruction, and never from a pose the engine did not
+        # project (S4's figure waits for the next capture either way).
+        if pose.projected is not None:
+            self._projections[frame_index] = overlay_items(
+                self._state.skeleton, pose.projected
+            )
         self.timeline_changed.emit()
         if frame_index == self._frame:
             self.pose_changed.emit(self.current_pose())

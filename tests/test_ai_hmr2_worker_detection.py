@@ -14,6 +14,8 @@ stay behind the ``detector`` callable seam so no test needs the engine stack.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from aimation_actor.adapters.ai.hmr2_worker import (
@@ -21,7 +23,10 @@ from aimation_actor.adapters.ai.hmr2_worker import (
     _box_with_margin,
     _resolve_request_box,
     detect_person_box,
+    detect_person_keypoints,
     pick_best_person,
+    refine_end_effectors_from_pose_landmarks,
+    refine_projected_joints,
 )
 
 FALLBACK = [0.0, 0.0, 1920.0, 1080.0]
@@ -142,3 +147,144 @@ def test_resolve_request_box_falls_back_to_the_full_frame_box() -> None:
 
         assert box == FALLBACK
         assert name == FULL_FRAME_DETECTOR
+
+
+def test_keypoint_refinement_replaces_confident_coco_joints_only() -> None:
+    projected = {
+        "L_Hip": (10.0, 10.0),
+        "R_Hip": (20.0, 20.0),
+        "L_Knee": (30.0, 30.0),
+        "R_Knee": (40.0, 40.0),
+        "L_Ankle": (50.0, 50.0),
+        "R_Ankle": (60.0, 60.0),
+        "L_Shoulder": (70.0, 70.0),
+        "R_Shoulder": (80.0, 80.0),
+        "L_Elbow": (90.0, 90.0),
+        "R_Elbow": (100.0, 100.0),
+        "L_Wrist": (110.0, 110.0),
+        "R_Wrist": (120.0, 120.0),
+        "Head": (130.0, 130.0),
+    }
+    keypoints = [[float(index), float(index + 1)] for index in range(17)]
+    scores = [0.95] * 17
+    scores[8] = 0.1  # right elbow: keep HMR2 when COCO is uncertain
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["L_Shoulder"] == (5.0, 6.0)
+    assert refined["R_Shoulder"] == (6.0, 7.0)
+    assert refined["L_Elbow"] == (7.0, 8.0)
+    assert refined["R_Elbow"] == (100.0, 100.0)
+    assert refined["L_Wrist"] == (9.0, 10.0)
+    assert refined["R_Wrist"] == (10.0, 11.0)
+    assert refined["L_Hip"] == (11.0, 12.0)
+    assert refined["R_Hip"] == (12.0, 13.0)
+    assert refined["L_Knee"] == (13.0, 14.0)
+    assert refined["R_Knee"] == (14.0, 15.0)
+    assert refined["L_Ankle"] == (15.0, 16.0)
+    assert refined["R_Ankle"] == (16.0, 17.0)
+    assert refined["Head"] == (130.0, 130.0)
+
+
+def test_keypoint_refinement_updates_pelvis_from_confident_hips() -> None:
+    projected = {"Pelvis": (0.0, 0.0), "L_Hip": (0.0, 0.0), "R_Hip": (0.0, 0.0)}
+    keypoints = [[0.0, 0.0]] * 17
+    keypoints[11] = [10.0, 20.0]
+    keypoints[12] = [30.0, 40.0]
+    scores = [0.0] * 17
+    scores[11] = scores[12] = 0.95
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["L_Hip"] == (10.0, 20.0)
+    assert refined["R_Hip"] == (30.0, 40.0)
+    assert refined["Pelvis"] == (20.0, 30.0)
+
+
+def test_keypoint_refinement_rebuilds_the_torso_from_confident_shoulders() -> None:
+    projected = {
+        "Pelvis": (20.0, 30.0),
+        "L_Shoulder": (0.0, 0.0),
+        "R_Shoulder": (0.0, 0.0),
+        "Neck": (0.0, 0.0),
+        "Spine_1": (0.0, 0.0),
+        "Spine_2": (0.0, 0.0),
+        "Spine_3": (0.0, 0.0),
+        "L_Collar": (0.0, 0.0),
+        "R_Collar": (0.0, 0.0),
+    }
+    keypoints = [[0.0, 0.0]] * 17
+    keypoints[5] = [10.0, 10.0]
+    keypoints[6] = [30.0, 10.0]
+    scores = [0.0] * 17
+    scores[5] = scores[6] = 0.95
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["Neck"] == (20.0, 10.0)
+    assert refined["Spine_1"] == (20.0, 25.0)
+    assert refined["Spine_2"] == (20.0, 20.0)
+    assert refined["Spine_3"] == (20.0, 15.0)
+    assert refined["L_Collar"] == (15.0, 10.0)
+    assert refined["R_Collar"] == (25.0, 10.0)
+
+
+def test_keypoint_refinement_extrapolates_hands_and_feet_from_observed_limbs() -> None:
+    projected = {
+        "L_Elbow": (10.0, 10.0),
+        "L_Wrist": (20.0, 20.0),
+        "L_Hand": (0.0, 0.0),
+        "L_Knee": (30.0, 30.0),
+        "L_Ankle": (40.0, 40.0),
+        "L_Foot": (0.0, 0.0),
+    }
+    keypoints = [[0.0, 0.0]] * 17
+    keypoints[7] = [10.0, 10.0]
+    keypoints[9] = [20.0, 20.0]
+    keypoints[13] = [30.0, 30.0]
+    keypoints[15] = [40.0, 40.0]
+    scores = [0.0] * 17
+    scores[7] = scores[9] = scores[13] = scores[15] = 0.95
+
+    refined = refine_projected_joints(projected, keypoints, scores)
+
+    assert refined["L_Hand"] == (23.5, 23.5)
+    assert refined["L_Foot"] == (42.5, 42.5)
+
+
+def test_pose_landmarks_use_real_hand_and_toe_observations() -> None:
+    landmarks = [SimpleNamespace(x=0.0, y=0.0, visibility=0.0) for _ in range(33)]
+    landmarks[19] = SimpleNamespace(x=0.20, y=0.30, visibility=0.9)  # L index
+    landmarks[17] = SimpleNamespace(x=0.24, y=0.34, visibility=0.9)  # L pinky
+    landmarks[20] = SimpleNamespace(x=0.70, y=0.30, visibility=0.9)  # R index
+    landmarks[18] = SimpleNamespace(x=0.74, y=0.34, visibility=0.9)  # R pinky
+    landmarks[31] = SimpleNamespace(x=0.25, y=0.90, visibility=0.9)  # L toe
+    landmarks[32] = SimpleNamespace(x=0.75, y=0.90, visibility=0.9)  # R toe
+
+    refined = refine_end_effectors_from_pose_landmarks(
+        {"L_Hand": (0.0, 0.0), "R_Hand": (0.0, 0.0), "L_Foot": (0.0, 0.0)},
+        landmarks,
+        1000,
+        500,
+    )
+
+    assert refined["L_Hand"] == (220.0, 160.0)
+    assert refined["R_Hand"] == (720.0, 160.0)
+    assert refined["L_Foot"] == (250.0, 450.0)
+
+
+def test_keypoint_detection_selects_the_person_overlapping_the_capture_box() -> None:
+    keypoints = [[[float(index), float(index + 1)] for index in range(17)]] * 2
+    detector = _FakeDetector(
+        {
+            "boxes": [[0.0, 0.0, 20.0, 20.0], [100.0, 100.0, 300.0, 500.0]],
+            "scores": [0.99, 0.8],
+            "labels": [1, 1],
+            "keypoints": keypoints,
+            "keypoints_scores": [[0.2] * 17, [0.9] * 17],
+        }
+    )
+
+    found = detect_person_keypoints(detector, object(), [90.0, 90.0, 310.0, 510.0])
+
+    assert found == (keypoints[1], [0.9] * 17)

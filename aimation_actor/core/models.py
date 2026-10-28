@@ -102,6 +102,10 @@ class WorldPose:
     in the same frame; the controller subtracts the first captured value before
     production mapping. ``rotations`` maps a joint name to that joint's local
     rotation; a joint absent from the mapping keeps its bind rotation.
+    ``projected`` is the optional projection the engine computed for its own
+    joints onto the captured frame, joint name to full-frame ``(x, y)``
+    pixels — video-overlay data, never animation data. Engines without one
+    leave it ``None`` and their poses simply stay unprojected.
     """
 
     translation: Vector3
@@ -109,6 +113,7 @@ class WorldPose:
     #: Absolute/root-position estimate before the session origin is applied.
     #: It is optional because older engines may only report hip height.
     root_translation: Vector3 = Vector3()
+    projected: Mapping[str, tuple[float, float]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,6 +11,8 @@ speaks a line-JSON protocol over stdin/stdout:
     request   (adapter -> worker): {"image_path", "frame_index"}
     response: {"status": "ok", "per_frame_hip_height_m",
                "root_translation": [x, y, z],
+               "projected_joints": {joint_name: [x_px, y_px]},
+               "keypoint_refinement": bool,
                "person_bbox": [x1, y1, x2, y2] | None, "detector": name,
                "rotations": {joint_name: [9 floats, row-major 3x3]}}
                | {"status": "error", "message", "fatal": false}  (worker stays up)
@@ -57,6 +59,7 @@ each successful inference so VRAM does not grow across keys (FR-CAP-05).
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 
@@ -106,11 +109,114 @@ SMPL_BODY_JOINT_NAMES = (
     "R_Hand",
 )
 
+# COCO's 17-keypoint model gives a useful 2D observation for the limbs, while
+# HMR2 remains the authority for the SMPL-only joints (spine, neck, head and
+# feet). The refinement is deliberately partial: an uncertain detector result
+# must never replace a better HMR2 point with a guess.
+_COCO_TO_SMPL = {
+    5: "L_Shoulder",
+    6: "R_Shoulder",
+    7: "L_Elbow",
+    8: "R_Elbow",
+    9: "L_Wrist",
+    10: "R_Wrist",
+    11: "L_Hip",
+    12: "R_Hip",
+    13: "L_Knee",
+    14: "R_Knee",
+    15: "L_Ankle",
+    16: "R_Ankle",
+}
+_KEYPOINT_MIN_SCORE = 0.35
+_HAND_EXTENSION = 0.35
+_FOOT_EXTENSION = 0.25
+
+
+def refine_projected_joints(
+    projected: dict[str, tuple[float, float]],
+    keypoints,
+    scores,
+    *,
+    min_score: float = _KEYPOINT_MIN_SCORE,
+) -> dict[str, tuple[float, float]]:
+    """Blend confident COCO 2D limb observations into HMR2's projection.
+
+    ``keypoints``/``scores`` are intentionally duck-typed so this helper stays
+    testable without torch. COCO and SMPL share the limb landmarks listed in
+    ``_COCO_TO_SMPL``; pelvis is derived only when both hips are confident.
+    HMR2's other joints remain untouched.
+    """
+    refined = dict(projected)
+    confident_points: set[str] = set()
+    confident_hips: set[str] = set()
+    confident_shoulders: set[str] = set()
+    for index, name in _COCO_TO_SMPL.items():
+        try:
+            point = keypoints[index]
+            score = float(scores[index])
+            x, y = float(point[0]), float(point[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if score >= min_score and math.isfinite(x) and math.isfinite(y):
+            refined[name] = (x, y)
+            confident_points.add(name)
+            if name in {"L_Hip", "R_Hip"}:
+                confident_hips.add(name)
+            if name in {"L_Shoulder", "R_Shoulder"}:
+                confident_shoulders.add(name)
+    if confident_hips == {"L_Hip", "R_Hip"}:
+        refined["Pelvis"] = (
+            (refined["L_Hip"][0] + refined["R_Hip"][0]) / 2.0,
+            (refined["L_Hip"][1] + refined["R_Hip"][1]) / 2.0,
+        )
+    if confident_shoulders == {"L_Shoulder", "R_Shoulder"}:
+        refined["Neck"] = (
+            (refined["L_Shoulder"][0] + refined["R_Shoulder"][0]) / 2.0,
+            (refined["L_Shoulder"][1] + refined["R_Shoulder"][1]) / 2.0,
+        )
+        if "Pelvis" in refined:
+            pelvis, neck = refined["Pelvis"], refined["Neck"]
+            for name, fraction in (
+                ("Spine_1", 0.25),
+                ("Spine_2", 0.5),
+                ("Spine_3", 0.75),
+            ):
+                refined[name] = (
+                    pelvis[0] + (neck[0] - pelvis[0]) * fraction,
+                    pelvis[1] + (neck[1] - pelvis[1]) * fraction,
+                )
+            for name, shoulder in (
+                ("L_Collar", refined["L_Shoulder"]),
+                ("R_Collar", refined["R_Shoulder"]),
+            ):
+                refined[name] = (
+                    neck[0] + (shoulder[0] - neck[0]) * 0.5,
+                    neck[1] + (shoulder[1] - neck[1]) * 0.5,
+                )
+    for side in ("L", "R"):
+        elbow, wrist, hand = f"{side}_Elbow", f"{side}_Wrist", f"{side}_Hand"
+        if {elbow, wrist} <= confident_points:
+            refined[hand] = (
+                refined[wrist][0] + (refined[wrist][0] - refined[elbow][0]) * _HAND_EXTENSION,
+                refined[wrist][1] + (refined[wrist][1] - refined[elbow][1]) * _HAND_EXTENSION,
+            )
+        knee, ankle, foot = f"{side}_Knee", f"{side}_Ankle", f"{side}_Foot"
+        if {knee, ankle} <= confident_points:
+            refined[foot] = (
+                refined[ankle][0] + (refined[ankle][0] - refined[knee][0]) * _FOOT_EXTENSION,
+                refined[ankle][1] + (refined[ankle][1] - refined[knee][1]) * _FOOT_EXTENSION,
+            )
+    return refined
+
 
 def _prepare_environment(engine_root: str) -> None:
     """Set the env the engine stack requires before any engine import."""
     os.environ.setdefault("HOME", engine_root)
     os.environ.setdefault("PYOPENGL_PLATFORM", "win32")
+    os.environ.setdefault(
+        "AIMATION_MEDIAPIPE_POSE_MODEL",
+        os.path.join(engine_root, ".cache", "mediapipe", "pose_landmarker_full.task"),
+    )
 
 
 # -- automatic person detection (M8, S7) --------------------------------------- #
@@ -217,6 +323,10 @@ def _resolve_request_box(detector, image, image_size, fallback_box, *, margin=DE
 
 _PERSON_DETECTOR: object | None = None
 _PERSON_DETECTOR_FAILED = False
+_PERSON_KEYPOINT_DETECTOR: object | None = None
+_PERSON_KEYPOINT_DETECTOR_FAILED = False
+_POSE_LANDMARK_DETECTOR: object | None = None
+_POSE_LANDMARK_DETECTOR_FAILED = False
 
 
 def _get_person_detector():
@@ -262,6 +372,214 @@ def _get_person_detector():
     return _PERSON_DETECTOR
 
 
+def _get_person_keypoint_detector():
+    """Lazy-load torchvision's COCO 2D keypoint refiner.
+
+    This stays in the engine process beside the existing person detector. The
+    application never imports torchvision or cv2. A missing package, weights,
+    or CUDA support disables refinement for the worker lifetime and leaves the
+    HMR2 projection as the honest fallback.
+    """
+    global _PERSON_KEYPOINT_DETECTOR, _PERSON_KEYPOINT_DETECTOR_FAILED
+    if _PERSON_KEYPOINT_DETECTOR is not None or _PERSON_KEYPOINT_DETECTOR_FAILED:
+        return _PERSON_KEYPOINT_DETECTOR
+    try:
+        import torch
+        import torchvision
+
+        model = torchvision.models.detection.keypointrcnn_resnet50_fpn(
+            weights="DEFAULT"
+        )
+        model.eval()
+        model.cuda()
+
+        def detect(image_bgr):
+            rgb = image_bgr[:, :, ::-1].copy()
+            tensor = torch.as_tensor(rgb).permute(2, 0, 1).float().div_(255.0)
+            return model([tensor.cuda(non_blocking=True)])
+
+        _PERSON_KEYPOINT_DETECTOR = detect
+    except Exception as error:  # noqa: BLE001 - HMR2 remains usable without it
+        _PERSON_KEYPOINT_DETECTOR_FAILED = True
+        _emit(
+            {
+                "engine_notice": "2D keypoint refinement unavailable "
+                f"({type(error).__name__}: {error}); HMR2 projection kept"
+            }
+        )
+    return _PERSON_KEYPOINT_DETECTOR
+
+
+def _box_iou(left, right) -> float:
+    """Intersection-over-union for two ``[x1, y1, x2, y2]`` boxes."""
+    ix1, iy1 = max(float(left[0]), float(right[0])), max(float(left[1]), float(right[1]))
+    ix2, iy2 = min(float(left[2]), float(right[2])), min(float(left[3]), float(right[3]))
+    intersection = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    left_area = max(0.0, float(left[2]) - float(left[0])) * max(
+        0.0, float(left[3]) - float(left[1])
+    )
+    right_area = max(0.0, float(right[2]) - float(right[0])) * max(
+        0.0, float(right[3]) - float(right[1])
+    )
+    union = left_area + right_area - intersection
+    return intersection / union if union > 0.0 else 0.0
+
+
+def detect_person_keypoints(detector, image, reference_box):
+    """Return the best COCO keypoint set matching ``reference_box``.
+
+    The person detector and keypoint model can see multiple people. Matching
+    by IoU prevents a background person's limbs from being blended into the
+    HMR2 subject. The return is plain nested data for a torch-free test seam.
+    """
+    if detector is None or image is None:
+        return None
+    try:
+        try:
+            import torch
+
+            context = torch.no_grad()
+        except ImportError:
+            context = _NullContext()
+        with context:
+            output = detector(image)[0]
+        boxes = _as_plain_list(output["boxes"])
+        scores = _as_plain_list(output["scores"])
+        labels = _as_plain_list(output["labels"])
+        keypoints = _as_plain_list(output["keypoints"])
+        keypoint_scores = output.get("keypoints_scores")
+        if keypoint_scores is None:
+            keypoint_scores = [row[2] for row in keypoints]
+        else:
+            keypoint_scores = _as_plain_list(keypoint_scores)
+        candidates = [
+            (index, float(score), _box_iou(box, reference_box))
+            for index, (box, score, label) in enumerate(zip(boxes, scores, labels, strict=True))
+            if int(label) == COCO_PERSON_LABEL
+            and float(score) >= MIN_PERSON_SCORE
+            and _box_iou(box, reference_box) > 0.0
+        ]
+        if not candidates:
+            return None
+        index, _score, _iou = max(candidates, key=lambda item: (item[2], item[1]))
+        return keypoints[index], keypoint_scores[index]
+    except Exception:  # noqa: BLE001 - refinement must never fail extraction
+        return None
+
+
+# MediaPipe BlazePose's landmark indices (33-point model). Unlike COCO, it
+# observes the actual foot tip and hand landmarks needed by the overlay.
+_POSE_LEFT_INDEX = 19
+_POSE_RIGHT_INDEX = 20
+_POSE_LEFT_PINKY = 17
+_POSE_RIGHT_PINKY = 18
+_POSE_LEFT_HEEL = 29
+_POSE_RIGHT_HEEL = 30
+_POSE_LEFT_FOOT_INDEX = 31
+_POSE_RIGHT_FOOT_INDEX = 32
+
+
+def refine_end_effectors_from_pose_landmarks(
+    projected: dict[str, tuple[float, float]],
+    landmarks,
+    width: int,
+    height: int,
+    *,
+    min_visibility: float = 0.5,
+) -> dict[str, tuple[float, float]]:
+    """Replace hands/feet with observed BlazePose image landmarks.
+
+    ``landmarks`` is duck-typed for tests and accepts MediaPipe's normalized
+    landmark objects. Hands use the index/pinky midpoint; feet use the visible
+    foot-index landmark, which represents the toe direction rather than merely
+    continuing the shin vector.
+    """
+    refined = dict(projected)
+
+    def point(index: int) -> tuple[float, float] | None:
+        try:
+            landmark = landmarks[index]
+            visibility_value = getattr(landmark, "visibility", None)
+            x_value = getattr(landmark, "x", None)
+            y_value = getattr(landmark, "y", None)
+            if visibility_value is None or x_value is None or y_value is None:
+                visibility_value, x_value, y_value = landmark[3], landmark[0], landmark[1]
+            visibility = float(visibility_value)
+            x, y = float(x_value), float(y_value)
+        except (IndexError, TypeError, AttributeError, ValueError):
+            return None
+        if visibility < min_visibility or not math.isfinite(x) or not math.isfinite(y):
+            return None
+        return x * width, y * height
+
+    for side, index, pinky, heel, foot_index in (
+        ("L", _POSE_LEFT_INDEX, _POSE_LEFT_PINKY, _POSE_LEFT_HEEL, _POSE_LEFT_FOOT_INDEX),
+        ("R", _POSE_RIGHT_INDEX, _POSE_RIGHT_PINKY, _POSE_RIGHT_HEEL, _POSE_RIGHT_FOOT_INDEX),
+    ):
+        first_hand, second_hand = point(index), point(pinky)
+        if first_hand is not None and second_hand is not None:
+            refined[f"{side}_Hand"] = (
+                (first_hand[0] + second_hand[0]) / 2.0,
+                (first_hand[1] + second_hand[1]) / 2.0,
+            )
+        foot = point(foot_index)
+        if foot is not None:
+            refined[f"{side}_Foot"] = foot
+        else:
+            # The heel is a useful fallback when the toe is occluded; it is
+            # still a measured image point, never an extrapolated direction.
+            heel_point = point(heel)
+            if heel_point is not None:
+                refined[f"{side}_Foot"] = heel_point
+    return refined
+
+
+def _get_pose_landmark_detector():
+    """Lazy-load MediaPipe Tasks PoseLandmarker inside the engine only."""
+    global _POSE_LANDMARK_DETECTOR, _POSE_LANDMARK_DETECTOR_FAILED
+    if _POSE_LANDMARK_DETECTOR is not None or _POSE_LANDMARK_DETECTOR_FAILED:
+        return _POSE_LANDMARK_DETECTOR
+    try:
+        import mediapipe as mp
+        from mediapipe.tasks import python
+        from mediapipe.tasks.python import vision
+
+        model_path = os.environ.get("AIMATION_MEDIAPIPE_POSE_MODEL", "")
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(
+                f"the MediaPipe pose model was not found at {model_path}; "
+                "download pose_landmarker_full.task into the engine cache"
+            )
+        landmarker = vision.PoseLandmarker.create_from_options(
+            vision.PoseLandmarkerOptions(
+                base_options=python.BaseOptions(model_asset_path=model_path),
+                running_mode=vision.RunningMode.IMAGE,
+                min_pose_detection_confidence=0.5,
+                min_pose_presence_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+        )
+
+        def detect(image_bgr):
+            try:
+                rgb = image_bgr[:, :, ::-1].copy()
+                result = landmarker.detect(
+                    mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                )
+            except Exception:  # noqa: BLE001 - endpoint refinement is optional
+                return None
+            return result.pose_landmarks[0] if result.pose_landmarks else None
+
+        _POSE_LANDMARK_DETECTOR = detect
+    except Exception as error:  # noqa: BLE001 - HMR2 remains the fallback
+        _POSE_LANDMARK_DETECTOR_FAILED = True
+        _emit(
+            {
+                "engine_notice": "hand/foot landmark refinement unavailable "
+                f"({type(error).__name__}: {error}); HMR2 endpoints kept"
+            }
+        )
+    return _POSE_LANDMARK_DETECTOR
 def _template_hip_height_cm(model) -> tuple[float, int]:
     """The betas=0 template's pelvis-to-contact distance, in centimetres.
 
@@ -456,11 +774,76 @@ def _run_request(model, model_cfg, request: dict, torch) -> dict:
     ]).argmax().item())
     per_frame = joints[8, axis].item() - vertices[:, axis].min().item()
 
+    # The video overlay's projection (pose-video-overlay S1): the engine's own
+    # SMPL body joints projected onto the FULL frame with the engine's own
+    # camera rule -- the vendored ``perspective_projection`` (imported, never
+    # patched) with the same ``cam_crop_to_full`` translation and scaled focal
+    # the engine's demo uses for its full-frame overlay, and the frame centre
+    # as principal point. No extra flip: the projection's axes are the image's
+    # (px = f*(x+tx)/z', py = f*(y+ty)/z' + centre), so head/feet land in
+    # frame as the demo renders them. A joint whose depth or pixels are not
+    # finite drops out of the mapping instead of poisoning it.
+    from hmr2.utils.geometry import perspective_projection
+
+    projected = perspective_projection(
+        joints[:24].float().unsqueeze(0),
+        translation=root_translation.float().unsqueeze(0),
+        focal_length=torch.tensor([[float(scaled_focal_length), float(scaled_focal_length)]]),
+        camera_center=torch.tensor([[width / 2.0, height / 2.0]]),
+    )[0]
+    finite = torch.isfinite(projected).all(dim=-1)
+    projected_joints = {
+        name: [float(pixel[0]), float(pixel[1])]
+        for index, (name, pixel) in enumerate(
+            zip(("Pelvis", *SMPL_BODY_JOINT_NAMES), projected.tolist(), strict=True)
+        )
+        if bool(finite[index])
+    }
+    # HMR2 supplies the 3D-aware baseline. A second, image-space observation
+    # corrects the limb landmarks when COCO's detector is confident; the
+    # fallback remains the HMR2 result, so a missing/uncertain refiner cannot
+    # turn a usable extraction into a failure or fabricated geometry.
+    keypoint_data = detect_person_keypoints(
+        _get_person_keypoint_detector(), img_bgr, box
+    )
+    if keypoint_data is not None:
+        keypoints, keypoint_scores = keypoint_data
+        projected_joints = {
+            name: [x, y]
+            for name, (x, y) in refine_projected_joints(
+                {
+                    name: (pixel[0], pixel[1])
+                    for name, pixel in projected_joints.items()
+                },
+                keypoints,
+                keypoint_scores,
+            ).items()
+        }
+    pose_landmarks = _get_pose_landmark_detector()
+    if pose_landmarks is not None:
+        landmarks = pose_landmarks(img_bgr)
+        if landmarks is not None:
+            projected_joints = {
+                name: [x, y]
+                for name, (x, y) in refine_end_effectors_from_pose_landmarks(
+                    {
+                        name: (pixel[0], pixel[1])
+                        for name, pixel in projected_joints.items()
+                    },
+                    landmarks,
+                    width,
+                    height,
+                ).items()
+            }
+
     return {
         "status": "ok",
         "frame_index": request.get("frame_index"),
         "per_frame_hip_height_m": per_frame,
         "root_translation": [float(v) for v in root_translation],
+        "projected_joints": projected_joints,
+        "keypoint_refinement": keypoint_data is not None,
+        "pose_landmark_refinement": pose_landmarks is not None,
         "person_bbox": [float(v) for v in box],
         "detector": detector_name,
         "vram_allocated_mib": torch.cuda.memory_allocated() / 1024**2,

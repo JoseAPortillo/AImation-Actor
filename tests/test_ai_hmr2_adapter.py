@@ -129,6 +129,36 @@ def test_a_request_returns_a_world_pose(tmp_path: Path) -> None:
         adapter.shutdown()
 
 
+def test_a_projected_response_carries_the_engine_pixels(tmp_path: Path) -> None:
+    # pose-video-overlay S1: the engine's own projection rides on the pose as
+    # joint name -> full-frame ``(x, y)`` pixels. The wire is JSON (lists); the
+    # adapter normalizes to float tuples, the domain's contract.
+    adapter = _adapter(tmp_path, "projected")
+    try:
+        pose = adapter.extract_pose(_frame(), frame_index=7)
+        assert pose.projected == {
+            "Pelvis": (640.0, 360.0),
+            "L_Hip": (604.5, 360.25),
+        }
+        assert all(
+            isinstance(value, tuple) and len(value) == 2
+            for value in pose.projected.values()
+        )
+    finally:
+        adapter.shutdown()
+
+
+def test_a_response_without_projection_stays_unprojected(tmp_path: Path) -> None:
+    # An engine that reports no projection invents nothing: the pose simply
+    # stays unprojected and the overlay waits for the next capture.
+    adapter = _adapter(tmp_path, "ok")
+    try:
+        pose = adapter.extract_pose(_frame(), frame_index=7)
+        assert pose.projected is None
+    finally:
+        adapter.shutdown()
+
+
 def test_a_second_extraction_reuses_the_same_worker(tmp_path: Path) -> None:
     adapter = _adapter(tmp_path, "ok")
     try:

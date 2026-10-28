@@ -118,13 +118,21 @@ def main() -> None:
             os._exit(9)
         if _MODE == "hang":
             time.sleep(600)
-        _emit({
+        response = {
             "status": "ok",
             "frame_index": request.get("frame_index"),
             "hip_height_cm": _TEMPLATE_HIP_CM,
             "per_frame_hip_height_m": 0.87,
             "rotations": _CANNED_ROTATIONS,
-        })
+        }
+        if _MODE == "projected":
+            # The engine's own projection onto the captured frame, as JSON
+            # lists (the wire is JSON; the adapter normalizes to tuples).
+            response["projected_joints"] = {
+                "Pelvis": [640.0, 360.0],
+                "L_Hip": [604.5, 360.25],
+            }
+        _emit(response)
 
 
 if __name__ == "__main__":
