@@ -49,6 +49,7 @@ from aimation_actor.core.models import (
     WorldPose,
 )
 from aimation_actor.core.overlay import overlay_items
+from aimation_actor.core.pose_preview import preview_projection
 from aimation_actor.core.seam import feather_anchor_seams
 from aimation_actor.core.services import (
     build_production_pose,
@@ -775,7 +776,9 @@ class CaptureController(QObject):
 
     # -- imported timelines (plan §3 step 2, FR-IMP-04) ---------------------- #
 
-    def adopt_imported(self, state: TimelineState) -> bool:
+    def adopt_imported(
+        self, state: TimelineState, *, preview_size: tuple[int, int] | None = None
+    ) -> bool:
         """Replace the session timeline with a refined FBX's imported state.
 
         The imported keys, rig, fps and range become the session — that IS
@@ -788,6 +791,12 @@ class CaptureController(QObject):
         generation bump, so a late answer cannot land on the new timeline;
         the playhead clamps into the new range. A mutation refused by the
         batch-1 lock reports honestly and changes nothing.
+
+        An imported key carries no engine projection, so with the clip's
+        native ``preview_size`` each keyed frame gets the front-view
+        preview of its refined pose (``core.pose_preview``): an honest
+        approximation over the video, not an S1 capture alignment. Without
+        a known frame size the import still lands — it just draws nothing.
         """
         locked = self._capture_lock()
         if locked is not None:
@@ -803,7 +812,16 @@ class CaptureController(QObject):
         self._guide_attempts = 0
         self._root_origin = None
         self._depth_scale = 1.0
-        self._projections = {}
+        if preview_size is None:
+            self._projections = {}
+        else:
+            self._projections = {
+                keyframe.frame: overlay_items(
+                    state.skeleton,
+                    preview_projection(state.skeleton, keyframe.pose, frame_size=preview_size),
+                )
+                for keyframe in state.keyframes
+            }
         self._state = state
         self._frame = clamp_frame(state, self._frame)
         self.timeline_changed.emit()

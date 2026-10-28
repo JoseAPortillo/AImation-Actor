@@ -218,6 +218,33 @@ def test_adopt_imported_refuses_while_a_fill_is_in_flight() -> None:
     assert "gap fill" in failures[0]
 
 
+def test_adopt_imported_builds_a_preview_snapshot_per_keyed_frame() -> None:
+    # The imported keys have no engine projection, so each gets an honest
+    # front-view preview of its pose, placed inside the clip's frame.
+    controller, _ = _controller()
+    imported = _imported()
+
+    assert controller.adopt_imported(imported, preview_size=(1000, 500)) is True
+
+    first = controller.overlay_snapshot_at(3)
+    assert first is not None
+    _segments, dots = first
+    assert all(0.0 <= x <= 1000.0 and 0.0 <= y <= 500.0 for (x, y), *_rest in dots)
+    # S4 stepping: the preview of frame 3 holds until key 7 arrives.
+    assert controller.overlay_snapshot_at(5) is first
+    assert controller.overlay_snapshot_at(7) is not first
+
+
+def test_adopt_imported_without_a_known_frame_size_builds_no_previews() -> None:
+    # A headless source cannot tell us the clip's native size; the import
+    # still lands, it just has no honest place to draw the figure.
+    controller, _ = _controller()
+
+    assert controller.adopt_imported(_imported()) is True
+
+    assert controller.overlay_snapshot_at(3) is None
+
+
 # -- the window action ------------------------------------------------------------ #
 
 
@@ -267,7 +294,8 @@ def test_declining_the_confirmation_keeps_the_captured_timeline(
 def test_an_import_over_an_empty_session_does_not_ask(
     monkeypatch, window
 ) -> None:
-    main, _ = window
+    main, source = window
+    _load_two_seconds(main, source)
     asked: list[int] = []
     main._confirm_replace = lambda count: asked.append(count) or True
     main.exporter = _ImportingExporter(_imported())  # type: ignore[assignment]
@@ -305,8 +333,25 @@ def test_import_without_a_configured_reader_reports_the_gap(
     assert "no FBX reader" in main.statusBar().currentMessage()
 
 
-def test_cancelling_the_file_dialog_changes_nothing(monkeypatch, window) -> None:
+def test_import_without_a_loaded_video_warns_and_loads_nothing(
+    monkeypatch, window
+) -> None:
+    # The preview needs the clip's frame to draw on: importing blind is the
+    # wrong order of the pipeline (the animator asked to be told).
     main, _ = window
+    exporter = _ImportingExporter(_imported())
+    main.exporter = exporter  # type: ignore[assignment]
+    _choose(monkeypatch, ("refined.fbx", "Binary FBX (*.fbx)"))
+
+    main.action_import.trigger()
+
+    assert exporter.loaded == []
+    assert "video" in main.statusBar().currentMessage().lower()
+
+
+def test_cancelling_the_file_dialog_changes_nothing(monkeypatch, window) -> None:
+    main, source = window
+    _load_two_seconds(main, source)
     before = main.controller.state
     main.exporter = _ImportingExporter(_imported())  # type: ignore[assignment]
     assert main.exporter is not None

@@ -105,6 +105,9 @@ class MainWindow(QMainWindow):
             fps=_DEFAULT_FPS,
         )
         player = VideoPlayer() if source is None else source
+        # The window keeps the player it was given (not just the pane widget):
+        # the imported-pose preview asks it for the frame's native size.
+        self._player = player
         self._video_pane: QWidget = (
             player if isinstance(player, QWidget) else QLabel("No video pane.", self)
         )
@@ -322,6 +325,15 @@ class MainWindow(QMainWindow):
                 "Cannot import: no FBX reader is configured in this build."
             )
             return
+        if not self.controller.has_media:
+            # The imported poses are shown as a preview OVER the clip's frames:
+            # importing before the video is the pipeline's order reversed, and
+            # the animator asked to be told, not to load blind.
+            self.statusBar().showMessage(
+                "Cannot import: load the reference video first (File > Open "
+                "Video…), then import its refined FBX."
+            )
+            return
         path_text, _chosen_filter = QFileDialog.getOpenFileName(
             self,
             "Import FBX",
@@ -343,7 +355,9 @@ class MainWindow(QMainWindow):
                 "Import cancelled: the current keys stay in the timeline."
             )
             return
-        if self.controller.adopt_imported(state):
+        if self.controller.adopt_imported(
+            state, preview_size=getattr(self._player, "frame_size", None)
+        ):
             self.statusBar().showMessage(
                 f"Imported {len(state.keyframes)} keyframe(s) from {path.name}."
             )
