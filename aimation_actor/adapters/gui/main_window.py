@@ -113,6 +113,10 @@ class MainWindow(QMainWindow):
         )
         self.exporter = exporter
         self.viewport = SkeletonViewport(self)
+        # S5 (pose-video-overlay): the pane is hidden while the video overlay
+        # is being built and verified; its code stays untouched for the later
+        # re-enable.
+        self.viewport.setVisible(False)
         self.timeline = TimelineBar(self)
         self._build_distance_control()
 

@@ -55,6 +55,16 @@ def test_the_application_window_starts_without_a_rig(qtbot) -> None:
     assert "No rig" in window.viewport.notice_label.text()
 
 
+def test_the_old_3d_viewport_is_hidden_until_the_overlay_proves_out(qtbot) -> None:
+    # S5: the video overlay replaces the pane for now; the viewport's code
+    # stays untouched for its later re-enable.
+    window = build_window()
+    qtbot.addWidget(window)
+
+    assert window.viewport.isHidden()
+    assert window.splitter.widget(1) is window.viewport  # still composed, just hidden
+
+
 def test_the_application_window_ships_the_real_fbx_writer(qtbot) -> None:
     # M8 final export (FR-GEN-04): the production composition wires the real
     # Blender-backed FBX adapter behind the export action.
