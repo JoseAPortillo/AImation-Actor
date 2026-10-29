@@ -209,7 +209,12 @@ while costing ViTPose (~2.55 GB), a detector, and a much heavier pipeline.
 2. **Artistic filter** — animator refines the FBX in Maya/Blender and re-exports.
 3. **Generative inbetweening** — tool locks human keys as hard constraints, the
    diffusion model fills the gaps, then IK cleanup pins feet (no sliding) before
-   the final FBX export.
+   the final FBX export. *(The keys here are the refined re-import from step 2,
+   not the raw captures — user decision 2026-10-29. The fill's whole machine is
+   implemented and green, but its in-app entry (`G` / Inbetweens menu, wired to
+   capture keys since M6) is RETIRED until this step's real position lands; it
+   depends on the retarget tool that connects the refined Blender animation
+   back to the production skeleton — see spec FR-GEN-05.)*
 
 ## Environment & commands
 

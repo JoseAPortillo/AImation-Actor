@@ -233,24 +233,14 @@ def test_shift_arrows_jump_between_golden_poses(
     assert window.controller.frame == 10
 
 
-def test_a_window_without_an_inbetween_engine_names_the_gap(
+def test_the_wired_engines_gather_guides_and_fill_through_the_controller(
     qtbot, source: _FakeSource
 ) -> None:
-    """Without an inbetween engine, ``G`` reports what is missing (NFR-03)."""
-    window_no_filler = MainWindow(
-        source=source, skeleton=_skeleton(), engine=_ConstantEngine()
-    )
-    qtbot.addWidget(window_no_filler)
-    _load_two_seconds(window_no_filler, source)
-    window_no_filler.action_fill_inbetweens.trigger()
-    assert "No inbetweening engine" in window_no_filler.statusBar().currentMessage()
-    assert window_no_filler.filler is None
-    assert window_no_filler.action_fill_inbetweens.shortcut() == QKeySequence("G")
+    """The fill machine, driven through the controller entry point (2026-10-29:
+    the G action retired with the pipeline redesign, the wiring below it stays
+    — this is what proves the window still feeds real capture guides to the
+    engine and reports the outcome)."""
 
-
-def test_g_runs_the_fill_off_the_ui_thread_and_reports_the_outcome(
-    qtbot, source: _FakeSource
-) -> None:
     class _IdentityFiller:
         requests: list = []
 
@@ -276,7 +266,7 @@ def test_g_runs_the_fill_off_the_ui_thread_and_reports_the_outcome(
     window.action_mark.trigger()
     qtbot.waitUntil(lambda: window.controller.has_key(10), timeout=5000)
 
-    window.action_fill_inbetweens.trigger()
+    window.controller.fill_inbetweens()
     qtbot.waitUntil(
         lambda: "Generated" in window.statusBar().currentMessage(), timeout=5000
     )
