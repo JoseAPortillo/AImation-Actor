@@ -12,9 +12,9 @@ Two mechanisms, on purpose:
 - the ``QPalette`` carries the colors custom painters read at runtime
   (``KeyStrip`` paints from ``palette().highlight()``) and everything Fusion
   draws natively;
-- the stylesheet carries the SHAPES: the 2 px borders, the angular (radius-0)
-  geometry, the teal sub-page under the slider, and the Rajdhani display
-  font on the timeline readouts.
+- the stylesheet carries the SHAPES: the 2 px borders, the shared corner
+  radius, the taller timeline track with its round playhead knob, and the
+  Rajdhani display font on the timeline readouts.
 
 Rajdhani (SIL OFL, ``assets/fonts``) is bundled because the display look
 must not depend on what the workstation happens to have installed; body
@@ -32,9 +32,14 @@ __all__ = [
     "ACCENT",
     "BG_BASE",
     "BORDER_COLOR",
+    "BORDER_RADIUS",
     "BORDER_WIDTH",
     "DISPLAY_FONT_FAMILY",
     "FONTS_DIR",
+    "GROOVE_HEIGHT",
+    "HANDLE_BORDER",
+    "HANDLE_FILL",
+    "HANDLE_SIZE",
     "PANEL",
     "PRIMARY",
     "TEXT",
@@ -59,6 +64,21 @@ ACCENT = "#007CA3"
 #: Borders follow the panels: clean, 2 px, visible against the base.
 BORDER_COLOR = "#2D2620"
 BORDER_WIDTH = 2
+
+#: Corners are rounded everywhere with one radius — panels, buttons, inputs,
+#: menus, tooltips, the progress bar and the timeline track.
+BORDER_RADIUS = 6
+
+# -- timeline geometry (user-tuned) ------------------------------------------- #
+
+#: The slider track's height: a substantial bar, not a hairline.
+GROOVE_HEIGHT = 10
+#: The playhead knob's diameter: round, bigger than the track.
+HANDLE_SIZE = 18
+#: The knob's fill: an UNSATURATED orange — present, not screaming.
+HANDLE_FILL = "#E08A4C"
+#: The knob's rim: light warm gray, so it reads against any track.
+HANDLE_BORDER = "#C6C0B6"
 
 #: The bundled angular display face (titles, readouts, technical labels).
 DISPLAY_FONT_FAMILY = "Rajdhani"
@@ -101,6 +121,7 @@ def stylesheet() -> str:
         background-color: {PANEL};
         color: {TEXT};
         border: {BORDER_WIDTH}px solid {BORDER_COLOR};
+        border-radius: {BORDER_RADIUS}px;
         font-family: "{READ_FONT_FAMILY}";
     }}
     QMenu::item {{
@@ -125,13 +146,14 @@ def stylesheet() -> str:
         background-color: {PANEL};
         color: {TEXT};
         border: {BORDER_WIDTH}px solid {BORDER_COLOR};
+        border-radius: {BORDER_RADIUS}px;
         padding: 4px;
     }}
     QPushButton {{
         background-color: {PANEL};
         color: {TEXT};
         border: {BORDER_WIDTH}px solid {BORDER_COLOR};
-        border-radius: 0px;
+        border-radius: {BORDER_RADIUS}px;
         padding: 6px 16px;
         font-family: "{READ_FONT_FAMILY}";
     }}
@@ -148,7 +170,7 @@ def stylesheet() -> str:
         background-color: {PANEL};
         color: {TEXT};
         border: {BORDER_WIDTH}px solid {BORDER_COLOR};
-        border-radius: 0px;
+        border-radius: {BORDER_RADIUS}px;
         padding: 3px 6px;
         selection-background-color: {PRIMARY};
         selection-color: {BG_BASE};
@@ -156,6 +178,7 @@ def stylesheet() -> str:
     QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
         background-color: {PANEL};
         border: none;
+        border-radius: 4px;
         width: 16px;
     }}
     QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {{
@@ -165,27 +188,29 @@ def stylesheet() -> str:
         background-color: {PANEL};
         color: {TEXT};
         border: {BORDER_WIDTH}px solid {BORDER_COLOR};
-        border-radius: 0px;
+        border-radius: {BORDER_RADIUS}px;
         text-align: center;
         min-height: 14px;
     }}
     QProgressBar::chunk {{
         background-color: {ACCENT};
+        border-radius: 4px;
     }}
     QSlider::groove:horizontal {{
-        height: 6px;
+        height: {GROOVE_HEIGHT}px;
         background-color: {PANEL};
-        border-radius: 0px;
+        border-radius: {GROOVE_HEIGHT // 2}px;
     }}
     QSlider::sub-page:horizontal {{
         background-color: {ACCENT};
-        border-radius: 0px;
+        border-radius: {GROOVE_HEIGHT // 2}px;
     }}
     QSlider::handle:horizontal {{
-        background-color: {TEXT};
-        width: 10px;
-        margin: -5px 0px;
-        border-radius: 0px;
+        background-color: {HANDLE_FILL};
+        border: {BORDER_WIDTH}px solid {HANDLE_BORDER};
+        border-radius: {HANDLE_SIZE // 2}px;
+        width: {HANDLE_SIZE}px;
+        margin: -{(HANDLE_SIZE - GROOVE_HEIGHT) // 2}px 0px;
     }}
     QSlider::handle:horizontal:hover {{
         background-color: {PRIMARY};
@@ -197,7 +222,7 @@ def stylesheet() -> str:
     }}
     QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
         background-color: {PANEL};
-        border-radius: 0px;
+        border-radius: 4px;
         min-height: 24px;
         min-width: 24px;
     }}

@@ -41,6 +41,28 @@ def test_the_stylesheet_carries_every_token() -> None:
         assert token in qss
 
 
+def test_corners_are_rounded_with_the_general_radius() -> None:
+    assert theme.BORDER_RADIUS == 6
+    qss = theme.stylesheet()
+    # Buttons, inputs, menus, tooltips and the progress bar all share it.
+    assert qss.count(f"border-radius: {theme.BORDER_RADIUS}px") >= 5
+
+
+def test_the_slider_track_is_taller_and_the_playhead_a_round_orange_knob() -> None:
+    qss = theme.stylesheet()
+    groove = qss.split("QSlider::groove:horizontal")[1]
+    assert f"height: {theme.GROOVE_HEIGHT}px" in groove
+    assert f"border-radius: {theme.GROOVE_HEIGHT // 2}px" in groove
+
+    handle = qss.split("QSlider::handle:horizontal")[1]
+    assert f"width: {theme.HANDLE_SIZE}px" in handle
+    # Round: the radius is half the knob's size.
+    assert f"border-radius: {theme.HANDLE_SIZE // 2}px" in handle
+    assert theme.HANDLE_FILL in handle  # unsaturated orange fill
+    assert theme.HANDLE_BORDER in handle  # light gray rim
+    assert "solid" in handle
+
+
 # -- the application ------------------------------------------------------------- #
 
 
