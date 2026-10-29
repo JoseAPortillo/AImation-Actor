@@ -81,7 +81,9 @@ class TimelineBar(QWidget):
         self._frame = 0
 
         self.frame_label = QLabel("Frame 0 / 1", self)
+        self.frame_label.setObjectName("frame_readout")
         self.fps_label = QLabel("24 fps", self)
+        self.fps_label.setObjectName("fps_readout")
         self.key_strip = KeyStrip(self)
         self.slider = QSlider(Qt.Orientation.Horizontal, self)
 

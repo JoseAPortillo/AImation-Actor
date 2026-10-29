@@ -6,7 +6,7 @@
 > [`docs/Plan_AImation_Actor_EN.md`](docs/Plan_AImation_Actor_EN.md). Where this
 > file and the plan disagree on behavior, **the plan wins**.
 
-Status: Draft · v0.6.5 · Scope: MVP only
+Status: Draft · v0.6.6 · Scope: MVP only
 
 ## How to use (SDD)
 
@@ -80,6 +80,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | NFR-02 | Must | ✅ | No blocking of the UI on AI/IO work. | No frozen window during extraction/generation. *(Both halves landed: extraction through `PoseExtractionRunner` and generation through `InbetweeningRunner` each run on their own `QThread` worker — the same pattern — and tests assert the UI does not wait on either engine.)* |
 | NFR-03 | Must | ✅ | Errors are explicit and actionable; state stays recoverable. | Failures report a message; no silent failures. *(A damaged clip, a mark with nothing loaded, a missing rig and an unusable GL driver each name what happened; the loaded clip and its keys survive a failure.)* |
 | NFR-04 | Should | ✅ | Blender read path is manual-test-only (needs a Blender install). | Documented as manual; not required in CI. |
+| NFR-05 | Should | ✅ | Dark visual identity: warm dark base, orange for action/golden-pose accents, teal for active state, off-white for reading, clean 2 px panel borders, angular display typography. | The approved palette (`#1E1813` / `#2D2620` / `#FF6B00` / `#EDE8E0` / `#007CA3`, user decision 2026-10-29) lives as named tokens in `adapters/gui/theme.py`; `apply_theme` puts Fusion + palette + stylesheet on the application before any window builds. Custom painters (e.g. `KeyStrip`) read the palette roles, so golden-pose markers and state colors follow the theme with no per-widget colors. Rajdhani (SIL OFL) ships in `assets/fonts` so the display look does not depend on installed fonts; body text stays in the system face. Dark-only — no theme toggle for MVP. *(Fine visual tuning — hover tones, spacing — is a manual check, not CI.)* |
 
 ## 4. Open questions
 
@@ -229,6 +230,7 @@ non-Windows · MDM/LAFAN1 engines · automatic key suggestion (see plan §7).
 | 0.6.3   | 2026-10-28 | **Pose video overlay**: engine-side full-frame projection, stepped colored skeleton overlay, hidden legacy viewport, COCO limb refinement, and MediaPipe PoseLandmarker hand/foot refinement. |
 | 0.6.4   | 2026-10-28 | **Recent videos (FR-CAP-09)**: File ▸ Recent Files keeps the last five clips that actually loaded, most recent first, reopened by selecting the entry; persists through `QSettings`; pure rule in `core/recent_files`. |
 | 0.6.5   | 2026-10-28 | **FBX import action (FR-IMP-04)**: File ▸ Import FBX… (`Ctrl+I`) adopts the refined FBX as the session timeline — requires a loaded video, confirms before discarding captured keys, resets capture-only state, and previews each refined pose front-view over the clip (honest approximation, no engine needed). |
+| 0.6.6   | 2026-10-29 | **Dark theme (NFR-05)**: warm dark identity — Fusion + palette + QSS in `adapters/gui/theme.py`, approved tokens (`#1E1813`/`#2D2620`/`#FF6B00`/`#EDE8E0`/`#007CA3`), 2 px panel borders, angular geometry, bundled Rajdhani for display readouts, Segoe UI for reading. |
 | 0.6.2   | 2026-10-24 | **M8 final generative export landed**: File-menu "Export FBX…" / `Ctrl+E` writes the approved timeline (keys + fills) through the real binary FBX writer with the approved KTime range declared; honest status-bar refusals; real-file round-trip through Blender verified 48 frames / float32-exact / pinned foot held (FR-GEN-04 ✅). Feature doc: `odd/tasks/m8-final-export.md`. |
 
 ## 6. Session state (resume here)

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QApplication
 
 from aimation_actor.adapters.ai.model_factory import capture_engine, inbetweening_engine
+from aimation_actor.adapters.gui import theme
 from aimation_actor.adapters.gui.main_window import MainWindow
 from aimation_actor.adapters.io.fbx_adapter import BlenderFbxAdapter
 from aimation_actor.core.production_skeleton import production_skeleton
@@ -64,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
     # The recent-videos store (FR-CAP-09) uses QSettings, whose scope is
     # organization + application: name both here, before the window builds.
     app.setOrganizationName("AImation Actor")
+    # The dark theme goes on the application, not the window: Fusion's
+    # palette-aware painting and the stylesheet must cover every widget the
+    # app will ever build — dialogs included — before the first one exists.
+    theme.apply_theme(app)
     window = build_window()
     window.show()
     return app.exec()
