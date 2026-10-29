@@ -142,12 +142,10 @@ class _VideoSurface(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt's naming, not ours
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # The theme's rounded chrome applies to the viewer too, read from the
-        # ACTIVE mode at paint time: a theme switch reaches this painter on
-        # the very next frame without any wiring. The pane cannot take the
-        # border from a stylesheet, it draws the picture itself.
-        spec = theme.active()
-        radius = float(spec.border_radius)
+        # The theme's rounded chrome applies to the viewer too: the picture is
+        # clipped to the shared radius, and the panel border is drawn on the
+        # rim — the pane cannot take it from a stylesheet, it paints itself.
+        radius = float(theme.BORDER_RADIUS)
         frame_path = QPainterPath()
         frame_path.addRoundedRect(QRectF(self.rect()), radius, radius)
         painter.setClipPath(frame_path)
@@ -169,7 +167,7 @@ class _VideoSurface(QWidget):
             )
         painter.setClipping(False)
         rim = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
-        painter.setPen(QPen(QColor(spec.border_color), theme.BORDER_WIDTH))
+        painter.setPen(QPen(QColor(theme.BORDER_COLOR), theme.BORDER_WIDTH))
         painter.drawRoundedRect(rim, radius, radius)
 
 

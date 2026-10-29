@@ -25,11 +25,7 @@ if TYPE_CHECKING:
 __all__ = ["build_window", "main"]
 
 
-def build_window(
-    *,
-    theme_mode: str = theme.DEFAULT_MODE,
-    theme_store: theme.ThemeStore | None = None,
-) -> MainWindow:
+def build_window() -> MainWindow:
     """The application's window: real player, real engines, real production rig.
 
     The engines are named, not imported: the Model Factory builds the capture
@@ -38,9 +34,7 @@ def build_window(
     invented here (the M4 refusal stands): its bind offsets are real body-model
     data the capture engine reports with its ready line, so the window adopts
     the rig at the first successful extraction through the ``skeleton_source``.
-    Until then the 3D pane names the reason it is blank. ``theme_mode`` /
-    ``theme_store`` carry the animator's persisted theme into the window
-    (NFR-05) so the View menu starts checked on it and saves switches there.
+    Until then the 3D pane names the reason it is blank.
     """
     engine = capture_engine("hmr2")
     inbetween_engine = inbetweening_engine()  # MVP: condmdi (FR-GEN-02)
@@ -49,8 +43,6 @@ def build_window(
         inbetween_engine=inbetween_engine,
         skeleton_source=_engine_rig_of(engine),
         exporter=BlenderFbxAdapter(),  # final generative export (FR-GEN-04)
-        theme_mode=theme_mode,
-        theme_store=theme_store,
     )
 
 
@@ -76,11 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     # The dark theme goes on the application, not the window: Fusion's
     # palette-aware painting and the stylesheet must cover every widget the
     # app will ever build — dialogs included — before the first one exists.
-    # The animator's persisted mode (NFR-05) decides how it opens.
-    theme_store = theme.QSettingsThemeStore()
-    mode = theme_store.load()
-    theme.apply_theme(app, mode)
-    window = build_window(theme_mode=mode, theme_store=theme_store)
+    theme.apply_theme(app)
+    window = build_window()
     window.show()
     return app.exec()
 
