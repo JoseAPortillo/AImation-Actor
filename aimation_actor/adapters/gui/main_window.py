@@ -211,9 +211,6 @@ class MainWindow(QMainWindow):
             "Jump to previous key", "Shift+Left", self._previous_key
         )
         self.action_next_key = self._action("Jump to next key", "Shift+Right", self._next_key)
-        self.action_fill_inbetweens = self._action(
-            "Fill Gaps (Generate Inbetweens)", "G", self.controller.fill_inbetweens
-        )
         self.action_export = self._action(
             "Export &FBX…", "Ctrl+E", self.export_fbx
         )
@@ -229,7 +226,6 @@ class MainWindow(QMainWindow):
             self.action_remove_key,
             self.action_previous_key,
             self.action_next_key,
-            self.action_fill_inbetweens,
             self.action_export,
         )
         for action in self._shortcuts:
@@ -251,8 +247,12 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(quit_action)
 
-        inbetweens_menu = self.menuBar().addMenu("&Inbetweens")
-        inbetweens_menu.addAction(self.action_fill_inbetweens)
+        # NFR-05 pipeline redesign (2026-10-29): the generative fill leaves the
+        # menu. Between RAW captures it fills gaps the animator is about to
+        # rewrite in Blender — and its video guides would condition the engine
+        # on poses the refined keys no longer hold. The whole machine stays
+        # wired and tested (controller, runner, adapter, worker, pinning):
+        # re-positioning the fill AFTER the refined re-import is one menu line.
 
     def _action(self, text: str, shortcut: str, slot) -> QAction:
         action = QAction(text, self)
