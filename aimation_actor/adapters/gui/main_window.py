@@ -22,8 +22,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
@@ -43,6 +44,12 @@ from aimation_actor.adapters.gui.capture_controller import CaptureController, Vi
 from aimation_actor.adapters.gui.recent_files import (
     QSettingsRecentFilesStore,
     RecentFilesStore,
+)
+from aimation_actor.adapters.gui.theme import (
+    DEFAULT_MODE,
+    QSettingsThemeStore,
+    ThemeStore,
+    apply_theme,
 )
 from aimation_actor.adapters.gui.timeline_bar import TimelineBar
 from aimation_actor.adapters.gui.video_player import VideoPlayer
@@ -72,6 +79,8 @@ class MainWindow(QMainWindow):
         inbetween_engine: InbetweeningPort | None = None,
         exporter: IOPort | None = None,
         recents: RecentFilesStore | None = None,
+        theme_mode: str = DEFAULT_MODE,
+        theme_store: ThemeStore | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Build the window.
@@ -92,11 +101,19 @@ class MainWindow(QMainWindow):
         without one, exporting reports the gap rather than writing nothing.
         ``recents`` is where the File menu's recent videos persist
         (FR-CAP-09); the default is the user's own ``QSettings``.
+        ``theme_mode`` is the mode the window opens in and ``theme_store``
+        where a View-menu switch persists (NFR-05); the default store is the
+        user's own ``QSettings``, same as recents.
         """
         super().__init__(parent)
         self._recents: RecentFilesStore = (
             recents if recents is not None else QSettingsRecentFilesStore()
         )
+        # The theme the window opens in and where a switch persists (NFR-05).
+        self._theme_store: ThemeStore = (
+            theme_store if theme_store is not None else QSettingsThemeStore()
+        )
+        self._theme_mode = theme_mode if theme_mode in ("dark", "light") else DEFAULT_MODE
         self.setWindowTitle("AImation Actor")
         self.resize(1280, 800)
 
@@ -156,6 +173,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self._build_actions()
+        # The window dresses the application even when the composition root
+        # already did: ``apply_theme`` is idempotent, and this is what makes a
+        # window built directly (tests, embedding) open in its stated mode.
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, self._theme_mode)
         self._connect()
         self.statusBar().showMessage(self.controller.status())
 
@@ -253,6 +276,43 @@ class MainWindow(QMainWindow):
 
         inbetweens_menu = self.menuBar().addMenu("&Inbetweens")
         inbetweens_menu.addAction(self.action_fill_inbetweens)
+
+        # NFR-05: the theme switch. An exclusive pair of checkable actions —
+        # exactly one mode is ever on — persisted through the store the
+        # window was given.
+        self.action_dark_theme = QAction("&Dark theme", self)
+        self.action_dark_theme.setCheckable(True)
+        self.action_light_theme = QAction("&Light theme", self)
+        self.action_light_theme.setCheckable(True)
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        self._theme_group.addAction(self.action_dark_theme)
+        self._theme_group.addAction(self.action_light_theme)
+        self.action_dark_theme.setChecked(self._theme_mode != "light")
+        self.action_light_theme.setChecked(self._theme_mode == "light")
+        self.action_dark_theme.triggered.connect(
+            lambda _checked=False: self._set_theme_mode("dark")
+        )
+        self.action_light_theme.triggered.connect(
+            lambda _checked=False: self._set_theme_mode("light")
+        )
+        view_menu = self.menuBar().addMenu("&View")
+        view_menu.addAction(self.action_dark_theme)
+        view_menu.addAction(self.action_light_theme)
+
+    def _set_theme_mode(self, mode: str) -> None:
+        """Dress the application in ``mode`` and remember the choice.
+
+        ``apply_theme`` is idempotent by design: re-running it on a switch
+        is the same operation as dressing at startup, so the switch cannot
+        drift from the startup look. The store write is what makes the next
+        session open in the mode the animator left.
+        """
+        self._theme_mode = mode
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, mode)
+        self._theme_store.save(mode)
 
     def _action(self, text: str, shortcut: str, slot) -> QAction:
         action = QAction(text, self)

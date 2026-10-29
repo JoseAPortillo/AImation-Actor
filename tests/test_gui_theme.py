@@ -11,6 +11,7 @@ depend on what the workstation happens to have installed.
 
 from __future__ import annotations
 
+import pytest
 from PySide6.QtWidgets import QApplication
 
 from aimation_actor.adapters.gui import theme
@@ -122,6 +123,139 @@ def test_the_video_viewer_paints_rounded_corners(qtbot) -> None:
     assert center == "#000000"  # the picture fills the rounded frame
     edge = grabbed.pixelColor(60, 1).name().upper()
     assert edge != "#000000"  # the frame border is painted on the rim
+
+
+# -- the light mode and its switch --------------------------------------------- #
+
+
+def test_light_keeps_the_accent_family_and_inverts_the_text() -> None:
+    # The accents are the brand: identical in both modes. What flips is the
+    # ground and the reading color.
+    assert theme.LIGHT.bg_base != theme.DARK.bg_base
+    assert theme.LIGHT.primary == theme.PRIMARY
+    assert theme.LIGHT.accent == theme.ACCENT
+    assert theme.LIGHT.text != theme.TEXT
+    assert theme.LIGHT.border_radius == theme.BORDER_RADIUS
+
+
+def test_apply_theme_light_recolors_and_back(qtbot) -> None:
+    app = QApplication.instance()
+    assert app is not None
+
+    theme.apply_theme(app, "light")
+
+    assert app.property("theme_mode") == "light"
+    assert app.palette().window().color().name().upper() == theme.LIGHT.bg_base
+    assert app.palette().text().color().name().upper() == theme.LIGHT.text
+    assert theme.LIGHT.bg_base in app.styleSheet()
+
+    theme.apply_theme(app, "dark")
+
+    assert app.palette().window().color().name().upper() == theme.BG_BASE
+
+
+def test_the_active_spec_follows_the_applied_mode(qtbot) -> None:
+    # The custom painters (the video viewer) read the ACTIVE spec at paint
+    # time: the pin is that the accessor answers with what was applied.
+    app = QApplication.instance()
+    assert app is not None
+
+    theme.apply_theme(app, "light")
+    assert theme.active().name == "light"
+
+    theme.apply_theme(app, "dark")
+    assert theme.active().name == "dark"
+
+
+def test_the_settings_store_round_trips(tmp_path) -> None:
+    from PySide6.QtCore import QSettings
+
+    store = theme.QSettingsThemeStore(
+        QSettings(str(tmp_path / "theme.ini"), QSettings.Format.IniFormat)
+    )
+    assert store.load() == "dark"  # the default before anything was saved
+    store.save("light")
+    assert store.load() == "light"
+
+
+class _MemoryThemeStore:
+    def __init__(self) -> None:
+        self.mode = "dark"
+        self.saved: list[str] = []
+
+    def load(self) -> str:
+        return self.mode
+
+    def save(self, mode: str) -> None:
+        self.saved.append(mode)
+        self.mode = mode
+
+
+class _MemoryRecents:
+    def __init__(self) -> None:
+        self.paths: tuple[str, ...] = ()
+
+    def load(self) -> tuple[str, ...]:
+        return self.paths
+
+    def save(self, paths) -> None:
+        self.paths = tuple(paths)
+
+
+@pytest.fixture
+def themed_window(qtbot):
+    from aimation_actor.adapters.gui.main_window import MainWindow
+
+    store = _MemoryThemeStore()
+    main = MainWindow(
+        recents=_MemoryRecents(),  # type: ignore[arg-type]
+        theme_store=store,  # type: ignore[arg-type]
+        theme_mode="dark",
+    )
+    qtbot.addWidget(main)
+    return main, store
+
+
+def test_the_view_menu_offers_the_theme_switch(themed_window) -> None:
+    main, _store = themed_window
+
+    view = next(a for a in main.menuBar().actions() if a.text() == "&View")
+    assert [a.text() for a in view.menu().actions()] == [
+        "&Dark theme",
+        "&Light theme",
+    ]
+    assert main.action_dark_theme.isChecked()
+    assert not main.action_light_theme.isChecked()
+
+
+def test_switching_to_light_recolors_and_persists(themed_window) -> None:
+    main, store = themed_window
+    app = QApplication.instance()
+    assert app is not None
+
+    main.action_light_theme.trigger()
+
+    assert app.palette().window().color().name().upper() == theme.LIGHT.bg_base
+    assert store.saved == ["light"]
+    assert main.action_light_theme.isChecked()
+    assert not main.action_dark_theme.isChecked()
+
+
+def test_a_window_started_in_light_opens_checked_light(qtbot) -> None:
+    from aimation_actor.adapters.gui.main_window import MainWindow
+
+    main = MainWindow(
+        recents=_MemoryRecents(),  # type: ignore[arg-type]
+        theme_store=_MemoryThemeStore(),  # type: ignore[arg-type]
+        theme_mode="light",
+    )
+    qtbot.addWidget(main)
+
+    assert main.action_light_theme.isChecked()
+    assert not main.action_dark_theme.isChecked()
+    app = QApplication.instance()
+    assert app is not None
+    assert app.palette().window().color().name().upper() == theme.LIGHT.bg_base
 
 
 # -- the application ------------------------------------------------------------- #
