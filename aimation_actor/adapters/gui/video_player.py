@@ -219,6 +219,17 @@ class VideoPlayer(QWidget):
         return self._source_path
 
     @property
+    def frame_size(self) -> tuple[int, int] | None:
+        """The native size of the frame on screen, or ``None`` before the first.
+
+        The imported-pose preview draws in this full-frame pixel space (the
+        same one the engine projections use), so the widget letterboxes both
+        alike (FR-IMP-04).
+        """
+        image = self._image
+        return None if image is None or image.isNull() else (image.width(), image.height())
+
+    @property
     def media_player(self) -> QMediaPlayer:
         """The underlying ``QMediaPlayer`` (Qt-facing, not part of the seam)."""
         return self._player
