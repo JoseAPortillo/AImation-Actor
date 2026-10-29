@@ -63,6 +63,67 @@ def test_the_slider_track_is_taller_and_the_playhead_a_round_orange_knob() -> No
     assert "solid" in handle
 
 
+# -- reading size and rounded chrome ------------------------------------------ #
+
+
+def test_reading_text_lifts_one_point_over_the_windows_default(qtbot) -> None:
+    # Windows' default is 9 pt Segoe UI; the theme ships 10 pt so labels and
+    # menus read comfortably at the animator's arm's length.
+    app = QApplication.instance()
+    assert app is not None
+
+    theme.apply_theme(app)
+
+    assert app.font().family() == theme.READ_FONT_FAMILY
+    assert app.font().pointSize() == theme.READ_FONT_SIZE_PT
+    assert theme.READ_FONT_SIZE_PT == 10
+
+
+def test_the_readouts_grow_with_the_text() -> None:
+    qss = theme.stylesheet()
+    frame = qss.split("QLabel#frame_readout")[1]
+    # The shared selector ends with the same text; take the LAST occurrence,
+    # which is the fps-only rule.
+    fps = qss.rsplit("QLabel#fps_readout {", 1)[1]
+    assert f"font-size: {theme.READOUT_FONT_SIZE_PX}px" in frame
+    assert f"font-size: {theme.FPS_FONT_SIZE_PX}px" in fps
+    assert theme.READOUT_FONT_SIZE_PX > theme.FPS_FONT_SIZE_PX
+
+
+def test_menu_items_round_with_the_chrome() -> None:
+    # Full-width square selection bars at a menu's corners made the popup
+    # read square: the items inset and round so the menu's radius shows.
+    qss = theme.stylesheet()
+    items = qss.split("QMenu::item")[1]
+    assert f"border-radius: {theme.ITEM_RADIUS}px" in items
+    assert "margin" in items
+
+
+def test_the_video_viewer_paints_rounded_corners(qtbot) -> None:
+    # The surface paints the picture itself, so QSS cannot round it: the
+    # pin is on the rendered pixels — corners show the window ground, the
+    # center is the black picture, and the frame border is drawn on top.
+    from PySide6.QtWidgets import QLabel  # noqa: F401 - qtbot keeps the app alive
+
+    from aimation_actor.adapters.gui.video_player import _VideoSurface
+
+    app = QApplication.instance()
+    assert app is not None
+    theme.apply_theme(app)
+
+    surface = _VideoSurface()
+    qtbot.addWidget(surface)
+    surface.resize(120, 80)
+
+    grabbed = surface.grab().toImage()
+    corner = grabbed.pixelColor(3, 3).name().upper()
+    center = grabbed.pixelColor(60, 40).name().upper()
+    assert corner != "#000000"  # the corner is clipped away from the picture
+    assert center == "#000000"  # the picture fills the rounded frame
+    edge = grabbed.pixelColor(60, 1).name().upper()
+    assert edge != "#000000"  # the frame border is painted on the rim
+
+
 # -- the application ------------------------------------------------------------- #
 
 

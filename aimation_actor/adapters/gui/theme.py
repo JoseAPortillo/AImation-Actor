@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtGui import QColor, QFontDatabase, QPalette
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication
 
 __all__ = [
@@ -35,13 +35,18 @@ __all__ = [
     "BORDER_RADIUS",
     "BORDER_WIDTH",
     "DISPLAY_FONT_FAMILY",
+    "FPS_FONT_SIZE_PX",
     "FONTS_DIR",
     "GROOVE_HEIGHT",
     "HANDLE_BORDER",
     "HANDLE_FILL",
     "HANDLE_SIZE",
+    "ITEM_RADIUS",
     "PANEL",
     "PRIMARY",
+    "READOUT_FONT_SIZE_PX",
+    "READ_FONT_FAMILY",
+    "READ_FONT_SIZE_PT",
     "TEXT",
     "apply_theme",
     "load_display_fonts",
@@ -79,6 +84,22 @@ HANDLE_SIZE = 18
 HANDLE_FILL = "#E08A4C"
 #: The knob's rim: light warm gray, so it reads against any track.
 HANDLE_BORDER = "#C6C0B6"
+
+# -- type sizes (user-tuned) -------------------------------------------------- #
+
+#: Body reading size: Windows' Segoe UI default is 9 pt; one point up reads
+#: comfortably at the animator's arm's length. Applied app-wide.
+READ_FONT_SIZE_PT = 10
+#: The timeline's frame readout, in Rajdhani.
+READOUT_FONT_SIZE_PX = 16
+#: The fps readout sits beside it, one step smaller.
+FPS_FONT_SIZE_PX = 14
+
+# -- chrome details ----------------------------------------------------------- #
+
+#: Menu entries inset from the menu's edge and round their own selection bar,
+#: so the popup's corner radius reads at the first and last item.
+ITEM_RADIUS = 4
 
 #: The bundled angular display face (titles, readouts, technical labels).
 DISPLAY_FONT_FAMILY = "Rajdhani"
@@ -125,7 +146,9 @@ def stylesheet() -> str:
         font-family: "{READ_FONT_FAMILY}";
     }}
     QMenu::item {{
-        padding: 5px 26px 5px 12px;
+        padding: 5px 24px 5px 12px;
+        margin: 3px 6px;
+        border-radius: {ITEM_RADIUS}px;
     }}
     QMenu::item:selected {{
         background-color: {ACCENT};
@@ -134,7 +157,7 @@ def stylesheet() -> str:
     QMenu::separator {{
         height: 1px;
         background-color: {BORDER_COLOR};
-        margin: 4px 8px;
+        margin: 4px 12px;
     }}
     QStatusBar {{
         background-color: {BG_BASE};
@@ -236,11 +259,11 @@ def stylesheet() -> str:
     QLabel#frame_readout, QLabel#fps_readout {{
         font-family: "{DISPLAY_FONT_FAMILY}";
         font-weight: 600;
-        font-size: 14px;
+        font-size: {READOUT_FONT_SIZE_PX}px;
         color: {TEXT};
     }}
     QLabel#fps_readout {{
-        font-size: 12px;
+        font-size: {FPS_FONT_SIZE_PX}px;
     }}
     """
 
@@ -297,4 +320,5 @@ def apply_theme(app: QApplication) -> None:
     app.setStyle("Fusion")
     app.setPalette(_palette())
     load_display_fonts(app)
+    app.setFont(QFont(READ_FONT_FAMILY, READ_FONT_SIZE_PT))
     app.setStyleSheet(stylesheet())

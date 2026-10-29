@@ -40,11 +40,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtCore import QRectF, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen
 from PySide6.QtMultimedia import QMediaMetaData, QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from aimation_actor.adapters.gui import theme
 from aimation_actor.adapters.gui.pose_overlay import PoseOverlay
 from aimation_actor.core.models import CapturedFrame, FrameImage
 
@@ -140,22 +141,34 @@ class _VideoSurface(QWidget):
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt's naming, not ours
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # The theme's rounded chrome applies to the viewer too: the picture is
+        # clipped to the shared radius, and the panel border is drawn on the
+        # rim — the pane cannot take it from a stylesheet, it paints itself.
+        radius = float(theme.BORDER_RADIUS)
+        frame_path = QPainterPath()
+        frame_path.addRoundedRect(QRectF(self.rect()), radius, radius)
+        painter.setClipPath(frame_path)
         painter.fillRect(self.rect(), Qt.GlobalColor.black)
         image = self._image
-        if image is None or image.isNull():
-            return
-        # Nearest-neighbour on purpose: this runs per displayed frame, and the
-        # animator reads the pose from the 3D pane, not from the video's grain.
-        scaled = image.scaled(
-            self.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation,
-        )
-        painter.drawImage(
-            (self.width() - scaled.width()) // 2,
-            (self.height() - scaled.height()) // 2,
-            scaled,
-        )
+        if image is not None and not image.isNull():
+            # Nearest-neighbour on purpose: this runs per displayed frame, and
+            # the animator reads the pose from the 3D pane, not from the
+            # video's grain.
+            scaled = image.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+            painter.drawImage(
+                (self.width() - scaled.width()) // 2,
+                (self.height() - scaled.height()) // 2,
+                scaled,
+            )
+        painter.setClipping(False)
+        rim = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
+        painter.setPen(QPen(QColor(theme.BORDER_COLOR), theme.BORDER_WIDTH))
+        painter.drawRoundedRect(rim, radius, radius)
 
 
 class VideoPlayer(QWidget):
