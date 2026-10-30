@@ -47,6 +47,9 @@ aimation_actor/
     └── ai/                     # hmr2_adapter.py, condmdi_adapter.py
 tests/                          # unit tests for core and ports
 assets/                         # icons, styles, sample data
+blender_addon/                  # GPL Blender extension: the retarget tool
+└── aimation_transpose/         # capture viewer + control-rig transposition (FR-RET)
+    └── tests/                  # headless bpy smoke (needs a Blender install)
 ```
 
 ## Tech stack
@@ -228,6 +231,20 @@ need to activate:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+The Blender add-on's `bpy` shell cannot run under that interpreter. Its logical
+half (`captures.py`, `clock.py`) is covered by the normal pytest run; the rest is
+a headless smoke against a real Blender install:
+
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" `
+    --background --factory-startup --python-exit-code 1 `
+    --python blender_addon\tests\headless_smoke.py
+```
+
+It is self-contained (it writes its own captures with the repository's writer).
+A secondary window cannot be opened in `--background`, so the viewer window
+itself stays a manual check — the same posture as the FBX read bridge.
+
 ## Engineering principles (required)
 
 Every change must respect these principles. They are not optional polish — they
@@ -291,3 +308,9 @@ are the bar for a change to be acceptable.
 - `tests/` covers `core/`, `ports/`, and the pure-Python parts of the FBX
   adapter (codec, node tree, conversions, JSON → domain). The Blender subprocess
   path needs a Blender install, so it is exercised manually, not in CI.
+- The Blender add-on follows the same split: `blender_addon/aimation_transpose/`
+  keeps `bpy`-free modules (`captures.py`, `clock.py`, and the retarget math)
+  importable by path so `tests/` covers them without Blender, while everything
+  touching `bpy` is proven by `blender_addon/tests/headless_smoke.py`. Never
+  import the add-on package as a package from pytest — its `__init__` imports
+  `bpy`.
