@@ -111,6 +111,23 @@ splitting the read and write paths:
   (the add-on does this in `preview._make_stepped`) or it will display
   in-between poses the animator never keyed. Reading keyed frames directly, as
   the read bridge does, is unaffected.
+- **Two import conventions, on purpose.** The add-on imports captures through
+  the legacy importer (`bpy.ops.import_scene.fbx`) with
+  `automatic_bone_orientation=True`, because at its default the importer keeps
+  the FBX-authored axes and draws the skeleton inside-out (measured on a
+  synthetic capture: the `Pelvis` bone, whose rest offset goes down from the
+  hips, spans y 90 → 170 with the flag off and y 90 → 10 with it on). The
+  application's read bridge (`adapters/io/fbx/blender_import.py`) keeps the
+  importer's defaults: every documented round trip (FR-IMP-01/02, FR-EXP-02) was
+  validated against the armature-space basis that convention produces, so
+  changing the bridge means re-validating `transform.py`, not just flipping a
+  flag. **PR 4's return bake must respect this split** — the bake writes into the
+  production skeleton and exports through the application's writer, and the two
+  paths do not agree on bone axes by design.
+- **`bpy.ops.wmf.fbx_import` is a name without an operator** in 5.2.3
+  (factory-startup): the attribute exists but resolving its RNA raises
+  `KeyError: get_rna_type("WMF_OT_fbx_import") not found`. The legacy importer is
+  the one that runs, and the only one carrying `automatic_bone_orientation`.
 - **Limitation:** `JointData.rest_translation` is a parent-frame `Lcl` offset and
   the domain assumes identity bind rotations. Animation round-trips exactly, but a
   foreign rig with rotated bind orientations has no faithful bind *pose* here.

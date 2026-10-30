@@ -226,6 +226,22 @@ def main() -> None:
     source = in_preview[0]
     source_pointer = source.as_pointer()
     check("the source armature is marked", bool(source.get(props.SOURCE_MARKER)))
+    # The legacy importer must run with automatic bone orientation: left at its
+    # default it keeps the FBX-authored axes and the skeleton is drawn
+    # inside-out. Measured on this very capture: the Pelvis bone's rest offset
+    # goes DOWN from the hips, and only with the flag on does its tail end up
+    # below its head.
+    head = source.data.bones["Pelvis"].head_local
+    tail = source.data.bones["Pelvis"].tail_local
+    check(
+        "a bone that extends downward actually points downward",
+        tail.y < head.y,
+        f"head={tuple(round(v, 2) for v in head)} tail={tuple(round(v, 2) for v in tail)}",
+    )
+    check(
+        "the capture is imported through the legacy importer with bone orientation on",
+        "automatic_bone_orientation=True" in inspect.getsource(preview._import),
+    )
     check("the source is shown in front", source.show_in_front is True)
     check(
         "the viewer shows the pose, not the bind pose, by default",

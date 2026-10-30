@@ -16,9 +16,12 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
    and is shown in a secondary Blender window; the working scene never
    contains it; playback is driven by the tool's own clock (`preview_frame`),
    never by the animator's timeline; play/pause and a frame slider live in the
-   tool panel.
+   tool panel; the capture is imported through the legacy importer with
+   `automatic_bone_orientation=True`, so the skeleton keeps the shape the
+   animator exported instead of an inside-out bone basis.
    Checks: pure clock tests; headless smoke proving the armature lands in the
-   preview scene and not in the working scene.
+   preview scene and not in the working scene, and that a bone whose rest
+   offset goes down from the hips ends with its tail below its head.
 
 2. **S2 — Capture folder, import button, and listbox.** The tool lists the
    captures the animator exported and applies the selected one.
@@ -268,4 +271,29 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   `open_window` now also binds `window.view_layer` to the preview scene's own
   view layer, so the viewer's timeline and viewport belong to its scene.
   Smoke: 41 -> **50 checks**, all green; `ruff check .` clean; full suite green.
+- **L12.** User change request, verbatim: *"vamos a cambiar un par de cosas, la
+  primera y mas sencilla es importar el fbx con fbx(legacy) y activar la opcion:
+  automatic bone orientation."* Applied to `preview._import`. Two findings came
+  out of checking it rather than just flipping a flag:
+  1. **`bpy.ops.import_scene.fbx` already IS the legacy importer** in 5.2.3, and
+     the new one is not usable: `bpy.ops.wmf.fbx_import` exists as a name but
+     resolving its RNA raises `KeyError: get_rna_type("WMF_OT_fbx_import") not
+     found`. So the request reduced to the flag, not to changing the call.
+  2. **The flag changes the skeleton's shape, not just its twist** (measured on a
+     synthetic capture whose Pelvis offset goes down from the hips): with the
+     default the bone spans `head y=90 -> tail y=170`, i.e. pointing UP, and every
+     bone's local Y is `(0,1,0)` whatever the bone does; with
+     `automatic_bone_orientation=True` it spans `y=90 -> y=10` and downward bones
+     get `y=(0,-1,0)`. That is the inside-out skeleton in the viewer.
+  Deliberately NOT touched: the application's read bridge
+  (`adapters/io/fbx/blender_import.py`) keeps the importer's defaults, because
+  every documented FBX round trip (FR-IMP-01/02, FR-EXP-02) was validated against
+  the armature-space basis that convention produces. The two paths now disagree
+  on bone axes on purpose; **T5 (return bake) has to respect that split**, and the
+  smoke pins the flag at the call site so the split cannot drift silently.
+  Evidence: smoke 50 -> **52 checks** green; mutation-tested by setting the flag
+  back to `False` - both new checks fail, the geometric one reporting
+  `head=(0.0, 90.0, 0.0) tail=(0.0, 170.0, 0.0)`. `ruff check .` clean, full
+  pytest suite green. S1 rewritten; spec.md v0.7.1; AGENTS.md records both
+  findings.
 

@@ -199,7 +199,18 @@ def _make_stepped(action) -> int:
 
 
 def _import(path: Path) -> tuple[list[bpy.types.Object], float]:
-    """Import one capture, then move it into the preview scene.
+    """Import one capture through the legacy FBX importer, then move it.
+
+    ``bpy.ops.import_scene.fbx`` IS the legacy importer in Blender 5.2: the new
+    one is registered as a name only and its operator RNA is not available, so
+    the legacy path is the one that actually runs and the one that carries
+    ``automatic_bone_orientation``. That flag is on deliberately: left at its
+    default the importer keeps the FBX-authored bone axes, which flips which end
+    of a bone is its head and leaves every bone's local Y pointing the same way
+    regardless of where the bone goes (measured on a 30 fps capture: with the
+    default ``Pelvis`` spans y 90 -> 170, with it on, y 90 -> 10, and the bones
+    that point down get ``y = (0,-1,0)`` instead of ``(0,1,0)``). The animator's
+    skeleton was being drawn inside-out.
 
     The importer must *not* run under ``temp_override``: it builds the armature
     by entering edit mode through an operator, and that operator resolves the
@@ -223,7 +234,12 @@ def _import(path: Path) -> tuple[list[bpy.types.Object], float]:
     before = {obj.as_pointer() for obj in bpy.data.objects}
     actions_before = {action.as_pointer() for action in bpy.data.actions}
     try:
-        result = bpy.ops.import_scene.fbx(filepath=str(path), use_anim=True, anim_offset=0.0)
+        result = bpy.ops.import_scene.fbx(
+            filepath=str(path),
+            use_anim=True,
+            anim_offset=0.0,
+            automatic_bone_orientation=True,
+        )
         fps = working.render.fps / (working.render.fps_base or 1.0)
     except RuntimeError:
         _discard(before, actions_before)
