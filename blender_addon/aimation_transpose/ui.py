@@ -1,10 +1,10 @@
 """The transposition panel (S1, S2, S9).
 
-The panel lives in the animator's 3D viewport sidebar, but it never shows the
-capture there: the viewer is its own window and its own scene. The frame slider
-is drawn from the *preview* scene's ``frame_current``, whose range the import
-sets — that keeps one source of truth and gives a real slider without dynamic
-RNA min/max gymnastics.
+The panel lives in a 3D viewport sidebar and is deliberately reachable from
+**either** window: the animator's own, and the viewer window the tool opens. The
+viewer window's context scene is the preview scene, which holds none of the tool's
+state, so every control is drawn against the owner scene (`props.tool_scene`) —
+otherwise the tool looks like it vanished the moment the viewer opened.
 """
 
 from __future__ import annotations
@@ -37,14 +37,15 @@ class AIMATION_PT_transpose(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        scene = getattr(context, "scene", None)
-        # The preview window shows its own scene; the panel belongs to the
-        # animator's scene, not there (S1).
-        return scene is not None and scene.name != props.PREVIEW_SCENE
+        # Reachable in the viewer window too: there the state lives on the
+        # preview scene's owner, not on the context scene.
+        return props.tool_scene(context) is not None
 
     def draw(self, context):
         layout = self.layout
-        scene = context.scene
+        scene = props.tool_scene(context)
+        if scene is None:  # poll guarantees this, but a stale redraw can beat it
+            return
         preferences = prefs.preferences(context)
 
         if preferences is None:
@@ -82,8 +83,13 @@ class AIMATION_PT_transpose(bpy.types.Panel):
                 text="Pause" if playing else "Play",
                 icon="PAUSE" if playing else "PLAY",
             )
-            row.prop(scene, "preview_rest", text="Rest", toggle=True)
+            row.prop(scene, "preview_rest", text="Bind pose", toggle=True)
             layout.prop(preview_scene, "frame_current", text="Frame", slider=True)
+            if scene.preview_rest:
+                # REST does not evaluate animation: without this the frozen
+                # skeleton reads as a broken import rather than a chosen mode.
+                layout.label(text="Bind pose freezes the animation", icon="INFO")
+                layout.label(text="Untick it to watch it play.")
 
         message = props.status(scene)
         if message:

@@ -16,12 +16,14 @@ CAPTURE_FOLDER_DEFAULT = "//captures"
 
 
 def _on_folder(_self, context) -> None:
-    scene = getattr(context, "scene", None)
-    if scene is None:
-        return
     from . import props
 
-    props.refresh_captures(scene, context)
+    # The folder field can be drawn from either window, so the scene it should
+    # refresh is the owner, not necessarily the context scene.
+    owner = props.tool_scene(context)
+    if owner is None:
+        return
+    props.refresh_captures(owner, context)
 
 
 class AImationPreferences(bpy.types.AddonPreferences):

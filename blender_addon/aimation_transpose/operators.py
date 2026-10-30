@@ -39,7 +39,9 @@ def _adopt_folder(context, folder: str) -> None:
     preferences = prefs.preferences(context)
     if preferences is not None:
         preferences.capture_folder = folder
-    props.refresh_captures(context.scene, context)
+    owner = props.tool_scene(context)
+    if owner is not None:
+        props.refresh_captures(owner, context)
 
 
 def _select(scene, name: str) -> bool:
@@ -57,7 +59,11 @@ class AIMATION_OT_refresh_captures(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        scene = context.scene
+        scene = props.tool_scene(context)
+        if scene is None:  # a viewer window with no owner has no state to drive
+            message = "This viewer window is not bound to a working scene"
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
         count = props.refresh_captures(scene, context)
         folder = _capture_folder(context)
         if not folder:
@@ -88,7 +94,11 @@ class AIMATION_OT_import_capture(bpy.types.Operator, ImportHelper):
         return ImportHelper.invoke(self, context, event)
 
     def execute(self, context):
-        scene = context.scene
+        scene = props.tool_scene(context)
+        if scene is None:  # a viewer window with no owner has no state to drive
+            message = "This viewer window is not bound to a working scene"
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
         path = Path(bpy.path.abspath(self.filepath))
         if path.suffix.lower() != captures.CAPTURE_SUFFIX:
             props.report(scene, f"Not a capture file: {path.name}")
@@ -119,7 +129,11 @@ class AIMATION_OT_open_viewer(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        scene = context.scene
+        scene = props.tool_scene(context)
+        if scene is None:  # a viewer window with no owner has no state to drive
+            message = "This viewer window is not bound to a working scene"
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
         name = props.selected_name(scene)
         if preview.source_armature() is None and name is not None:
             preview.schedule_load(scene.name, name)
@@ -138,7 +152,11 @@ class AIMATION_OT_toggle_preview(bpy.types.Operator):
     bl_options = {"REGISTER"}
 
     def execute(self, context):
-        scene = context.scene
+        scene = props.tool_scene(context)
+        if scene is None:  # a viewer window with no owner has no state to drive
+            message = "This viewer window is not bound to a working scene"
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
         if preview.source_armature() is None:
             message = "Load a capture before playing it"
             props.report(scene, message)

@@ -190,3 +190,50 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   splitting it would ship code that cannot run"*. Slice boundary: PR #9 holds
   `f840ac3` only. The next slice is T3 (FR-RET-04/06/07, click-to-map), then T4
   (FR-RET-05/06, Transpose), then T5 (FR-RET-08, return bake).
+- **L9.** User bug report on PR #9, verbatim: *"el listado de fbx esta bastante
+  bien resuelto, pero al abrir la vista se abre una ventana nueva con el
+  esqueleto que tiene las claves pero no el movimiento y al abrir ese visor la
+  tool aimation transpose desaparece del menu de blender"*. Three defects found,
+  two of them mine, all three measured before being fixed:
+  1. **Frozen skeleton (mine).** `preview_rest` defaulted to `True`, and
+     `pose_position = 'REST'` does not evaluate animation at all — the skeleton
+     shows in bind pose with its keys sitting right there. The default is now
+     `False` (POSE); bind pose became an explicit, opt-in toggle labelled "Bind
+     pose", and the panel says outright that it freezes the animation.
+  2. **Panel disappears in the viewer window (mine).** `poll` hid the panel
+     whenever `context.scene` was the preview scene — which is exactly what the
+     viewer window's context scene is. All tool state lives on the *animator's*
+     scene, and RNA properties registered on `bpy.types.Scene` exist as empty
+     copies on every scene, so drawing them in the viewer window would have
+     driven nothing. The preview scene now records its owner in a real
+     `preview_owner` PointerProperty (auto-cleared when that scene goes away,
+     which a name-based lookup is not), and `props.tool_scene` / `owner_of`
+     resolve it for the panel, every operator and the preferences update
+     callback. The tool is now reachable from either window.
+  3. **Invented in-between poses (Blender's importer, not our writer).** The
+     file is genuinely stepped (`KeyAttrFlags = 24836` = CONSTANT), but the
+     importer never reads that field: `import_fbx.py:716` says *"Currently,
+     linear interpolation is assumed, but FBX does store how keyframes should be
+     interpolated"*. `preview._make_stepped` re-asserts CONSTANT on every loaded
+     keyframe. Mutation-tested: with that call deleted the sample between keys
+     comes back `(0.4714, 0.8047, 0, 0)` — a quaternion the animator never
+     keyed — and the interpolation set is `{'LINEAR'}`; with the fix it holds the
+     previous key and the set is `{'CONSTANT'}`.
+  Handled in the same pass: the viewer tags its windows for redraw (the clock
+  advances from a timer while another window is active, so nothing else would
+  repaint it), and `_configure_viewports` / `_frame_armature` refuse to touch a
+  `Screen` shared with another window — areas belong to the Screen, not to the
+  window, so framing or shading the viewer would have rewritten the animator's
+  own viewport. `bpy.data.screens.new` and `Screen.copy` do not exist in 5.2.3
+  (measured), so a private layout is not something the tool can create.
+- **L10.** Smoke evidence after L9: 41 checks (was 27), all green, `ruff check .`
+  clean, 22 pure tests green. The capture builders now rotate about the domain X
+  axis, because the first version wrote identity rotations for every key and
+  therefore **could not have caught a viewer that shows a frozen pose** — that
+  blind spot is why this report reached a human instead of the smoke. Reading the
+  evaluated pose of a *non-active* scene proved unreliable in background mode
+  (the first read lags, later reads can freeze), so motion is pinned on the
+  fcurves with `FCurve.evaluate`, which is deterministic; "the skeleton visibly
+  moves in the viewport" now joins the window and the panel drawing as a manual
+  check.
+

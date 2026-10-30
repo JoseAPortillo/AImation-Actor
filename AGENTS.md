@@ -102,6 +102,15 @@ splitting the read and write paths:
   fcurve keyframe times, each recorded as a full pose snapshot.
 - **Precision:** Blender keeps transforms in float32, so a read/write round trip
   is exact only to ~1 ULP of the magnitude (~1.2e-4 at 1000 cm).
+- **Stepped tangents do not survive a Blender import.** The writer emits
+  `KeyAttrFlags = 24836` (CONSTANT), and the file is genuinely stepped, but
+  Blender's importer never reads that field: its own source says *"Currently,
+  linear interpolation is assumed, but FBX does store how keyframes should be
+  interpolated"* (`import_fbx.py:716`). Anything that imports a capture into
+  Blender must re-assert `interpolation = 'CONSTANT'` on the loaded keyframes
+  (the add-on does this in `preview._make_stepped`) or it will display
+  in-between poses the animator never keyed. Reading keyed frames directly, as
+  the read bridge does, is unaffected.
 - **Limitation:** `JointData.rest_translation` is a parent-frame `Lcl` offset and
   the domain assumes identity bind rotations. Animation round-trips exactly, but a
   foreign rig with rotated bind orientations has no faithful bind *pose* here.

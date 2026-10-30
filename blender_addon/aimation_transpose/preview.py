@@ -67,6 +67,24 @@ def show_frame(frame: int) -> None:
     if scene is None or scene.frame_current == frame:
         return
     scene.frame_set(frame)
+    _tag_viewer_redraw()
+
+
+def _tag_viewer_redraw() -> None:
+    """Ask the windows showing the preview scene to repaint.
+
+    The clock advances on a timer while the animator's own window is the active
+    one, so nothing else would tell the viewer to repaint: the frame changes and
+    the window keeps showing the pose it last drew.
+    """
+    scene = bpy.data.scenes.get(props.PREVIEW_SCENE)
+    if scene is None:
+        return
+    for window in bpy.context.window_manager.windows:
+        if window.scene != scene:
+            continue
+        for area in window.screen.areas:
+            area.tag_redraw()
 
 
 def apply_rest(owner) -> None:
@@ -152,10 +170,34 @@ def load_capture(owner, name: str, directory: str) -> tuple[bool, str]:
         source.name = props.SOURCE_NAME
 
     _mark(source)
+    _make_stepped(action)
     _bind_clock(owner, source, action, fps)
     playback.reset(owner)
     owner.capture_loaded = name
     return True, f"Loaded {name} ({len(source.data.bones)} bones)"
+
+
+def _make_stepped(action) -> int:
+    """Re-assert stepped keys on the imported action, and return how many.
+
+    Blender's FBX importer never reads ``KeyAttrFlags``: its own source says
+    *"Currently, linear interpolation is assumed, but FBX does store how
+    keyframes should be interpolated"* (``import_fbx.py:716``), so a capture that
+    leaves this application stepped (``KeyAttrFlags`` ``24836`` = CONSTANT) comes
+    back looking smooth. The viewer would then show in-between poses that do not
+    exist in the animator's file, which is the one thing this tool must not do.
+    """
+    points = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            for slot in action.slots:
+                bag = strip.channelbag(slot)
+                if bag is None:
+                    continue
+                points.extend(kp for fcurve in bag.fcurves for kp in fcurve.keyframe_points)
+    for point in points:
+        point.interpolation = "CONSTANT"
+    return len(points)
 
 
 def _import(path: Path) -> tuple[list[bpy.types.Object], float]:
@@ -292,11 +334,14 @@ def _bind_clock(owner, source: bpy.types.Object, action, fps: float) -> None:
     scene.render.fps_base = 1.0
     scene.frame_start = first
     scene.frame_end = max(last, first)
-    scene[props.OWNER_KEY] = owner.name
+    # The viewer window's context scene IS this preview scene, so the panel and
+    # the operators have to be able to walk back to the animator's scene from it.
+    scene.preview_owner = owner
     scene.frame_set(first)
     owner.preview_frame = first
     apply_rest(owner)
     _frame_armature(source)
+    _tag_viewer_redraw()
 
 
 # --------------------------------------------------------------------------- #
@@ -319,12 +364,31 @@ def open_window() -> tuple[bool, str]:
     window.scene = scene
     window.width = _PREVIEW_WINDOW_WIDTH
     window.height = _PREVIEW_WINDOW_HEIGHT
+    if _shares_layout(window):
+        # `wm.window_new` gave the viewer the SAME Screen datablock as the
+        # animator's window. Areas belong to the Screen, not to the window, so
+        # shading or view changes here would rewrite their viewport — the one
+        # thing isolation forbids (S1). Leave the layout alone and say so.
+        return True, (
+            "3D viewer opened, but it shares your window layout: "
+            "the tool did not change your viewport shading or framing"
+        )
     _configure_viewports(window)
     _frame_armature(source_armature())
     return True, "3D viewer opened"
 
 
+def _shares_layout(window) -> bool:
+    """Whether another window is displaying the same Screen as ``window``."""
+    return any(
+        other != window and other.screen == window.screen
+        for other in bpy.context.window_manager.windows
+    )
+
+
 def _configure_viewports(window) -> None:
+    if _shares_layout(window):
+        return
     for area in window.screen.areas:
         if area.type != "VIEW_3D":
             continue
@@ -346,7 +410,7 @@ def _frame_armature(armature: bpy.types.Object | None) -> None:
     size = max((point - center).length for point in points) * 2.0
     distance = max(size, _MIN_VIEW_DISTANCE) * 1.4
     for window in bpy.context.window_manager.windows:
-        if window.scene != preview_scene():
+        if window.scene != preview_scene() or _shares_layout(window):
             continue
         for area in window.screen.areas:
             if area.type != "VIEW_3D":

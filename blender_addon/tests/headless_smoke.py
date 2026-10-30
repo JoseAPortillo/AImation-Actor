@@ -18,9 +18,11 @@ own FBX writer into a temporary folder, so nothing has to be committed.
 
 from __future__ import annotations
 
+import math
 import sys
 import tempfile
 import traceback
+import types
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -30,7 +32,7 @@ for _entry in (str(REPO), str(REPO / "blender_addon")):
 
 import aimation_transpose as addon  # noqa: E402
 import bpy  # noqa: E402
-from aimation_transpose import preview, props  # noqa: E402
+from aimation_transpose import preview, props, ui  # noqa: E402
 
 from aimation_actor.adapters.io.fbx import binary, document  # noqa: E402
 from aimation_actor.core.models import (  # noqa: E402
@@ -73,15 +75,36 @@ def _skeleton(extra_bone: str | None) -> Skeleton:
     return Skeleton(joints=tuple(joints))
 
 
-def write_capture(path: Path, frames: tuple[int, ...], extra_bone: str | None = None) -> None:
-    """Write one sparse capture with the application's writer."""
+def _quat_x(angle_deg: float) -> Quaternion:
+    """A rotation about the domain X axis (it moves both Y and Z)."""
+    half = math.radians(angle_deg) / 2.0
+    return Quaternion(math.cos(half), math.sin(half), 0.0, 0.0)
+
+
+def write_capture(
+    path: Path,
+    frames: tuple[int, ...],
+    extra_bone: str | None = None,
+    angles: tuple[float, ...] | None = None,
+) -> None:
+    """Write one sparse capture with the application's writer.
+
+    ``angles`` gives each key an X-axis spin. Without it every key is identity and
+    the file cannot show a missing motion — which is exactly the blind spot that
+    let the "keys but no movement" report through the first version of this smoke.
+    """
     skeleton = _skeleton(extra_bone)
     keyframes = tuple(
         Keyframe(
             frame=frame,
-            pose={name: JointPose(rotation=Quaternion.identity()) for name in skeleton.names()},
+            pose={
+                name: JointPose(
+                    rotation=_quat_x(angles[index]) if angles is not None else Quaternion.identity()
+                )
+                for name in skeleton.names()
+            },
         )
-        for frame in frames
+        for index, frame in enumerate(frames)
     )
     state = TimelineState(
         skeleton=skeleton,
@@ -114,10 +137,49 @@ def armature_objects() -> list[bpy.types.Object]:
     return [obj for obj in bpy.data.objects if obj.type == "ARMATURE"]
 
 
+def channel_values(action, data_path: str) -> dict:
+    """The animated channels of one transform property, by component index.
+
+    Read straight off the fcurves: ``FCurve.evaluate`` is deterministic and needs
+    no depsgraph, so it pins what the viewer will really show. The *evaluated
+    pose* of a non-active scene is not readable reliably in background mode
+    (values lag or freeze depending on the window's own depsgraph), so "the
+    skeleton visibly moves" stays a manual check, like the window itself.
+    """
+    curves = {}
+    for layer in action.layers:
+        for strip in layer.strips:
+            for slot in action.slots:
+                bag = strip.channelbag(slot)
+                if bag is None:
+                    continue
+                for fcurve in bag.fcurves:
+                    if fcurve.data_path == data_path:
+                        curves[fcurve.array_index] = fcurve
+    return curves
+
+
+def sample(channels: dict, frame: int) -> tuple:
+    return tuple(round(channels[index].evaluate(frame), 4) for index in sorted(channels))
+
+
+def interpolations(action) -> set[str]:
+    found = set()
+    for layer in action.layers:
+        for strip in layer.strips:
+            for slot in action.slots:
+                bag = strip.channelbag(slot)
+                if bag is None:
+                    continue
+                for fcurve in bag.fcurves:
+                    found.update(point.interpolation for point in fcurve.keyframe_points)
+    return found
+
+
 def main() -> None:
     folder = Path(tempfile.mkdtemp(prefix="aimation-smoke-"))
-    write_capture(folder / "b_take.fbx", frames=(0, 10, 20))
-    write_capture(folder / "a_take.fbx", frames=(0, 15, 30))
+    write_capture(folder / "b_take.fbx", frames=(0, 10, 20), angles=(0.0, 45.0, 90.0))
+    write_capture(folder / "a_take.fbx", frames=(0, 15, 30), angles=(0.0, 90.0, 180.0))
     write_capture(folder / "c_other.fbx", frames=(0, 10), extra_bone="R_Hand")
     (folder / "notes.txt").write_text("not a capture", encoding="utf-8")
 
@@ -163,7 +225,11 @@ def main() -> None:
     source_pointer = source.as_pointer()
     check("the source armature is marked", bool(source.get(props.SOURCE_MARKER)))
     check("the source is shown in front", source.show_in_front is True)
-    check("the source is in rest pose while mapping", source.data.pose_position == "REST")
+    check(
+        "the viewer shows the pose, not the bind pose, by default",
+        source.data.pose_position == "POSE" and scene.preview_rest is False,
+        f"{source.data.pose_position} rest={scene.preview_rest}",
+    )
     check(
         "the clock took the capture's frame range",
         (scene.capture_first, scene.capture_last) == (0, 30),
@@ -190,6 +256,79 @@ def main() -> None:
             f"fps={scene.render.fps} range={(scene.frame_start, scene.frame_end)} "
             f"frame={scene.frame_current}"
         ),
+    )
+
+    # -- S1: the keys must actually move the skeleton ------------------------ #
+    # Every capture this smoke first wrote used identity rotations, so it could
+    # never have caught a viewer that shows a frozen pose. Read the channels the
+    # animator's file actually carries.
+    action = source.animation_data.action
+    channels = channel_values(action, 'pose.bones["L_Ankle"].rotation_quaternion')
+    check(
+        "the capture animated the skeleton's rotation",
+        bool(channels),
+        f"channels={sorted(channels)}",
+    )
+    at_first = sample(channels, scene.capture_first)
+    at_key = sample(channels, scene.capture_first + 15)
+    between = sample(channels, scene.capture_first + 20)
+    at_last = sample(channels, scene.capture_last)
+    check(
+        "a keyed frame differs from the first frame",
+        at_first != at_key,
+        f"{at_first} vs {at_key}",
+    )
+    check(
+        "a frame between keys holds the previous key (stepped, nothing invented)",
+        between == at_key,
+        f"{between} vs {at_key}",
+    )
+    check("the last key moves further still", at_last != between, f"{at_last} vs {between}")
+    found = interpolations(action)
+    check(
+        "the viewer re-asserts stepped keys over the importer's LINEAR",
+        found == {"CONSTANT"},
+        str(found),
+    )
+
+    # -- S1: the tool must survive being drawn in the viewer window ---------- #
+    viewer_context = types.SimpleNamespace(scene=preview_scene)
+    check("the preview scene records its owner", preview_scene.preview_owner == scene)
+    check(
+        "the tool state resolves from the viewer window",
+        props.tool_scene(viewer_context) == scene,
+    )
+    check(
+        "the tool state resolves from the working window",
+        props.tool_scene(types.SimpleNamespace(scene=scene)) == scene,
+    )
+    check(
+        "the panel is reachable from the viewer window",
+        ui.AIMATION_PT_transpose.poll(viewer_context) is True,
+    )
+    # Any other scene is a working scene: it gets its own panel, not the viewer's.
+    stranger = bpy.data.scenes.new("Stranger Scene")
+    check(
+        "an unrelated scene still gets its own panel",
+        props.tool_scene(types.SimpleNamespace(scene=stranger)) == stranger,
+    )
+    # A viewer window whose owner is gone must hide the panel, not drive nothing.
+    owner_backup = preview_scene.preview_owner
+    preview_scene.preview_owner = None
+    check(
+        "a viewer window with no owner hides the panel instead of misbehaving",
+        ui.AIMATION_PT_transpose.poll(viewer_context) is False,
+    )
+    preview_scene.preview_owner = owner_backup
+
+    # -- S1: bind pose is the opt-in mode, and it really freezes ------------ #
+    scene.preview_rest = True
+    check("Bind pose switches the armature to REST", source.data.pose_position == "REST")
+    scene.preview_rest = False
+    check("leaving Bind pose returns to POSE", source.data.pose_position == "POSE")
+    check(
+        "the panel's own state survives a Rest round trip",
+        scene.preview_rest is False and source.data.pose_position == "POSE",
     )
 
     scene.capture_index = 1

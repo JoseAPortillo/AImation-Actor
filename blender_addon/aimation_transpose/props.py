@@ -12,14 +12,15 @@ import bpy
 from . import captures
 
 __all__ = [
-    "OWNER_KEY",
     "PREVIEW_SCENE",
     "SOURCE_MARKER",
     "SOURCE_NAME",
     "CaptureItem",
+    "owner_of",
     "refresh_captures",
     "selected_name",
     "status",
+    "tool_scene",
 ]
 
 #: The scene holding the imported capture. It is never the working scene.
@@ -28,8 +29,6 @@ PREVIEW_SCENE = "AImation Capture"
 SOURCE_NAME = "AImation Capture Rig"
 #: Custom property marking the source armature, so a rename never breaks it.
 SOURCE_MARKER = "aimation_capture_source"
-#: Custom property on the preview scene naming the scene that owns the clock.
-OWNER_KEY = "aimation_preview_owner"
 
 #: Guards the RNA update callbacks while the capture list is being rebuilt.
 _RESTORING = False
@@ -39,6 +38,31 @@ class CaptureItem(bpy.types.PropertyGroup):
     """One row of the capture listbox (S2)."""
 
     name: bpy.props.StringProperty()  # type: ignore[valid-type]
+
+
+def owner_of(scene) -> bpy.types.Scene | None:
+    """The scene whose tool state ``scene`` should act on (S1).
+
+    Every tool property lives on the *animator's* scene. The preview scene carries
+    its own empty copy of them (RNA properties registered on ``bpy.types.Scene``
+    exist on every scene), so acting on the preview scene's copy would silently
+    drive nothing. The preview scene records its owner, and that is followed here.
+    """
+    if scene is None:
+        return None
+    if scene.name == PREVIEW_SCENE:
+        return scene.preview_owner
+    return scene
+
+
+def tool_scene(context) -> bpy.types.Scene | None:
+    """The owner scene resolved from a draw/operator context.
+
+    Without this the tool appears to vanish the moment the viewer opens: the
+    viewer window's scene *is* the preview scene, so its controls would be
+    reading an empty copy of themselves.
+    """
+    return owner_of(getattr(context, "scene", None))
 
 
 def refresh_captures(scene, context) -> int:
@@ -86,12 +110,15 @@ def _set_status(scene, message: str) -> None:
 def _on_capture_index(scene, context) -> None:
     if _RESTORING:
         return
-    name = selected_name(scene)
+    owner = owner_of(scene)
+    if owner is None:
+        return
+    name = selected_name(owner)
     if name is None:
         return
     from . import preview
 
-    preview.schedule_load(scene.name, name)
+    preview.schedule_load(owner.name, name)
 
 
 def _on_preview_frame(scene, context) -> None:
@@ -101,9 +128,12 @@ def _on_preview_frame(scene, context) -> None:
 
 
 def _on_preview_rest(scene, context) -> None:
+    owner = owner_of(scene)
+    if owner is None:
+        return
     from . import preview
 
-    preview.apply_rest(scene)
+    preview.apply_rest(owner)
 
 
 def _on_preview_scene_frame(scene, _depsgraph=None) -> None:
@@ -114,8 +144,7 @@ def _on_preview_scene_frame(scene, _depsgraph=None) -> None:
     """
     if scene.name != PREVIEW_SCENE:
         return
-    owner_name = scene.get(OWNER_KEY, "")
-    owner = bpy.data.scenes.get(owner_name) if owner_name else None
+    owner = scene.preview_owner
     if owner is None or owner.preview_frame == scene.frame_current:
         return
     owner.preview_frame = scene.frame_current
@@ -143,8 +172,13 @@ def register() -> None:
     )
     scene.preview_playing = bpy.props.BoolProperty(default=False)  # type: ignore[attr-defined]
     scene.preview_rest = bpy.props.BoolProperty(  # type: ignore[attr-defined]
-        default=True, update=_on_preview_rest
+        default=False,
+        name="Bind pose",
+        description="Freeze the capture in its bind pose for mapping; animation is not "
+        "evaluated while this is on",
+        update=_on_preview_rest,
     )
+    scene.preview_owner = bpy.props.PointerProperty(type=bpy.types.Scene)  # type: ignore[attr-defined]
     scene.target_rig = bpy.props.PointerProperty(  # type: ignore[attr-defined]
         type=bpy.types.Object, poll=_rig_poll
     )
@@ -157,6 +191,7 @@ def unregister() -> None:
     scene = bpy.types.Scene
     for name in (
         "target_rig",
+        "preview_owner",
         "preview_rest",
         "preview_playing",
         "preview_frame",
