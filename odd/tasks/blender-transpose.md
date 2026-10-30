@@ -227,7 +227,9 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   own viewport. `bpy.data.screens.new` and `Screen.copy` do not exist in 5.2.3
   (measured), so a private layout is not something the tool can create.
 - **L10.** Smoke evidence after L9: 41 checks (was 27), all green, `ruff check .`
-  clean, 22 pure tests green. The capture builders now rotate about the domain X
+  clean, 22 pure tests green, full suite green. L9+L10 landed as `dccef35` on
+  `feat/blender-transpose` (362 insertions), pushed into PR #9. The capture
+  builders now rotate about the domain X
   axis, because the first version wrote identity rotations for every key and
   therefore **could not have caught a viewer that shows a frozen pose** — that
   blind spot is why this report reached a human instead of the smoke. Reading the
