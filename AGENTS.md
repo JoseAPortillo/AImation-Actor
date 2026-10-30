@@ -47,6 +47,9 @@ aimation_actor/
     └── ai/                     # hmr2_adapter.py, condmdi_adapter.py
 tests/                          # unit tests for core and ports
 assets/                         # icons, styles, sample data
+blender_addon/                  # GPL Blender extension: the retarget tool
+└── aimation_transpose/         # capture viewer + control-rig transposition (FR-RET)
+    └── tests/                  # headless bpy smoke (needs a Blender install)
 ```
 
 ## Tech stack
@@ -99,6 +102,32 @@ splitting the read and write paths:
   fcurve keyframe times, each recorded as a full pose snapshot.
 - **Precision:** Blender keeps transforms in float32, so a read/write round trip
   is exact only to ~1 ULP of the magnitude (~1.2e-4 at 1000 cm).
+- **Stepped tangents do not survive a Blender import.** The writer emits
+  `KeyAttrFlags = 24836` (CONSTANT), and the file is genuinely stepped, but
+  Blender's importer never reads that field: its own source says *"Currently,
+  linear interpolation is assumed, but FBX does store how keyframes should be
+  interpolated"* (`import_fbx.py:716`). Anything that imports a capture into
+  Blender must re-assert `interpolation = 'CONSTANT'` on the loaded keyframes
+  (the add-on does this in `preview._make_stepped`) or it will display
+  in-between poses the animator never keyed. Reading keyed frames directly, as
+  the read bridge does, is unaffected.
+- **Two import conventions, on purpose.** The add-on imports captures through
+  the legacy importer (`bpy.ops.import_scene.fbx`) with
+  `automatic_bone_orientation=True`, because at its default the importer keeps
+  the FBX-authored axes and draws the skeleton inside-out (measured on a
+  synthetic capture: the `Pelvis` bone, whose rest offset goes down from the
+  hips, spans y 90 → 170 with the flag off and y 90 → 10 with it on). The
+  application's read bridge (`adapters/io/fbx/blender_import.py`) keeps the
+  importer's defaults: every documented round trip (FR-IMP-01/02, FR-EXP-02) was
+  validated against the armature-space basis that convention produces, so
+  changing the bridge means re-validating `transform.py`, not just flipping a
+  flag. **PR 4's return bake must respect this split** — the bake writes into the
+  production skeleton and exports through the application's writer, and the two
+  paths do not agree on bone axes by design.
+- **`bpy.ops.wmf.fbx_import` is a name without an operator** in 5.2.3
+  (factory-startup): the attribute exists but resolving its RNA raises
+  `KeyError: get_rna_type("WMF_OT_fbx_import") not found`. The legacy importer is
+  the one that runs, and the only one carrying `automatic_bone_orientation`.
 - **Limitation:** `JointData.rest_translation` is a parent-frame `Lcl` offset and
   the domain assumes identity bind rotations. Animation round-trips exactly, but a
   foreign rig with rotated bind orientations has no faithful bind *pose* here.
@@ -228,6 +257,20 @@ need to activate:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+The Blender add-on's `bpy` shell cannot run under that interpreter. Its logical
+half (`captures.py`, `clock.py`) is covered by the normal pytest run; the rest is
+a headless smoke against a real Blender install:
+
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" `
+    --background --factory-startup --python-exit-code 1 `
+    --python blender_addon\tests\headless_smoke.py
+```
+
+It is self-contained (it writes its own captures with the repository's writer).
+A secondary window cannot be opened in `--background`, so the viewer window
+itself stays a manual check — the same posture as the FBX read bridge.
+
 ## Engineering principles (required)
 
 Every change must respect these principles. They are not optional polish — they
@@ -291,3 +334,20 @@ are the bar for a change to be acceptable.
 - `tests/` covers `core/`, `ports/`, and the pure-Python parts of the FBX
   adapter (codec, node tree, conversions, JSON → domain). The Blender subprocess
   path needs a Blender install, so it is exercised manually, not in CI.
+- The Blender add-on follows the same split: `blender_addon/aimation_transpose/`
+  keeps `bpy`-free modules (`captures.py`, `clock.py`, and the retarget math)
+  importable by path so `tests/` covers them without Blender, while everything
+  touching `bpy` is proven by `blender_addon/tests/headless_smoke.py`. Never
+  import the add-on package as a package from pytest — its `__init__` imports
+  `bpy`.
+- **Blender window facts the add-on depends on** (all measured on 5.2.3):
+  `Window.scene` and `Window.view_layer` are writable; `Window.width`, `height`,
+  `x` and `y` are **read-only** and there is no resize operator, so a script
+  cannot size a window. `bpy.data.screens.new` and `Screen.copy` do not exist,
+  so a second window cannot be given a private layout — and because `Area`
+  objects belong to the `Screen`, not the `Window`, anything that changes
+  shading or `region_3d` of a shared screen rewrites the animator's own
+  viewport. The classes are `View3DShading` / `View3DOverlay` (not
+  `SpaceShading` / `SpaceOverlay`). In `--background` there is one window and
+  `wm.window_new` fails its poll, so window behaviour is only ever a manual
+  check.
