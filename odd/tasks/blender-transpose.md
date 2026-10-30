@@ -104,8 +104,8 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
 
 | ID | Spec | Route | Status | Commit |
 | -- | ---- | ----- | ------ | ------ |
-| T1 | S1, S2, S9 | inline | done | Add-on package: extension manifest, preferences, capture listing, preview scene, import/refresh into it, panel + UIList. RED/GREEN: pure `captures`/`clock` tests; `headless_smoke.py` checks the preview scene owns the only armature, the working scene owns none, and a missing folder/capture fails named. |
-| T2 | S1, S9 | inline | done | Secondary window, play/pause, frame slider, independent clock mirrored into the preview scene. RED/GREEN: `clock.frame_at` tests (advance, truncate, wrap, non-zero range start, no rate, empty and single-frame ranges); smoke checks the frame range/rate binding and that the working scene comes back at 24 fps / 1-250 / frame 7 after an import. The window itself is a manual check. |
+| T1 | S1, S2, S9 | inline | done | `f840ac3` (PR #9) — Add-on package: extension manifest, preferences, capture listing, preview scene, import/refresh into it, panel + UIList. RED/GREEN: pure `captures`/`clock` tests; `headless_smoke.py` checks the preview scene owns the only armature, the working scene owns none, and a missing folder/capture fails named. |
+| T2 | S1, S9 | inline | done | `f840ac3` (PR #9) — Secondary window, play/pause, frame slider, independent clock mirrored into the preview scene. RED/GREEN: `clock.frame_at` tests (advance, truncate, wrap, non-zero range start, no rate, empty and single-frame ranges); smoke checks the frame range/rate binding and that the working scene comes back at 24 fps / 1-250 / frame 7 after an import. The window itself is a manual check. |
 | T3 | S4 | inline | pending | Mapping `CollectionProperty`, click-to-map modal picking (bones and empties), grey/pending/green colours, persistence. |
 | T4 | S5, S6 | inline | pending | Pure `retarget_math`, `Transpose` operator, sparse bake, root motion. |
 | T5 | S8 | inline | pending | Return bake onto the production skeleton + export. |
@@ -180,3 +180,13 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   in this environment and fails on `main` too (verified in a worktree at
   `c55edad`). Not verified, by design: opening the secondary window
   (`--background` has no window manager).
+- **L8.** Delivery (2026-10-30): T1+T2 committed as `f840ac3` on
+  `feat/blender-transpose`, pushed, and opened as **PR #9** against `main`
+  (1723 added lines). Delivery strategy `ask-on-risk` resolved by the user at
+  **one PR with `size:exception`**: the viewer does not function split in half
+  (without the import there is nothing for the panel to show), so a pure-modules
+  PR would be dead code. The label `size:exception` was created on this repo for
+  that reason, with the description *"Knowingly larger than a review slice:
+  splitting it would ship code that cannot run"*. Slice boundary: PR #9 holds
+  `f840ac3` only. The next slice is T3 (FR-RET-04/06/07, click-to-map), then T4
+  (FR-RET-05/06, Transpose), then T5 (FR-RET-08, return bake).
