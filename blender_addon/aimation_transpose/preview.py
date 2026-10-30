@@ -27,8 +27,6 @@ __all__ = [
     "source_armature",
 ]
 
-_PREVIEW_WINDOW_WIDTH = 1000
-_PREVIEW_WINDOW_HEIGHT = 760
 _MIN_VIEW_DISTANCE = 2.0
 
 #: Coalesces rapid listbox clicks into one deferred load.
@@ -362,8 +360,13 @@ def open_window() -> tuple[bool, str]:
         return False, f"The 3D viewer needs the interactive editor: {error}"
     window = manager.windows[-1]
     window.scene = scene
-    window.width = _PREVIEW_WINDOW_WIDTH
-    window.height = _PREVIEW_WINDOW_HEIGHT
+    # The view layer follows the scene: the viewer's own timeline and viewport
+    # must belong to the preview scene, not to the animator's.
+    if scene.view_layers:
+        window.view_layer = scene.view_layers[0]
+    # The window is deliberately NOT sized: `Window.width`, `Window.height`,
+    # `Window.x` and `Window.y` are read-only in Blender 5.2 and there is no
+    # resize operator, so geometry is the animator's to decide by dragging.
     if _shares_layout(window):
         # `wm.window_new` gave the viewer the SAME Screen datablock as the
         # animator's window. Areas belong to the Screen, not to the window, so

@@ -238,4 +238,34 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   fcurves with `FCurve.evaluate`, which is deterministic; "the skeleton visibly
   moves in the viewport" now joins the window and the panel drawing as a manual
   check.
+- **L11.** Second user report, verbatim: *"error de blender: Python: Traceback
+  (most recent call last): ... operators.py, line 126, in execute /
+  ok, message = preview.open_window() ... preview.py, line 320, in open_window /
+  window.width = _PREVIEW_WINDOW_WIDTH ... AttributeError: bpy_struct: attribute
+  "width" from "Window" is read-only"*. Root cause: the viewer sized its window
+  through `Window.width` / `Window.height`, both read-only in 5.2, and there is
+  no resize operator — so window geometry is simply not something the tool may
+  set. Removed with the constants. The traceback also proved `wm.window_new()`
+  itself works interactively (it reached the next line), which no headless run
+  can show, and that their installed copy at
+  `%APPDATA%\...\extensions\user_default\aimation_transpose` was the pre-fix
+  build.
+  Response to the class of bug, not just the instance: the smoke now pins the
+  **whole write surface** the viewer uses. `Window.scene` and `Window.view_layer`
+  must be writable; `width/height/x/y` must be read-only (the reason we do not
+  set them); `View3DShading.type`, `View3DOverlay.show_relationship_lines` and
+  the three `RegionView3D` framing properties must be writable; `tag_redraw()`
+  must exist on a real `Area`. Because headless `window_new` fails its poll
+  **before** any of those lines run, an extra pin reads `open_window`'s own
+  source and rejects any `window.<attr> =` assignment whose RNA property is not
+  writable — matched generically, not against a fixed list, so a future
+  assignment cannot slip past. Mutation-tested: re-adding
+  `window.width = 1000` fails that pin immediately; the committed code passes.
+  Also found while measuring this: the type names are `View3DShading` /
+  `View3DOverlay`, not `SpaceShading` / `SpaceOverlay` — my first draft of these
+  very checks crashed on the wrong name, which is why they now look types up by
+  RNA id instead of hardcoding class names.
+  `open_window` now also binds `window.view_layer` to the preview scene's own
+  view layer, so the viewer's timeline and viewport belong to its scene.
+  Smoke: 41 -> **50 checks**, all green; `ruff check .` clean; full suite green.
 

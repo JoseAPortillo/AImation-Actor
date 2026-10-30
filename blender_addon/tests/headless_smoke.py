@@ -18,7 +18,9 @@ own FBX writer into a temporary folder, so nothing has to be committed.
 
 from __future__ import annotations
 
+import inspect
 import math
+import re
 import sys
 import tempfile
 import traceback
@@ -389,6 +391,88 @@ def main() -> None:
         count == 0 and scene.capture_index == -1,
         f"count={count} index={scene.capture_index}",
     )
+
+    # -- the viewer's write surface ----------------------------------------- #
+    # `open_window` only runs interactively, and that is exactly where the first
+    # user test crashed: `Window.width` is read-only. These checks pin every
+    # attribute the viewer assigns, so a write that Blender forbids fails here
+    # instead of in someone's face. Types are looked up by RNA id, never by class
+    # name: 5.2 calls these `View3DShading` / `View3DOverlay`, and an earlier
+    # draft of this very check crashed on the wrong name.
+    def readonly_of(rna_id: str, prop: str):
+        for class_name in dir(bpy.types):
+            candidate = getattr(bpy.types, class_name, None)
+            rna = getattr(candidate, "bl_rna", None)
+            if rna is not None and rna.identifier == rna_id:
+                return rna.properties[prop].is_readonly
+        return "MISSING"
+
+    window_ro = {
+        name: readonly_of("Window", name)
+        for name in ("scene", "view_layer", "width", "height", "x", "y")
+    }
+    check("the viewer binds its window by scene", window_ro["scene"] is False, str(window_ro))
+    check(
+        "the viewer follows that scene's view layer",
+        window_ro["view_layer"] is False,
+        str(window_ro),
+    )
+    check(
+        "the viewer does not try to size the window (geometry is read-only)",
+        all(window_ro[name] is True for name in ("width", "height", "x", "y")),
+        str(window_ro),
+    )
+    check("the viewer can set solid shading", readonly_of("View3DShading", "type") is False)
+    check(
+        "the viewer can hide relationship lines",
+        readonly_of("View3DOverlay", "show_relationship_lines") is False,
+    )
+    framing = {
+        name: readonly_of("RegionView3D", name)
+        for name in ("view_location", "view_distance", "view_perspective")
+    }
+    check(
+        "the viewer can frame the armature",
+        not any(framing.values()),
+        str(framing),
+    )
+    probe_area = next(
+        (area for area in bpy.data.screens[0].areas if area.type == "VIEW_3D"), None
+    )
+    check(
+        "the viewer can ask a viewport to repaint",
+        probe_area is not None and callable(getattr(probe_area, "tag_redraw", None)),
+    )
+
+    # Headless never reaches the window writes at all (`window_new` fails its
+    # poll first), so the checks above cannot catch a forbidden assignment in
+    # this function. Read the source instead: the user's crash was exactly an
+    # assignment to a read-only property that no headless path would have hit.
+    # Every assignment is matched, not a fixed list, so a future write to some
+    # other Window property cannot sneak past either.
+    assigned = set(re.findall(r"\bwindow\.(\w+)\s*=", inspect.getsource(preview.open_window)))
+    writable = {name: readonly_of("Window", name) is False for name in sorted(assigned)}
+    forbidden = {name: flag for name, flag in writable.items() if not flag}
+    check(
+        "open_window assigns only writable Window properties",
+        not forbidden,
+        f"assigned={writable}",
+    )
+
+    # Last, because a successful `window_new` in this mode would rebind the only
+    # window's scene and disturb everything above. Headless has no window
+    # manager, so the PASS here is the honest refusal; what must never happen is
+    # an unwritable attribute blowing up the operator (the user's crash).
+    try:
+        ok, message = preview.open_window()
+    except AttributeError as error:
+        check("open_window writes only writable attributes", False, str(error))
+    else:
+        check(
+            "open_window refuses headless with a named reason, not a crash",
+            ok is False and "interactive editor" in message,
+            message,
+        )
 
     addon.unregister()
 

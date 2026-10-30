@@ -323,3 +323,14 @@ are the bar for a change to be acceptable.
   touching `bpy` is proven by `blender_addon/tests/headless_smoke.py`. Never
   import the add-on package as a package from pytest — its `__init__` imports
   `bpy`.
+- **Blender window facts the add-on depends on** (all measured on 5.2.3):
+  `Window.scene` and `Window.view_layer` are writable; `Window.width`, `height`,
+  `x` and `y` are **read-only** and there is no resize operator, so a script
+  cannot size a window. `bpy.data.screens.new` and `Screen.copy` do not exist,
+  so a second window cannot be given a private layout — and because `Area`
+  objects belong to the `Screen`, not the `Window`, anything that changes
+  shading or `region_3d` of a shared screen rewrites the animator's own
+  viewport. The classes are `View3DShading` / `View3DOverlay` (not
+  `SpaceShading` / `SpaceOverlay`). In `--background` there is one window and
+  `wm.window_new` fails its poll, so window behaviour is only ever a manual
+  check.
