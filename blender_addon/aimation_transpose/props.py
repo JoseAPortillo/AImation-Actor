@@ -22,6 +22,7 @@ __all__ = [
     "index_of",
     "owner_of",
     "refresh_captures",
+    "remove_capture",
     "selected_name",
     "status",
     "tool_scene",
@@ -128,6 +129,35 @@ def index_of(scene, name: str) -> int | None:
         if item.name == name:
             return index
     return None
+
+
+def remove_capture(scene, name: str) -> bool:
+    """Drop ``name``'s row from the list; the viewer keeps what it shows (S2).
+
+    A folder refresh is the folder's truth and will re-list a removed folder
+    file; only hand-imported rows are gone for good. The selection follows the
+    removed row's neighbour and the whole change runs under the rebuild guard,
+    so removing a row never schedules a load of whatever the clamp lands on.
+    """
+    global _RESTORING
+    index = index_of(scene, name)
+    if index is None:
+        return False
+    selected = selected_name(scene)
+    _RESTORING = True
+    try:
+        scene.capture_items.remove(index)
+        count = len(scene.capture_items)
+        kept = index_of(scene, selected) if selected and selected != name else None
+        if kept is not None:
+            scene.capture_index = kept
+        elif count:
+            scene.capture_index = min(index, count - 1)
+        else:
+            scene.capture_index = -1
+    finally:
+        _RESTORING = False
+    return True
 
 
 def selected_name(scene) -> str | None:

@@ -17,6 +17,7 @@ __all__ = [
     "AIMATION_OT_import_capture",
     "AIMATION_OT_open_viewer",
     "AIMATION_OT_refresh_captures",
+    "AIMATION_OT_remove_capture",
 ]
 
 
@@ -124,6 +125,37 @@ class AIMATION_OT_import_capture(bpy.types.Operator, ImportHelper):
         return {"FINISHED"}
 
 
+class AIMATION_OT_remove_capture(bpy.types.Operator):
+    bl_idname = "aimation.remove_capture"
+    bl_label = "Remove"
+    bl_description = (
+        "Remove the selected capture from the list; the viewer keeps showing "
+        "what is loaded. A removed folder file comes back on Refresh"
+    )
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        scene = props.tool_scene(context)
+        if scene is None:  # a viewer window with no owner has no state to drive
+            message = "This viewer window is not bound to a working scene"
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        name = props.selected_name(scene)
+        if name is None or not props.remove_capture(scene, name):
+            message = "Select a capture in the list first"
+            props.report(scene, message)
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        folder = _capture_folder(context)
+        if folder and (Path(folder) / name).is_file():
+            props.report(
+                scene, f"Removed {name}; Refresh lists it again while it stays in the folder"
+            )
+        else:
+            props.report(scene, f"Removed {name} from the list")
+        return {"FINISHED"}
+
+
 class AIMATION_OT_open_viewer(bpy.types.Operator):
     bl_idname = "aimation.open_viewer"
     bl_label = "Open 3D Viewer"
@@ -150,6 +182,7 @@ class AIMATION_OT_open_viewer(bpy.types.Operator):
 _OPERATORS = (
     AIMATION_OT_refresh_captures,
     AIMATION_OT_import_capture,
+    AIMATION_OT_remove_capture,
     AIMATION_OT_open_viewer,
 )
 

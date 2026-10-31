@@ -60,7 +60,8 @@ class AIMATION_PT_transpose(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Captures", icon="PRESET")
-        box.template_list(
+        row = box.row()
+        row.template_list(
             "AIMATION_UL_captures",
             "",
             scene,
@@ -69,6 +70,8 @@ class AIMATION_PT_transpose(bpy.types.Panel):
             "capture_index",
             rows=6,
         )
+        # A list the animator cannot prune is a list they stop trusting (S2).
+        row.column(align=True).operator("aimation.remove_capture", text="", icon="X")
 
         viewer = layout.box()
         open_already = preview.viewer_window() is not None

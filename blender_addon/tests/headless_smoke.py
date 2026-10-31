@@ -478,6 +478,31 @@ def main() -> None:
         f"count={count} rows={rows}",
     )
 
+    # -- S2: removing a capture from the list -------------------------------- #
+    # The guard must hold while the selection MOVES, not only when the list
+    # empties: a clamp that changes capture_index fires the RNA update, and an
+    # unguarded update would schedule a load of the row the clamp lands on.
+    stub.capture_folder = str(folder)
+    count = props.refresh_captures(scene, bpy.context)
+    scene.capture_index = 2
+    preview._deferred_load()  # consume the scheduled load; the list is settled
+    check("a row can be removed from the list", props.remove_capture(scene, "a_take.fbx"))
+    check(
+        "removing another row keeps the selection",
+        props.selected_name(scene) == "c_other.fbx",
+        props.selected_name(scene),
+    )
+    check("removing a row never schedules a load", preview._pending is None)
+    check("removing a row leaves the viewer alone", scene.capture_loaded == "c_other.fbx")
+    check("removing a missing row fails", not props.remove_capture(scene, "a_take.fbx"))
+    stub.capture_folder = str(folder)
+    count = props.refresh_captures(scene, bpy.context)
+    check(
+        "a refresh re-lists a removed folder file",
+        count == 3 and "a_take.fbx" in [row.name for row in scene.capture_items],
+        f"count={count}",
+    )
+
     # -- the viewer's write surface ----------------------------------------- #
     # `open_window` only runs interactively, and that is exactly where the first
     # user test crashed: `Window.width` is read-only. These checks pin every

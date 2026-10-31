@@ -43,10 +43,13 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
    picker and adds ONLY the picked file to the list, remembering its exact
    path without adopting its folder — the capture folder field is the
    whole-folder workflow; a hand-imported row survives folder refreshes and
-   selecting or importing a row loads that capture.
+   selecting or importing a row loads that capture; a Remove button drops the
+   selected row from the list — the viewer keeps showing what is loaded, and a
+   removed folder file comes back on refresh.
    Checks: pure listing/sorting tests; headless smoke of the list refresh and
    of hand-imported rows loading, surviving refresh, and failing by name when
-   their file vanishes.
+   their file vanishes, and of removal keeping the selection and never
+   scheduling a load.
 
 3. **S3 — Reload without duplication.** Changing the listbox row updates the
    existing skeleton instead of stacking a second one.
@@ -377,4 +380,26 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   hand-imported row for the same file`. `ruff check .` clean; full pytest suite
   green. S1 and S2 rewritten; spec.md v0.7.3; AGENTS.md pure-module list
   updated.
+- **L15.** User change request, verbatim: *"ok, se me ha pasado añadir un botón
+  o forma de eliminar de la lista el fbx que considere el usuario.
+  y lo mas importante, no se ha implementado en ningún momento dentro la
+  pestaña de la tool el esqueleto en a pose para seleccionar el bone que
+  conecta con el control que el usuario decida conectar."*
+  Two parts. The first is done now: a Remove button (`X` icon) beside the
+  capture list drops the selected row. Removing never schedules a load (the
+  whole change runs under the rebuild guard — proven by a mutation that fires
+  the RNA update and fails `removing a row never schedules a load`), the
+  viewer keeps whatever is loaded, the selection follows the removed row's
+  neighbour, and a removed folder file is re-listed by Refresh (the folder is
+  the folder's truth; only hand-imported rows are gone for good).
+  The second part is T3 (S4 + S7, the mapping surface) — it was planned as PR 2
+  and had not started; nothing was dropped. Before building it, one interaction
+  decision was put to the user (recorded with its answer in L16): where the
+  target-control pick happens, given that a modal operator only receives mouse
+  events from the window it started in, and the capture skeleton and the
+  animator's rig live in DIFFERENT windows.
+  Evidence: smoke 60 -> **66 checks** green (mutation-tested on the guard);
+  `ruff check .` clean; full pytest green (the known flaky
+  `test_ai_hmr2_adapter` timeout fails on `main` too, not ours). S2 rewritten;
+  spec.md v0.7.4.
 
