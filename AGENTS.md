@@ -351,3 +351,12 @@ are the bar for a change to be acceptable.
   `SpaceShading` / `SpaceOverlay`). In `--background` there is one window and
   `wm.window_new` fails its poll, so window behaviour is only ever a manual
   check.
+- **A panel can never host the 3D view.** Panels draw inside a region of type
+  `UI`; `VIEW_3D` is an **area** type and areas own their regions, so an
+  embedded viewport at any sidebar width is not a missing feature but a platform
+  impossibility (`bpy.types.Panel` has no `maximized` property either). What a
+  panel *can* own is the viewer's controls, and what it cannot do is scale the
+  3D view with the tab. `wm.window_fullscreen_toggle` exists
+  (`WM_OT_window_fullscreen_toggle`) and `screen.screen_full_area`
+  (`SCREEN_OT_screen_full_area`) exists for areas, but `Window` exposes **no
+  readable fullscreen state**, so any maximize control is a blind toggle.

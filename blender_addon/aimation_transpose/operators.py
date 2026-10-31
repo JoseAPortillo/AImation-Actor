@@ -183,10 +183,31 @@ class AIMATION_OT_toggle_preview(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class AIMATION_OT_maximize_viewer(bpy.types.Operator):
+    bl_idname = "aimation.maximize_viewer"
+    bl_label = "Maximize / Restore"
+    bl_description = (
+        "Toggle the viewer window's fullscreen state; Blender exposes no readable "
+        "fullscreen flag, so this is a toggle, not a state"
+    )
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        scene = props.tool_scene(context)
+        ok, message = preview.toggle_maximize()
+        if scene is not None:
+            props.report(scene, message)
+        if not ok:
+            self.report({"WARNING"}, message)
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 _OPERATORS = (
     AIMATION_OT_refresh_captures,
     AIMATION_OT_import_capture,
     AIMATION_OT_open_viewer,
+    AIMATION_OT_maximize_viewer,
     AIMATION_OT_toggle_preview,
 )
 

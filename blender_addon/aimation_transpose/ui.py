@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import bpy
 
-from . import prefs, props
+from . import prefs, preview, props
 
 __all__ = ["AIMATION_PT_transpose", "AIMATION_UL_captures"]
 
@@ -70,13 +70,21 @@ class AIMATION_PT_transpose(bpy.types.Panel):
             rows=6,
         )
 
-        layout.operator("aimation.open_viewer", icon="VIEW3D")
+        viewer = layout.box()
+        open_already = preview.viewer_window() is not None
+        viewer.label(
+            text="3D viewer: open" if open_already else "3D viewer: closed",
+            icon="VIEW3D",
+        )
+        row = viewer.row(align=True)
+        row.operator("aimation.open_viewer", text="Open" if open_already else "Open viewer")
+        row.operator("aimation.maximize_viewer", text="", icon="FULLSCREEN_ENTER")
 
         preview_scene = bpy.data.scenes.get(props.PREVIEW_SCENE)
         if preview_scene is None or scene.capture_last <= scene.capture_first:
-            layout.label(text="No capture loaded", icon="INFO")
+            viewer.label(text="No capture loaded", icon="INFO")
         else:
-            row = layout.row(align=True)
+            row = viewer.row(align=True)
             playing = scene.preview_playing
             row.operator(
                 "aimation.toggle_preview",
@@ -84,12 +92,12 @@ class AIMATION_PT_transpose(bpy.types.Panel):
                 icon="PAUSE" if playing else "PLAY",
             )
             row.prop(scene, "preview_rest", text="Bind pose", toggle=True)
-            layout.prop(preview_scene, "frame_current", text="Frame", slider=True)
+            viewer.prop(preview_scene, "frame_current", text="Frame", slider=True)
             if scene.preview_rest:
                 # REST does not evaluate animation: without this the frozen
                 # skeleton reads as a broken import rather than a chosen mode.
-                layout.label(text="Bind pose freezes the animation", icon="INFO")
-                layout.label(text="Untick it to watch it play.")
+                viewer.label(text="Bind pose freezes the animation", icon="INFO")
+                viewer.label(text="Untick it to watch it play.")
 
         message = props.status(scene)
         if message:

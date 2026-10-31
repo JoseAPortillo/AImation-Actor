@@ -19,6 +19,14 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
    tool panel; the capture is imported through the legacy importer with
    `automatic_bone_orientation=True`, so the skeleton keeps the shape the
    animator exported instead of an inside-out bone basis.
+   The viewer's own controls live inside the tool panel, directly below the
+   capture list, and report whether the viewer window is open. A panel cannot
+   host a `VIEW_3D` (a panel is drawn in a `UI` region; `VIEW_3D` is an *area*
+   type, and areas own their regions), so the 3D view itself stays a separate
+   window — the animator's decision, taken after that constraint was measured.
+   A maximize toggle drives Blender's own `wm.window_fullscreen_toggle` on that
+   window; `Window` exposes no readable fullscreen state and read-only geometry,
+   so the control is a toggle, not a state.
    Checks: pure clock tests; headless smoke proving the armature lands in the
    preview scene and not in the working scene, and that a bone whose rest
    offset goes down from the hips ends with its tail below its head.
@@ -296,4 +304,35 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   `head=(0.0, 90.0, 0.0) tail=(0.0, 170.0, 0.0)`. `ruff check .` clean, full
   pytest suite green. S1 rewritten; spec.md v0.7.1; AGENTS.md records both
   findings.
+- **L13.** User change request, verbatim: *"necesito que el visor este en las
+  opciones de la herramienta aimation, no fuera de ella, debe de estar justo
+  debajo del listado de fbx y que esta se escale al abrir mas la pestaña de la
+  tool, tambien añade un boton para poder maximizarla, y aqui si, la veremos como
+  la esta ahora, en un viewport aparte."*
+  The literal reading is impossible, and it was measured rather than asserted: a
+  panel is drawn inside a region of type `UI`, while `VIEW_3D` is an **area**
+  type, and areas own their regions — so no panel can host a 3D viewport, at any
+  sidebar width. `bpy.types.Panel` also has no `maximized` property. Three
+  readings were put to the user with their real costs, and the chosen one is:
+  **the viewer's controls move into the tool panel, the 3D view stays its own
+  window.** That keeps S1's isolation promise intact.
+  Implemented: a "3D viewer" box directly under the capture list that states
+  `open` / `closed` (found by scanning `window_manager.windows` on every draw via
+  `preview.viewer_window()`, never from a remembered reference, so closing the
+  window cannot make the panel lie), `Open` / `Open viewer`, a maximize toggle,
+  and the existing play/pause, Bind pose and frame slider folded into the same
+  box. `open_window` now reuses `viewer_window()` instead of duplicating the scan.
+  The maximize button calls `wm.window_fullscreen_toggle` under
+  `temp_override(window=viewer)` — verified to exist as `WM_OT_window_fullscreen_toggle`.
+  **Honest limits, both measured:** the panel's *widgets* stretch with the
+  sidebar, but the 3D view does not scale with the AImation tab (it is a separate
+  window — the accepted cost of this option), and `Window` exposes no readable
+  fullscreen flag (`parent/scene/workspace/screen/view_layer/x/y/width/height`,
+  geometry read-only), so the button is a **blind toggle**, labelled
+  "Maximize / Restore" rather than showing a state.
+  Evidence: smoke 52 -> **56 checks** green (`no viewer window is open headless`,
+  `maximize refuses with a named reason when no viewer is open`,
+  `Blender exposes no readable fullscreen state`, `the maximize operator is
+  registered`). Headless can prove the refusal path only; the actual fullscreen
+  flip is a manual check, like the window itself. S1 rewritten.
 

@@ -242,6 +242,26 @@ def main() -> None:
         "the capture is imported through the legacy importer with bone orientation on",
         "automatic_bone_orientation=True" in inspect.getsource(preview._import),
     )
+    # The viewer's controls live in the panel, so they must tell the truth about
+    # whether a viewer window exists, and refuse politely when it does not.
+    check("no viewer window is open headless", preview.viewer_window() is None)
+    ok, message = preview.toggle_maximize()
+    check(
+        "maximize refuses with a named reason when no viewer is open",
+        not ok and "Open the 3D viewer first" in message,
+        message,
+    )
+    # Why the button is a blind toggle rather than a state control (S9).
+    window_props = {p.identifier for p in bpy.types.Window.bl_rna.properties}
+    check(
+        "Blender exposes no readable fullscreen state, so the button is a toggle",
+        not any("fullscreen" in name for name in window_props),
+        str(sorted(window_props)),
+    )
+    check(
+        "the maximize operator is registered",
+        hasattr(bpy.ops.aimation, "maximize_viewer"),
+    )
     check("the source is shown in front", source.show_in_front is True)
     check(
         "the viewer shows the pose, not the bind pose, by default",

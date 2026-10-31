@@ -25,6 +25,8 @@ __all__ = [
     "schedule_load",
     "show_frame",
     "source_armature",
+    "toggle_maximize",
+    "viewer_window",
 ]
 
 _MIN_VIEW_DISTANCE = 2.0
@@ -363,18 +365,53 @@ def _bind_clock(owner, source: bpy.types.Object, action, fps: float) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def viewer_window():
+    """The window currently showing the preview scene, or ``None``.
+
+    Found every call instead of remembered: the animator can close the viewer at
+    any time, and a stale reference would make the controls lie about it (S9).
+    """
+    scene = bpy.data.scenes.get(props.PREVIEW_SCENE)
+    if scene is None:
+        return None
+    for window in bpy.context.window_manager.windows:
+        if window.scene == scene:
+            return window
+    return None
+
+
+def toggle_maximize() -> tuple[bool, str]:
+    """Toggle the viewer window's fullscreen state.
+
+    Blind on purpose: ``Window`` exposes no readable fullscreen flag
+    (``parent/scene/workspace/screen/view_layer/x/y/width/height`` is the whole
+    list) and its geometry is read-only, so the tool cannot know or set a size —
+    it can only hand Blender's own toggle to the viewer window. That is why the
+    button says "Maximize / Restore" instead of showing a state.
+    """
+    window = viewer_window()
+    if window is None:
+        return False, "Open the 3D viewer first"
+    try:
+        with bpy.context.temp_override(window=window):
+            result = bpy.ops.wm.window_fullscreen_toggle()
+    except RuntimeError as error:  # background mode has no window manager
+        return False, f"The viewer could not be maximized: {error}"
+    if "FINISHED" not in result:
+        return False, "The viewer could not be maximized: Blender refused the toggle"
+    return True, "Viewer maximized or restored"
+
+
 def open_window() -> tuple[bool, str]:
     """Open (or focus) the secondary window showing the preview scene (S1)."""
     scene = preview_scene()
-    manager = bpy.context.window_manager
-    for window in manager.windows:
-        if window.scene == scene:
-            return True, "The 3D viewer is already open"
+    if viewer_window() is not None:
+        return True, "The 3D viewer is already open"
     try:
         bpy.ops.wm.window_new()
     except RuntimeError as error:  # background mode has no window manager
         return False, f"The 3D viewer needs the interactive editor: {error}"
-    window = manager.windows[-1]
+    window = bpy.context.window_manager.windows[-1]
     window.scene = scene
     # The view layer follows the scene: the viewer's own timeline and viewport
     # must belong to the preview scene, not to the animator's.
