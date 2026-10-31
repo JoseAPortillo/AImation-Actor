@@ -258,7 +258,7 @@ need to activate:
 ```
 
 The Blender add-on's `bpy` shell cannot run under that interpreter. Its logical
-half (`captures.py`, `clock.py`) is covered by the normal pytest run; the rest is
+half (`captures.py`) is covered by the normal pytest run; the rest is
 a headless smoke against a real Blender install:
 
 ```powershell
@@ -335,7 +335,7 @@ are the bar for a change to be acceptable.
   adapter (codec, node tree, conversions, JSON → domain). The Blender subprocess
   path needs a Blender install, so it is exercised manually, not in CI.
 - The Blender add-on follows the same split: `blender_addon/aimation_transpose/`
-  keeps `bpy`-free modules (`captures.py`, `clock.py`, and the retarget math)
+  keeps `bpy`-free modules (`captures.py`, and the retarget math)
   importable by path so `tests/` covers them without Blender, while everything
   touching `bpy` is proven by `blender_addon/tests/headless_smoke.py`. Never
   import the add-on package as a package from pytest — its `__init__` imports

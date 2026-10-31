@@ -34,7 +34,7 @@ for _entry in (str(REPO), str(REPO / "blender_addon")):
 
 import aimation_transpose as addon  # noqa: E402
 import bpy  # noqa: E402
-from aimation_transpose import preview, props, ui  # noqa: E402
+from aimation_transpose import operators, preview, props, ui  # noqa: E402
 
 from aimation_actor.adapters.io.fbx import binary, document  # noqa: E402
 from aimation_actor.core.models import (  # noqa: E402
@@ -243,24 +243,29 @@ def main() -> None:
         "automatic_bone_orientation=True" in inspect.getsource(preview._import),
     )
     # The viewer's controls live in the panel, so they must tell the truth about
-    # whether a viewer window exists, and refuse politely when it does not.
+    # whether a viewer window exists. Play/pause and the maximize toggle were
+    # removed by user decision (feature doc L14): the viewer window's own
+    # timeline already plays the capture, and the floating window is already
+    # as large as the animator wants it.
     check("no viewer window is open headless", preview.viewer_window() is None)
-    ok, message = preview.toggle_maximize()
+
+    def registered(oper_id: str) -> bool:
+        # `hasattr(bpy.ops.aimation, ...)` lies: attribute access always
+        # succeeds and returns a lazy wrapper. Registration is only proven by
+        # resolving the operator's RNA, which raises for anything unregistered.
+        try:
+            getattr(bpy.ops.aimation, oper_id).get_rna_type()
+        except Exception:  # noqa: BLE001 - any failure means "not registered"
+            return False
+        return True
+
     check(
-        "maximize refuses with a named reason when no viewer is open",
-        not ok and "Open the 3D viewer first" in message,
-        message,
+        "the play and maximize operators are gone",
+        not registered("toggle_preview") and not registered("maximize_viewer"),
     )
-    # Why the button is a blind toggle rather than a state control (S9).
-    window_props = {p.identifier for p in bpy.types.Window.bl_rna.properties}
     check(
-        "Blender exposes no readable fullscreen state, so the button is a toggle",
-        not any("fullscreen" in name for name in window_props),
-        str(sorted(window_props)),
-    )
-    check(
-        "the maximize operator is registered",
-        hasattr(bpy.ops.aimation, "maximize_viewer"),
+        "the playback timer no longer backs the viewer",
+        not hasattr(addon, "playback") and "playback" not in sys.modules,
     )
     check("the source is shown in front", source.show_in_front is True)
     check(
@@ -426,6 +431,51 @@ def main() -> None:
         "a missing folder is an empty list, not an error",
         count == 0 and scene.capture_index == -1,
         f"count={count} index={scene.capture_index}",
+    )
+
+    # -- S2: Import Capture is a single-file path ---------------------------- #
+    # Importing one capture must not drag its whole folder in: the capture
+    # folder field above the list is the whole-folder workflow (user decision,
+    # feature doc L14). A hand-picked file joins the list remembering its own
+    # path, and survives folder refreshes.
+    check(
+        "Import Capture does not adopt the picked file's folder",
+        "preferences.capture_folder = folder" not in inspect.getsource(operators),
+    )
+    solo_folder = Path(tempfile.mkdtemp(prefix="aimation-smoke-single-"))
+    write_capture(solo_folder / "solo_take.fbx", frames=(0, 10), angles=(0.0, 90.0))
+    item = scene.capture_items.add()
+    item.name = "solo_take.fbx"
+    item.path = str(solo_folder / "solo_take.fbx")
+    ok, message = preview.load_capture(scene, "solo_take.fbx", stub.capture_folder)
+    check(
+        "a hand-imported capture loads from its own path, folder aside",
+        ok and scene.capture_loaded == "solo_take.fbx",
+        message,
+    )
+    scene.capture_loaded = ""
+    item.path = str(solo_folder / "gone.fbx")
+    ok, message = preview.load_capture(scene, "solo_take.fbx", stub.capture_folder)
+    check(
+        "a hand-imported row whose file vanished fails with a named reason",
+        not ok and "solo_take.fbx" in message,
+        message,
+    )
+    item.path = str(solo_folder / "solo_take.fbx")
+    count = props.refresh_captures(scene, bpy.context)
+    rows = [(row.name, row.path) for row in scene.capture_items]
+    check(
+        "a hand-imported row survives a folder refresh",
+        count == 0 and rows == [("solo_take.fbx", str(solo_folder / "solo_take.fbx"))],
+        f"count={count} rows={rows}",
+    )
+    stub.capture_folder = str(solo_folder)
+    count = props.refresh_captures(scene, bpy.context)
+    rows = [(row.name, row.path) for row in scene.capture_items]
+    check(
+        "a folder row replaces a hand-imported row for the same file",
+        count == 1 and rows == [("solo_take.fbx", "")],
+        f"count={count} rows={rows}",
     )
 
     # -- the viewer's write surface ----------------------------------------- #

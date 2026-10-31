@@ -11,13 +11,12 @@ from pathlib import Path
 import bpy
 from bpy_extras.io_utils import ImportHelper
 
-from . import captures, playback, prefs, preview, props
+from . import captures, prefs, preview, props
 
 __all__ = [
     "AIMATION_OT_import_capture",
     "AIMATION_OT_open_viewer",
     "AIMATION_OT_refresh_captures",
-    "AIMATION_OT_toggle_preview",
 ]
 
 
@@ -27,21 +26,6 @@ def _capture_folder(context) -> str:
     if preferences is None:
         return ""
     return bpy.path.abspath(preferences.capture_folder)
-
-
-def _adopt_folder(context, folder: str) -> None:
-    """Persist ``folder`` and rebuild the list from it (S2).
-
-    The preference update callback already refreshes, but only when the value
-    actually changed. Refreshing unconditionally keeps the list correct when the
-    animator re-picks the same folder after adding files to it.
-    """
-    preferences = prefs.preferences(context)
-    if preferences is not None:
-        preferences.capture_folder = folder
-    owner = props.tool_scene(context)
-    if owner is not None:
-        props.refresh_captures(owner, context)
 
 
 def _select(scene, name: str) -> bool:
@@ -78,7 +62,10 @@ class AIMATION_OT_refresh_captures(bpy.types.Operator):
 class AIMATION_OT_import_capture(bpy.types.Operator, ImportHelper):
     bl_idname = "aimation.import_capture"
     bl_label = "Import Capture"
-    bl_description = "Pick a capture FBX; its folder becomes the capture folder"
+    bl_description = (
+        "Add one capture FBX to the list and load it; the capture folder above "
+        "is left alone (it is for importing a whole folder)"
+    )
     bl_options = {"REGISTER"}
 
     filename_ext = ".fbx"
@@ -109,7 +96,22 @@ class AIMATION_OT_import_capture(bpy.types.Operator, ImportHelper):
             self.report({"WARNING"}, f"Capture not found: {path.name}")
             return {"CANCELLED"}
 
-        _adopt_folder(context, str(path.parent))
+        # One picked file, and only that file, joins the list (S2). Its folder
+        # is deliberately NOT adopted: the capture folder field is the
+        # whole-folder workflow, and repointing it here would fill the list
+        # with captures the animator never asked for.
+        folder = _capture_folder(context)
+        inside_folder = bool(folder) and path.parent == Path(folder)
+        row = next(
+            (item for item in scene.capture_items if item.name == path.name), None
+        )
+        if row is None:
+            row = scene.capture_items.add()
+            row.name = path.name
+        # A folder row already resolves to this file when it lives in the
+        # folder; otherwise the row must remember exactly which file was picked.
+        row.path = "" if inside_folder else str(path)
+
         if not _select(scene, path.name):
             props.report(scene, f"{path.name} did not appear in the capture list")
             self.report({"WARNING"}, f"{path.name} did not appear in the capture list")
@@ -145,70 +147,10 @@ class AIMATION_OT_open_viewer(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class AIMATION_OT_toggle_preview(bpy.types.Operator):
-    bl_idname = "aimation.toggle_preview"
-    bl_label = "Play/Pause"
-    bl_description = "Play or pause the capture on the viewer's own clock"
-    bl_options = {"REGISTER"}
-
-    def execute(self, context):
-        scene = props.tool_scene(context)
-        if scene is None:  # a viewer window with no owner has no state to drive
-            message = "This viewer window is not bound to a working scene"
-            self.report({"WARNING"}, message)
-            return {"CANCELLED"}
-        if preview.source_armature() is None:
-            message = "Load a capture before playing it"
-            props.report(scene, message)
-            self.report({"WARNING"}, message)
-            return {"CANCELLED"}
-
-        if scene.preview_playing:
-            playback.stop()
-            scene.preview_playing = False
-            props.report(scene, "Paused")
-            return {"FINISHED"}
-
-        if scene.capture_last <= scene.capture_first:
-            message = "The capture holds a single frame; there is nothing to play"
-            props.report(scene, message)
-            self.report({"WARNING"}, message)
-            return {"CANCELLED"}
-
-        # Watching the animation means watching the pose, not the bind pose.
-        scene.preview_rest = False
-        scene.preview_playing = True
-        playback.start(scene)
-        props.report(scene, "Playing")
-        return {"FINISHED"}
-
-
-class AIMATION_OT_maximize_viewer(bpy.types.Operator):
-    bl_idname = "aimation.maximize_viewer"
-    bl_label = "Maximize / Restore"
-    bl_description = (
-        "Toggle the viewer window's fullscreen state; Blender exposes no readable "
-        "fullscreen flag, so this is a toggle, not a state"
-    )
-    bl_options = {"REGISTER"}
-
-    def execute(self, context):
-        scene = props.tool_scene(context)
-        ok, message = preview.toggle_maximize()
-        if scene is not None:
-            props.report(scene, message)
-        if not ok:
-            self.report({"WARNING"}, message)
-            return {"CANCELLED"}
-        return {"FINISHED"}
-
-
 _OPERATORS = (
     AIMATION_OT_refresh_captures,
     AIMATION_OT_import_capture,
     AIMATION_OT_open_viewer,
-    AIMATION_OT_maximize_viewer,
-    AIMATION_OT_toggle_preview,
 )
 
 

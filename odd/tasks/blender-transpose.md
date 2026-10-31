@@ -14,22 +14,23 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
    esqueleto no moleste en el viewport."*
    Acceptance: the source armature lives in its own scene (`AImation Capture`)
    and is shown in a secondary Blender window; the working scene never
-   contains it; playback is driven by the tool's own clock (`preview_frame`),
-   never by the animator's timeline; play/pause and a frame slider live in the
-   tool panel; the capture is imported through the legacy importer with
-   `automatic_bone_orientation=True`, so the skeleton keeps the shape the
-   animator exported instead of an inside-out bone basis.
+   contains it; the capture plays on the viewer window's own timeline, and the
+   tool's clock (`preview_frame`) mirrors it both ways so scrubbing there
+   never touches the animator's playhead; the capture is imported through the
+   legacy importer with `automatic_bone_orientation=True`, so the skeleton
+   keeps the shape the animator exported instead of an inside-out bone basis.
    The viewer's own controls live inside the tool panel, directly below the
    capture list, and report whether the viewer window is open. A panel cannot
    host a `VIEW_3D` (a panel is drawn in a `UI` region; `VIEW_3D` is an *area*
    type, and areas own their regions), so the 3D view itself stays a separate
-   window — the animator's decision, taken after that constraint was measured.
-   A maximize toggle drives Blender's own `wm.window_fullscreen_toggle` on that
-   window; `Window` exposes no readable fullscreen state and read-only geometry,
-   so the control is a toggle, not a state.
-   Checks: pure clock tests; headless smoke proving the armature lands in the
-   preview scene and not in the working scene, and that a bone whose rest
-   offset goes down from the hips ends with its tail below its head.
+   window. A play/pause button, a second frame slider and a maximize toggle
+   were all removed by user decision (L14): the viewer window's own timeline
+   already plays and scrubs, and the floating window is already as large as
+   the animator wants it.
+   Checks: headless smoke proving the armature lands in the preview scene and
+   not in the working scene, that a bone whose rest offset goes down from the
+   hips ends with its tail below its head, and that the play, maximize and
+   timer machinery is gone.
 
 2. **S2 — Capture folder, import button, and listbox.** The tool lists the
    captures the animator exported and applies the selected one.
@@ -39,8 +40,13 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
    sobre el rig el que tengamos seleccionado en el listbox."*
    Acceptance: a remembered capture folder feeds a `UIList` of its `*.fbx`
    files, case-insensitively sorted; the `Import Capture` button opens a file
-   picker and adopts its directory; selecting a row loads that capture.
-   Checks: pure listing/sorting tests; headless smoke of the list refresh.
+   picker and adds ONLY the picked file to the list, remembering its exact
+   path without adopting its folder — the capture folder field is the
+   whole-folder workflow; a hand-imported row survives folder refreshes and
+   selecting or importing a row loads that capture.
+   Checks: pure listing/sorting tests; headless smoke of the list refresh and
+   of hand-imported rows loading, surviving refresh, and failing by name when
+   their file vanishes.
 
 3. **S3 — Reload without duplication.** Changing the listbox row updates the
    existing skeleton instead of stacking a second one.
@@ -335,4 +341,40 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   `Blender exposes no readable fullscreen state`, `the maximize operator is
   registered`). Headless can prove the refusal path only; the actual fullscreen
   flip is a manual check, like the window itself. S1 rewritten.
+- **L14.** User change request, verbatim: *"el botón play no lo necesito, ya
+  que puedo hacer play y ver la animación con time slider. la opción máximizar
+  no sirve para nada, ya veo el la ventana flotante con el viewport 3d.
+  al importar un solo fbx seleccionando import capture, no debe incluir toda
+  la carpeta, ya tiene la opción justo arriba para agregar una carpeta entera.
+  si el usuario solo quiere añadir un fbx de una carpeta debe poder hacerlo sin
+  tener que tener varios fbx que no necesita o no ha querido cargar.
+  el visor de frame en la pestaña aimation no es necesario tampoco, es
+  información redundante y tiene poca utilidad para el usuario."*
+  Four consequences, all applied:
+  1. **Play button removed** from the panel. The viewer window's own timeline
+     already plays the capture (its scene is the preview scene), so the
+     `bpy.app.timers` playback machinery had no remaining caller and was
+     deleted honestly: `playback.py` and `clock.py` are gone, together with
+     `tests/test_blender_addon_clock.py` (12 pure tests). The clock mirror
+     (`preview_frame` <-> the preview scene's `frame_current`) stays: it is
+     what keeps scrubbing the viewer's timeline away from the animator's
+     playhead. `preview_playing` was removed with the button.
+  2. **Maximize toggle removed** (it had been added in L13); the floating
+     window is already visible as-is.
+  3. **The panel's frame slider removed** — redundant with the viewer window's
+     own timeline. The viewer box now holds the open/closed status, `Open`,
+     and the Bind pose toggle.
+  4. **`Import Capture` is now a single-file path**: it adds ONLY the picked
+     file to the list, remembering its exact path (`CaptureItem.path`) and
+     never adopting its folder — the capture folder field stays the
+     whole-folder workflow. Hand-imported rows survive folder refreshes (a
+     folder refresh is the folder's truth: a hand row whose name a folder row
+     covers is dropped); a hand row loads from its own path even with a broken
+     folder configured, and fails by name when its file vanishes.
+  Evidence: smoke 56 -> **60 checks** green; mutation-tested twice — restoring
+  the folder adoption fails `Import Capture does not adopt the picked file's
+  folder`, and making the refresh drop hand rows fails `a folder row replaces a
+  hand-imported row for the same file`. `ruff check .` clean; full pytest suite
+  green. S1 and S2 rewritten; spec.md v0.7.3; AGENTS.md pure-module list
+  updated.
 

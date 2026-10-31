@@ -76,23 +76,16 @@ class AIMATION_PT_transpose(bpy.types.Panel):
             text="3D viewer: open" if open_already else "3D viewer: closed",
             icon="VIEW3D",
         )
-        row = viewer.row(align=True)
-        row.operator("aimation.open_viewer", text="Open" if open_already else "Open viewer")
-        row.operator("aimation.maximize_viewer", text="", icon="FULLSCREEN_ENTER")
+        # Playback and scrubbing live on the viewer window's own timeline: the
+        # panel deliberately carries no play button and no second frame slider,
+        # both would only duplicate what that timeline already does.
+        viewer.operator("aimation.open_viewer", text="Open" if open_already else "Open viewer")
 
         preview_scene = bpy.data.scenes.get(props.PREVIEW_SCENE)
         if preview_scene is None or scene.capture_last <= scene.capture_first:
             viewer.label(text="No capture loaded", icon="INFO")
         else:
-            row = viewer.row(align=True)
-            playing = scene.preview_playing
-            row.operator(
-                "aimation.toggle_preview",
-                text="Pause" if playing else "Play",
-                icon="PAUSE" if playing else "PLAY",
-            )
-            row.prop(scene, "preview_rest", text="Bind pose", toggle=True)
-            viewer.prop(preview_scene, "frame_current", text="Frame", slider=True)
+            viewer.prop(scene, "preview_rest", text="Bind pose", toggle=True)
             if scene.preview_rest:
                 # REST does not evaluate animation: without this the frozen
                 # skeleton reads as a broken import rather than a chosen mode.

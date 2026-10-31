@@ -9,7 +9,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-__all__ = ["CAPTURE_SUFFIX", "capture_names", "capture_names_in", "capture_path"]
+__all__ = [
+    "CAPTURE_SUFFIX",
+    "capture_names",
+    "capture_names_in",
+    "capture_path",
+    "resolve_capture",
+]
 
 #: Only the application's binary FBX exports belong in the capture list.
 CAPTURE_SUFFIX = ".fbx"
@@ -49,3 +55,19 @@ def capture_path(directory: str | Path | None, name: str) -> Path | None:
     if not directory or not name:
         return None
     return Path(directory) / name
+
+
+def resolve_capture(
+    directory: str | Path | None, name: str, explicit_path: str = ""
+) -> Path | None:
+    """The file a capture-list row means.
+
+    Rows added by ``Import Capture`` remember the exact file the animator
+    picked, which may live outside the configured capture folder; folder rows
+    resolve against ``directory``. An explicit path never falls back to the
+    folder rule: if that file is gone the row means nothing, and the load
+    fails with a named reason like any other missing capture (S9).
+    """
+    if explicit_path:
+        return Path(explicit_path)
+    return capture_path(directory, name)

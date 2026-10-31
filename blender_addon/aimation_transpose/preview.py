@@ -15,7 +15,7 @@ from pathlib import Path
 import bpy
 from mathutils import Vector
 
-from . import captures, playback, props
+from . import captures, props
 
 __all__ = [
     "apply_rest",
@@ -25,7 +25,6 @@ __all__ = [
     "schedule_load",
     "show_frame",
     "source_armature",
-    "toggle_maximize",
     "viewer_window",
 ]
 
@@ -134,7 +133,9 @@ def load_capture(owner, name: str, directory: str) -> tuple[bool, str]:
     if owner.capture_loaded == name and source_armature() is not None:
         return True, f"{name} is already loaded"
 
-    path = captures.capture_path(directory, name)
+    path = captures.resolve_capture(
+        directory, name, props.explicit_path(owner, name)
+    )
     if path is None or not path.is_file():
         return False, f"Capture not found: {name}"
 
@@ -172,7 +173,6 @@ def load_capture(owner, name: str, directory: str) -> tuple[bool, str]:
     _mark(source)
     _make_stepped(action)
     _bind_clock(owner, source, action, fps)
-    playback.reset(owner)
     owner.capture_loaded = name
     return True, f"Loaded {name} ({len(source.data.bones)} bones)"
 
@@ -378,28 +378,6 @@ def viewer_window():
         if window.scene == scene:
             return window
     return None
-
-
-def toggle_maximize() -> tuple[bool, str]:
-    """Toggle the viewer window's fullscreen state.
-
-    Blind on purpose: ``Window`` exposes no readable fullscreen flag
-    (``parent/scene/workspace/screen/view_layer/x/y/width/height`` is the whole
-    list) and its geometry is read-only, so the tool cannot know or set a size —
-    it can only hand Blender's own toggle to the viewer window. That is why the
-    button says "Maximize / Restore" instead of showing a state.
-    """
-    window = viewer_window()
-    if window is None:
-        return False, "Open the 3D viewer first"
-    try:
-        with bpy.context.temp_override(window=window):
-            result = bpy.ops.wm.window_fullscreen_toggle()
-    except RuntimeError as error:  # background mode has no window manager
-        return False, f"The viewer could not be maximized: {error}"
-    if "FINISHED" not in result:
-        return False, "The viewer could not be maximized: Blender refused the toggle"
-    return True, "Viewer maximized or restored"
 
 
 def open_window() -> tuple[bool, str]:

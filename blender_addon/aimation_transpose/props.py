@@ -7,6 +7,8 @@ and the preview scene is a display surface only (S1).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import bpy
 
 from . import captures
@@ -16,6 +18,8 @@ __all__ = [
     "SOURCE_MARKER",
     "SOURCE_NAME",
     "CaptureItem",
+    "explicit_path",
+    "index_of",
     "owner_of",
     "refresh_captures",
     "selected_name",
@@ -38,6 +42,9 @@ class CaptureItem(bpy.types.PropertyGroup):
     """One row of the capture listbox (S2)."""
 
     name: bpy.props.StringProperty()  # type: ignore[valid-type]
+    #: The exact file a manually imported row means. Folder rows resolve
+    #: against the capture folder instead, so this stays empty for them.
+    path: bpy.props.StringProperty()  # type: ignore[valid-type]
 
 
 def owner_of(scene) -> bpy.types.Scene | None:
@@ -68,8 +75,12 @@ def tool_scene(context) -> bpy.types.Scene | None:
 def refresh_captures(scene, context) -> int:
     """Repopulate ``scene.capture_items`` from the configured folder.
 
-    Returns how many captures were found. The selection is preserved when the
-    file still exists, otherwise clamped to the new end of the list (S2, S9).
+    Returns how many captures were found. Rows the animator imported by hand
+    survive the rebuild — their file lives outside the folder, which is the
+    whole point of importing a single capture (S2) — as long as the file still
+    exists and no folder row already owns that name (a folder refresh is the
+    folder's truth). The selection is preserved when the file still exists,
+    otherwise clamped to the new end of the list (S2, S9).
     """
     global _RESTORING
     from . import prefs
@@ -78,17 +89,45 @@ def refresh_captures(scene, context) -> int:
     directory = "" if preferences is None else preferences.capture_folder
     names = captures.capture_names_in(directory)
 
-    previous = scene.capture_index
+    manual: list[tuple[str, str]] = []
+    for item in scene.capture_items:
+        if (
+            item.path
+            and Path(bpy.path.abspath(item.path)).is_file()
+            and item.name not in names
+        ):
+            manual.append((item.name, item.path))
+
+    previous_name = selected_name(scene)
     _RESTORING = True
     try:
         while len(scene.capture_items):
             scene.capture_items.remove(0)
         for name in names:
             scene.capture_items.add().name = name
-        scene.capture_index = min(previous, len(names) - 1) if names else -1
+        for name, path in manual:
+            item = scene.capture_items.add()
+            item.name = name
+            item.path = path
+        if previous_name is not None:
+            index = index_of(scene, previous_name)
+            if index is not None:
+                scene.capture_index = index
+                return len(names)
+        count = len(scene.capture_items)
+        previous = scene.capture_index
+        scene.capture_index = min(previous, count - 1) if count else -1
     finally:
         _RESTORING = False
     return len(names)
+
+
+def index_of(scene, name: str) -> int | None:
+    """The row index of ``name``, or ``None`` when the list holds no such row."""
+    for index, item in enumerate(scene.capture_items):
+        if item.name == name:
+            return index
+    return None
 
 
 def selected_name(scene) -> str | None:
@@ -96,6 +135,18 @@ def selected_name(scene) -> str | None:
     if 0 <= scene.capture_index < len(scene.capture_items):
         return scene.capture_items[scene.capture_index].name
     return None
+
+
+def explicit_path(scene, name: str) -> str:
+    """The file ``name``'s row was imported from, or ``""`` for a folder row.
+
+    ``Import Capture`` remembers the picked file (S2): it may live outside the
+    capture folder, and the row must keep meaning that exact file.
+    """
+    index = index_of(scene, name)
+    if index is None:
+        return ""
+    return str(scene.capture_items[index].path or "")
 
 
 def status(scene) -> str:
@@ -170,7 +221,6 @@ def register() -> None:
     scene.preview_frame = bpy.props.IntProperty(  # type: ignore[attr-defined]
         default=0, update=_on_preview_frame
     )
-    scene.preview_playing = bpy.props.BoolProperty(default=False)  # type: ignore[attr-defined]
     scene.preview_rest = bpy.props.BoolProperty(  # type: ignore[attr-defined]
         default=False,
         name="Bind pose",
@@ -193,7 +243,6 @@ def unregister() -> None:
         "target_rig",
         "preview_owner",
         "preview_rest",
-        "preview_playing",
         "preview_frame",
         "capture_fps",
         "capture_last",
