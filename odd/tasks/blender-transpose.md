@@ -148,7 +148,7 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
 | -- | ---- | ----- | ------ | ------ |
 | T1 | S1, S2, S9 | inline | done | `f840ac3` (PR #9) — Add-on package: extension manifest, preferences, capture listing, preview scene, import/refresh into it, panel + UIList. RED/GREEN: pure `captures`/`clock` tests; `headless_smoke.py` checks the preview scene owns the only armature, the working scene owns none, and a missing folder/capture fails named. |
 | T2 | S1, S9 | inline | done | `964f8ea` + `3973574` + `2a719b7` (PR #9) — Viewer controls moved into the tool panel, the viewer window's own timeline plays/scrubs the capture, `Import Capture` single-file, capture-list `Remove`. Also `dccef35` (viewer animates, panel reachable from it) and `da89a8b` (legacy importer + `automatic_bone_orientation`). The timer clock, play button, frame slider and maximize toggle were removed by user decision (L14). RED/GREEN: `clock.frame_at` tests (advance, truncate, wrap, non-zero range start, no rate, empty and single-frame ranges); smoke checks the frame range/rate binding, the working scene restored to 24 fps / 1-250 / frame 7 after an import, and that removing a row never schedules a load of the row the clamp lands on. The window itself is a manual check. |
-| T3 | S4, S7 | inline | done | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). Follow-up `00bea55` (PR #9, L18): the picker's list is frozen when the popup opens, `invoke` refuses an empty picker by name, and the Mapping box reports the control count or the blockage; smoke 91 -> 96 checks. |
+| T3 | S4, S7 | inline | in progress | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). Follow-up `00bea55` (PR #9, L18): the picker's list is frozen when the popup opens, `invoke` refuses an empty picker by name, and the Mapping box reports the control count or the blockage; smoke 91 -> 96 checks. **Reopened (L19):** the user's retest still shows an empty popup, so S4's acceptance is not met and T3 is `in progress` again — the picker's Python side is green, the RNA/interactive side is the open defect. |
 | T4 | S5, S6 | inline | pending | Pure `retarget_math`, `Transpose` operator, sparse bake, root motion. |
 | T5 | S8 | inline | pending | Return bake onto the production skeleton + export. |
 
@@ -514,4 +514,36 @@ L18 (2026-11-01, user report + fix) — **the search popup opened with no rows.*
   --committed-only`) returned tier **medium**, `review_due: false`
   (`under_budget`), so the slice boundary stays at `c09447f` and these commits
   are pending in it.
+
+L19 (2026-11-01, user retest) — **the L18 fix did NOT resolve the report.**
+  Reported verbatim: *"sigue sin aparece nada en la lista, lo dejamos aquí para
+  siguiente sesión."* Paused here by user decision.
+  What the retest proves (this is the valuable part): the popup **still opens**,
+  and L18 made ``invoke`` refuse with a named reason when the frozen snapshot is
+  empty. So the snapshot was NOT empty — ``_CHOICES`` held at least one entry and
+  ``_items`` returned a populated Python list — and Blender still drew no rows.
+  That kills L18's root cause as a complete explanation: the callback's context
+  was never the only problem, and the smoke's ``96 checks`` green is evidence
+  about Python, not about the popup.
+  Remaining hypotheses, ranked:
+  1. **The identifiers are rejected by RNA.** They carry colons —
+     ``BONE:TestRig:hand_ik``, ``EMPTY:ctrl_hand:``, ``UNLINK:-:`` — and an enum
+     identifier is a restricted token (ASCII letters, digits, ``-``, ``_``). If
+     that is it, every row is dropped silently, Python looks fine, and the popup
+     is empty. Minimal probe: rebuild the identifiers colon-free
+     (``BONE-<rig>-<bone>``, ``EMPTY-<obj>-``, ``UNLINK--``) — the table is
+     frozen in ``invoke`` so ``execute`` never parses them and the change is
+     contained to ``_targets`` — and retest interactively.
+  2. The dynamic enum is evaluated in a context where it raises, so Blender
+     renders nothing (the system console would show it).
+  3. ``bl_options = {"REGISTER", "INTERNAL"}`` together with the search popup —
+     Blender's own ``update_addon`` operator does not use ``INTERNAL``.
+  What to do first next session: read the two pieces of evidence the tool now
+  emits — the Mapping box line (``N control(s) to pick from`` must show N >= 1,
+  since the popup opened) and Blender's **system console** at the moment the
+  popup opens. No further blind redesign without them.
+  Headless stays useless here: a dynamic enum is never evaluated under
+  ``--background``, so none of these three can be settled by the smoke.
+  Commits this session: ``00bea55`` (freeze), ``d93f619`` + ``db53811`` (docs);
+  pushed to ``feat/blender-transpose``, PR #9 body current.
 
