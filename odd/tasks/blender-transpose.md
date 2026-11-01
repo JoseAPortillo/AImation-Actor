@@ -148,7 +148,7 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
 | -- | ---- | ----- | ------ | ------ |
 | T1 | S1, S2, S9 | inline | done | `f840ac3` (PR #9) — Add-on package: extension manifest, preferences, capture listing, preview scene, import/refresh into it, panel + UIList. RED/GREEN: pure `captures`/`clock` tests; `headless_smoke.py` checks the preview scene owns the only armature, the working scene owns none, and a missing folder/capture fails named. |
 | T2 | S1, S9 | inline | done | `964f8ea` + `3973574` + `2a719b7` (PR #9) — Viewer controls moved into the tool panel, the viewer window's own timeline plays/scrubs the capture, `Import Capture` single-file, capture-list `Remove`. Also `dccef35` (viewer animates, panel reachable from it) and `da89a8b` (legacy importer + `automatic_bone_orientation`). The timer clock, play button, frame slider and maximize toggle were removed by user decision (L14). RED/GREEN: `clock.frame_at` tests (advance, truncate, wrap, non-zero range start, no rate, empty and single-frame ranges); smoke checks the frame range/rate binding, the working scene restored to 24 fps / 1-250 / frame 7 after an import, and that removing a row never schedules a load of the row the clamp lands on. The window itself is a manual check. |
-| T3 | S4, S7 | inline | done | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). |
+| T3 | S4, S7 | inline | done | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). Follow-up `00bea55` (PR #9, L18): the picker's list is frozen when the popup opens, `invoke` refuses an empty picker by name, and the Mapping box reports the control count or the blockage; smoke 91 -> 96 checks. |
 | T4 | S5, S6 | inline | pending | Pure `retarget_math`, `Transpose` operator, sparse bake, root motion. |
 | T5 | S8 | inline | pending | Return bake onto the production skeleton + export. |
 
@@ -492,4 +492,22 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   refresh, painting pending bones grey, and not forcing REST each failed its
   exact check (`a link repaints green on the reloaded skeleton`, `the bone
   awaiting its control turns amber`, `mapping forces the bind pose`).
+
+L18 (2026-11-01, user report + fix) — **the search popup opened with no rows.**
+  Reported verbatim: *"aparece el buscador pero no aparece ningún control ni
+  objeto para poder seleccionar."* Root cause: the enum callback rebuilt the
+  choice list from the context Blender hands an enum callback, which is not the
+  context `invoke` ran with, so the popup could resolve no scene and draw
+  nothing. The list and its identifier -> target table are now frozen in
+  `invoke` and the callback only reads that snapshot; `invoke` refuses with a
+  named reason instead of opening an empty popup. The Mapping box states
+  `N control(s) to pick from` or the named blockage (no target rig / not an
+  armature / nothing to pick), so an empty popup is never the only evidence the
+  animator has.
+  Evidence: smoke 91 -> **96 checks** green, `ruff check .` clean, full pytest
+  suite green. Mutation-tested: making the callback resolve from its own context
+  again fails both `the popup serves its frozen list without a context` and
+  `the frozen list survives a context that resolves no scene`. Headless cannot
+  evaluate a dynamic enum at all — the callback is never called and the
+  registered enum reads empty — so the popup itself stays a manual check.
 

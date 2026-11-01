@@ -370,7 +370,15 @@ are the bar for a change to be acceptable.
   storages. `Armature.show_bone_colors` gates the display. A searchable popup is
   `window_manager.invoke_search_popup(self)` on an operator carrying
   `bl_property` + a dynamic `EnumProperty(items=callback)` (the pattern Blender's
-  own `ui_translate/update_addon.py` uses). And a modal operator can only be
+  own `ui_translate/update_addon.py` uses — and that file's own comment warns the
+  callback's `self` is not the operator's `self`). Freeze the list in `invoke`
+  and let the callback only read that snapshot: the context Blender hands an
+  enum callback is not the one `invoke` ran with, so anything the callback
+  re-resolves from it (an owning scene, for instance) can come back empty and
+  the popup draws no rows. In `--background` a dynamic enum is never evaluated
+  at all — the callback is not called and `enum_items` reads empty — so popup
+  contents are only ever a manual check, and refusal logic belongs in a plain
+  function the smoke can call. And a modal operator can only be
   invoked interactively: in `--background`,
   `bpy.ops.<id>('INVOKE_DEFAULT')` prints *"Invalid operator call"* and returns
   `{'PASS_THROUGH'}` without ever reaching `invoke`, so modal refusal conditions
