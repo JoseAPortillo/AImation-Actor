@@ -510,4 +510,8 @@ L18 (2026-11-01, user report + fix) — **the search popup opened with no rows.*
   `the frozen list survives a context that resolves no scene`. Headless cannot
   evaluate a dynamic enum at all — the callback is never called and the
   registered enum reads empty — so the popup itself stays a manual check.
+  Review: native assess over `00bea55`+`d93f619` (`--base-ref c09447f
+  --committed-only`) returned tier **medium**, `review_due: false`
+  (`under_budget`), so the slice boundary stays at `c09447f` and these commits
+  are pending in it.
 
