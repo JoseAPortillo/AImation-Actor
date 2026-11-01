@@ -31,9 +31,11 @@ __all__ = [
     "AIMATION_OT_map_bones",
     "AIMATION_OT_pick_target",
     "activate",
+    "available",
     "build_choices",
     "finish",
     "link",
+    "problem",
     "refresh_colours",
     "unlink",
 ]
@@ -51,9 +53,10 @@ GREEN = (0.15, 0.72, 0.25)
 _PICK_SHARE = 0.10
 _MIN_PICK_EXTENT = 1.0
 
-#: The popup's identifier -> (kind, object name, bone name). Rebuilt every time
-#: the popup opens; ``execute`` never parses the identifier back into parts.
-_CHOICES: dict[str, tuple[str, str, str]] = {}
+#: The popup's identifier -> (label, (kind, object name, bone name)). Frozen
+#: when the popup opens; ``execute`` never parses the identifier back into
+#: parts, and the enum callback never rebuilds it from its own context.
+_CHOICES: dict[str, tuple[str, tuple[str, str, str]]] = {}
 
 _NO_CHOICE = "__none__"
 
@@ -224,13 +227,42 @@ def build_choices(owner) -> list[tuple[str, str]]:
     return [(identifier, label) for identifier, label, _target in _targets(owner)]
 
 
-def _refresh_choices(owner) -> list[tuple[str, str]]:
+def available(owner) -> int:
+    """How many controls the picker would offer right now (S9)."""
+    return sum(1 for _identifier, _label, _target in _targets(owner))
+
+
+def problem(owner) -> str:
+    """Why the picker has nothing to offer, or ``""`` when it has something.
+
+    The panel shows this instead of an empty list the animator has to guess
+    about: a popup with no rows reads as a broken tool, and the reason is
+    almost always one of these three.
+    """
+    if owner is None:
+        return "This window is not bound to a working scene"
+    rig = getattr(owner, "target_rig", None)
+    if rig is None:
+        return "Pick a target rig first"
+    if rig.type != "ARMATURE":
+        return f"{rig.name} is not an armature"
+    if not rig.pose.bones and not any(obj.type == "EMPTY" for obj in bpy.data.objects):
+        return f"{rig.name} has no bones and the file has no empties"
+    return ""
+
+
+def _refresh_choices(owner) -> int:
+    """Freeze the popup's list and its identifier -> target table.
+
+    Called when the popup opens. The enum callback then serves this snapshot
+    instead of rebuilding it, because the context Blender hands an enum
+    callback is not the one the operator was invoked with: resolving the
+    owning scene there is how a search popup ends up drawing an empty list.
+    """
     _CHOICES.clear()
-    choices: list[tuple[str, str]] = []
     for identifier, label, target in _targets(owner):
-        _CHOICES[identifier] = target
-        choices.append((identifier, label))
-    return choices
+        _CHOICES[identifier] = (label, target)
+    return len(_CHOICES)
 
 
 class AIMATION_OT_pick_target(bpy.types.Operator):
@@ -257,7 +289,12 @@ class AIMATION_OT_pick_target(bpy.types.Operator):
             props.report(scene, "Click a capture bone first")
             self.report({"WARNING"}, "Click a capture bone first")
             return {"CANCELLED"}
-        _refresh_choices(scene)
+        count = _refresh_choices(scene)
+        if not count:
+            reason = problem(scene) or "No controls available"
+            props.report(scene, reason)
+            self.report({"WARNING"}, reason)
+            return {"CANCELLED"}
         context.window_manager.invoke_search_popup(self)
         return {"RUNNING_MODAL"}
 
@@ -271,14 +308,15 @@ class AIMATION_OT_pick_target(bpy.types.Operator):
             props.report(scene, "Click a capture bone first")
             self.report({"WARNING"}, "Click a capture bone first")
             return {"CANCELLED"}
-        target = _CHOICES.get(self.choice)
-        if target is None:
-            # The list is rebuilt whenever the popup opens, so a stale
-            # identifier means the file changed under the popup: refuse by name
-            # rather than link a control that is no longer there (S9).
+        entry = _CHOICES.get(self.choice)
+        if entry is None:
+            # The list is frozen whenever the popup opens, so an identifier
+            # that is not in it means the file changed under the popup: refuse
+            # by name rather than link a control that is no longer there (S9).
             props.report(scene, "That control is no longer available; try again")
             self.report({"WARNING"}, "That control is no longer available")
             return {"CANCELLED"}
+        label, target = entry
         kind, object_name, target_bone = target
         if kind == "UNLINK":
             unlink(scene, bone)
@@ -287,7 +325,7 @@ class AIMATION_OT_pick_target(bpy.types.Operator):
             return {"FINISHED"}
         link(scene, bone, kind, object_name, target_bone)
         scene.mapping_pending = ""
-        props.report(scene, f"{bone} -> {self.choice}")
+        props.report(scene, f"{bone} -> {label}")
         return {"FINISHED"}
 
     def cancel(self, context):
@@ -454,12 +492,23 @@ def _inside(area, x: float, y: float) -> bool:
 
 
 def _items(self, context):
-    """The searchable list the popup draws; rebuilt on every keystroke."""
-    scene = props.tool_scene(context)
-    choices = [] if scene is None else _refresh_choices(scene)
-    if not choices:
+    """The list the search popup draws, served from the frozen snapshot.
+
+    Rebuilding it here would re-resolve the owning scene from the context
+    Blender hands an enum callback — which is not the one ``invoke`` ran
+    with. The snapshot is taken in ``invoke`` and this function only reads it,
+    so the popup cannot draw an empty list for a context reason.
+    """
+    if not _CHOICES:
+        scene = props.tool_scene(context)
+        if scene is not None:
+            _refresh_choices(scene)
+    if not _CHOICES:
         return [(_NO_CHOICE, "No controls available", "")]
-    return [(identifier, label, "") for identifier, label in choices]
+    return [
+        (identifier, label, "")
+        for identifier, (label, _target) in _CHOICES.items()
+    ]
 
 
 # --------------------------------------------------------------------------- #

@@ -109,6 +109,18 @@ class AIMATION_PT_transpose(bpy.types.Panel):
         elif rig.type != "ARMATURE":
             mapping_box.label(text=f"{rig.name} is not an armature", icon="ERROR")
 
+        # A picker with nothing to offer must say why before the animator
+        # clicks a bone and gets an empty search field (S9).
+        blockage = mapping.problem(scene)
+        if blockage:
+            mapping_box.label(text=blockage, icon="ERROR")
+        else:
+            controls = mapping.available(scene)
+            mapping_box.label(
+                text=f"{controls} control(s) to pick from",
+                icon="CHECKMARK",
+            )
+
         linked = len(scene.mapping_items)
         mapping_box.label(
             text=f"{linked} bone(s) linked",

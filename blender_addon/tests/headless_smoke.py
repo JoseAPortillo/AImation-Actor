@@ -567,6 +567,42 @@ def main() -> None:
         any(identifier.startswith("EMPTY:ctrl_hand:") for identifier, _ in choices),
         str(choices),
     )
+    check(
+        "the panel counts the controls it can offer",
+        mapping.available(scene) == len(choices) and mapping.available(scene) >= 2,
+        f"{mapping.available(scene)} vs {len(choices)}",
+    )
+    check(
+        "a ready picker reports no blockage",
+        mapping.problem(scene) == "",
+        mapping.problem(scene),
+    )
+    # The enum callback must not depend on the context Blender hands it: the
+    # list is frozen when the popup opens and read back as-is from there.
+    mapping._refresh_choices(scene)
+    served = mapping._items(None, types.SimpleNamespace())
+    check(
+        "the popup serves its frozen list without a context",
+        [identifier for identifier, _label, _desc in served]
+        == [identifier for identifier, _ in choices],
+        str(served),
+    )
+    check(
+        "the frozen list survives a context that resolves no scene",
+        any(identifier.startswith("BONE:Test Rig:hand_ik") for identifier, _, _ in served)
+        and all(identifier != mapping._NO_CHOICE for identifier, _, _ in served),
+        str(served),
+    )
+    kept_rig, scene.target_rig = scene.target_rig, None
+    # Without a rig mapping cannot start, but an empty is still a legal target:
+    # the count says what the popup would list, the message says what blocks
+    # the session, and neither pretends the other.
+    check(
+        "the panel names a missing target rig instead of showing nothing",
+        "rig" in mapping.problem(scene).lower() and mapping.available(scene) == 1,
+        f"{mapping.problem(scene)} / {mapping.available(scene)}",
+    )
+    scene.target_rig = kept_rig
 
     scene.mapping_pending = "L_Ankle"
     mapping.refresh_colours(scene)
