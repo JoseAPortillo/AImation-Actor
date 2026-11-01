@@ -258,8 +258,8 @@ need to activate:
 ```
 
 The Blender add-on's `bpy` shell cannot run under that interpreter. Its logical
-half (`captures.py`) is covered by the normal pytest run; the rest is
-a headless smoke against a real Blender install:
+halves (`captures.py`, `picking.py`) are covered by the normal pytest run; the
+rest is a headless smoke against a real Blender install:
 
 ```powershell
 & "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" `
@@ -335,7 +335,7 @@ are the bar for a change to be acceptable.
   adapter (codec, node tree, conversions, JSON → domain). The Blender subprocess
   path needs a Blender install, so it is exercised manually, not in CI.
 - The Blender add-on follows the same split: `blender_addon/aimation_transpose/`
-  keeps `bpy`-free modules (`captures.py`, and the retarget math)
+  keeps `bpy`-free modules (`captures.py`, `picking.py`, and the retarget math)
   importable by path so `tests/` covers them without Blender, while everything
   touching `bpy` is proven by `blender_addon/tests/headless_smoke.py`. Never
   import the add-on package as a package from pytest — its `__init__` imports
@@ -360,3 +360,18 @@ are the bar for a change to be acceptable.
   (`WM_OT_window_fullscreen_toggle`) and `screen.screen_full_area`
   (`SCREEN_OT_screen_full_area`) exists for areas, but `Window` exposes **no
   readable fullscreen state**, so any maximize control is a blind toggle.
+- **Bone colours and the search popup, measured on 5.2.3** (they shape the
+  click-to-map surface): `BoneColor` exposes `palette` (writable, including
+  `CUSTOM`), `is_custom` (**read-only**) and `custom` — a **read-only pointer**
+  to a `ThemeBoneColorSet`, whose `.normal` is what actually takes the colour:
+  `bone.color.palette = "CUSTOM"; bone.color.custom.normal = (r, g, b)`.
+  Colours round-trip through 8-bit theme storage (0.35 reads back 0.3529), so
+  comparisons need a tolerance. `Bone.color` and `PoseBone.color` are separate
+  storages. `Armature.show_bone_colors` gates the display. A searchable popup is
+  `window_manager.invoke_search_popup(self)` on an operator carrying
+  `bl_property` + a dynamic `EnumProperty(items=callback)` (the pattern Blender's
+  own `ui_translate/update_addon.py` uses). And a modal operator can only be
+  invoked interactively: in `--background`,
+  `bpy.ops.<id>('INVOKE_DEFAULT')` prints *"Invalid operator call"* and returns
+  `{'PASS_THROUGH'}` without ever reaching `invoke`, so modal refusal conditions
+  belong in a plain, directly-testable function.

@@ -18,8 +18,10 @@ __all__ = [
     "SOURCE_MARKER",
     "SOURCE_NAME",
     "CaptureItem",
+    "MappingItem",
     "explicit_path",
     "index_of",
+    "link_of",
     "owner_of",
     "refresh_captures",
     "remove_capture",
@@ -46,6 +48,33 @@ class CaptureItem(bpy.types.PropertyGroup):
     #: The exact file a manually imported row means. Folder rows resolve
     #: against the capture folder instead, so this stays empty for them.
     path: bpy.props.StringProperty()  # type: ignore[valid-type]
+
+
+class MappingItem(bpy.types.PropertyGroup):
+    """One capture-bone -> rig-control link (S7).
+
+    ``name`` is the capture bone the link came from. The target is either a
+    pose bone of the target rig (``kind == "BONE"``) or an empty object
+    (``kind == "EMPTY"``); ``object`` holds the target object's name in both
+    cases and ``target_bone`` is empty for empties. Everything is keyed by
+    plain names so the links survive capture reloads and rig renames report
+    as missing instead of corrupting the row.
+    """
+
+    name: bpy.props.StringProperty()  # type: ignore[valid-type]
+    kind: bpy.props.EnumProperty(  # type: ignore[valid-type]
+        items=(
+            ("BONE", "Bone", "A pose bone of the target rig"),
+            ("EMPTY", "Empty", "An empty object driving the rig"),
+        ),
+        default="BONE",
+    )
+    object: bpy.props.StringProperty(  # type: ignore[valid-type]
+        description="Name of the armature or empty object the control lives on"
+    )
+    target_bone: bpy.props.StringProperty(  # type: ignore[valid-type]
+        description="Pose bone of the target rig; empty for an empty target"
+    )
 
 
 def owner_of(scene) -> bpy.types.Scene | None:
@@ -179,6 +208,14 @@ def explicit_path(scene, name: str) -> str:
     return str(scene.capture_items[index].path or "")
 
 
+def link_of(scene, bone: str) -> MappingItem | None:
+    """The stored link for capture bone ``bone``, or ``None`` when unmapped."""
+    for item in scene.mapping_items:
+        if item.name == bone:
+            return item
+    return None
+
+
 def status(scene) -> str:
     """The last honest message for the panel (S9)."""
     return str(scene.get("aimation_status", ""))
@@ -237,8 +274,15 @@ def _rig_poll(_self, obj) -> bool:
 
 def register() -> None:
     bpy.utils.register_class(CaptureItem)
+    bpy.utils.register_class(MappingItem)
     scene = bpy.types.Scene
     scene.capture_items = bpy.props.CollectionProperty(type=CaptureItem)  # type: ignore[attr-defined]
+    scene.mapping_items = bpy.props.CollectionProperty(type=MappingItem)  # type: ignore[attr-defined]
+    scene.mapping_active = bpy.props.BoolProperty(default=False)  # type: ignore[attr-defined]
+    scene.mapping_pending = bpy.props.StringProperty(  # type: ignore[attr-defined]
+        default="",
+        description="The capture bone picked, waiting for its rig control",
+    )
     scene.capture_index = bpy.props.IntProperty(  # type: ignore[attr-defined]
         default=-1, update=_on_capture_index
     )
@@ -270,6 +314,9 @@ def unregister() -> None:
         bpy.app.handlers.frame_change_pre.remove(_on_preview_scene_frame)
     scene = bpy.types.Scene
     for name in (
+        "mapping_pending",
+        "mapping_active",
+        "mapping_items",
         "target_rig",
         "preview_owner",
         "preview_rest",
@@ -284,6 +331,7 @@ def unregister() -> None:
         if hasattr(scene, name):
             delattr(scene, name)
     bpy.utils.unregister_class(CaptureItem)
+    bpy.utils.unregister_class(MappingItem)
 
 
 def report(scene, message: str) -> None:

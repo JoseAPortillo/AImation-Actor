@@ -357,6 +357,11 @@ def _bind_clock(owner, source: bpy.types.Object, action, fps: float) -> None:
     owner.preview_frame = first
     apply_rest(owner)
     _frame_armature(source)
+    # The capture was replaced or re-adopted: the mapping links are keyed by
+    # bone name and must repaint on whichever armature is showing now (S7).
+    from . import mapping
+
+    mapping.refresh_colours(owner)
     _tag_viewer_redraw()
 
 

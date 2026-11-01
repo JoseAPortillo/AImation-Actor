@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import bpy
 
-from . import prefs, preview, props
+from . import mapping, prefs, preview, props
 
 __all__ = ["AIMATION_PT_transpose", "AIMATION_UL_captures"]
 
@@ -88,12 +88,47 @@ class AIMATION_PT_transpose(bpy.types.Panel):
         if preview_scene is None or scene.capture_last <= scene.capture_first:
             viewer.label(text="No capture loaded", icon="INFO")
         else:
-            viewer.prop(scene, "preview_rest", text="Bind pose", toggle=True)
+            # Bind pose is what mapping shows; while a mapping session owns the
+            # pose the toggle would let the animator break the very state the
+            # clicks are measured against.
+            bind_pose = viewer.row()
+            bind_pose.enabled = not scene.mapping_active
+            bind_pose.prop(scene, "preview_rest", text="Bind pose", toggle=True)
             if scene.preview_rest:
                 # REST does not evaluate animation: without this the frozen
                 # skeleton reads as a broken import rather than a chosen mode.
                 viewer.label(text="Bind pose freezes the animation", icon="INFO")
                 viewer.label(text="Untick it to watch it play.")
+
+        mapping_box = layout.box()
+        mapping_box.label(text="Mapping", icon="BONE_DATA")
+        mapping_box.prop(scene, "target_rig", text="Rig")
+        rig = scene.target_rig
+        if rig is None:
+            mapping_box.label(text="Pick the rig the animation drives", icon="INFO")
+        elif rig.type != "ARMATURE":
+            mapping_box.label(text=f"{rig.name} is not an armature", icon="ERROR")
+
+        linked = len(scene.mapping_items)
+        mapping_box.label(
+            text=f"{linked} bone(s) linked",
+            icon="CHECKMARK" if linked else "DOT",
+        )
+        missing = mapping.unresolved(scene)
+        if missing:
+            mapping_box.label(text=f"{missing} link(s) point at missing controls", icon="ERROR")
+
+        if scene.mapping_active:
+            if scene.mapping_pending:
+                mapping_box.label(
+                    text=f"{scene.mapping_pending}: pick its control", icon="TIME"
+                )
+            else:
+                mapping_box.label(text="Click a capture bone in the viewer", icon="INFO")
+            mapping_box.label(text="Esc or right-click finishes", icon="INFO")
+            mapping_box.operator("aimation.finish_mapping", text="Finish", icon="CHECKMARK")
+        else:
+            mapping_box.operator("aimation.map_bones", text="Map bones", icon="BONE_DATA")
 
         message = props.status(scene)
         if message:

@@ -72,11 +72,33 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
    ej: si pulso el hueso de la mano en el UI tendría que seleccionar el control
    de la mano en el rig. una vez seleccionado este hueso se tornará verde si la
    conexión se ha realizado."*
-   Acceptance: `pose_position = 'REST'` while mapping; per-bone custom colours
-   (grey -> pending -> green) via `Bone.color` + `show_bone_colors`; a link is
-   stored by name and survives capture reloads.
-   Checks: headless smoke of colour state transitions; pure map-serialisation
-   tests.
+   Interaction, chosen by the user (L16): **a searchable popup in the viewer
+   window.** Clicking a capture bone opens a search field listing every control
+   of the target rig (its pose bones plus every empty in the file); typing
+   filters, Enter links. The alternative — clicking the control in the
+   animator's own viewport — is impossible as specified: a modal operator only
+   receives mouse events from the window it started in, and the skeleton and
+   the rig live in different windows.
+   Acceptance: `pose_position = 'REST'` while mapping (the Bind pose toggle is
+   disabled for the session); per-bone custom colours (grey -> pending -> green)
+   via `Bone.color.custom.normal` + `show_bone_colors`, on both the bone and the
+   pose bone; an already-linked bone opens its popup with **Remove link**, which
+   turns it grey again; a link is stored by source bone name and repaints on
+   whichever capture armature is loaded; `Esc` / right-click ends the session and
+   returns the viewer to the pose; the modal refuses, by name, to start anywhere
+   but the viewer window.
+   Checks: headless smoke of the activation refusals, forced REST, the colour
+   transitions, the choices list (bones + an empty), link persistence across a
+   capture reload, unlink, and the modal's window refusal; pure ray-picking
+   tests for the click geometry.
+
+7. **S7 — Rig-agnostic targets.** A link target may be a bone or a plain object,
+   because poles are sometimes empties.
+   Acceptance: the pick step (the searchable popup) resolves bones of the target
+   armature and objects of type `EMPTY`; the stored reference records
+   `kind` + object name + bone name; a link whose control vanished reads as
+   missing in the panel instead of painting green.
+   Checks: headless smoke of the choices list and of the missing-control count.
 
 5. **S5 — Transpose.** One button moves the capture's animation onto the mapped
    controls of the selected rig.
@@ -126,7 +148,7 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
 | -- | ---- | ----- | ------ | ------ |
 | T1 | S1, S2, S9 | inline | done | `f840ac3` (PR #9) — Add-on package: extension manifest, preferences, capture listing, preview scene, import/refresh into it, panel + UIList. RED/GREEN: pure `captures`/`clock` tests; `headless_smoke.py` checks the preview scene owns the only armature, the working scene owns none, and a missing folder/capture fails named. |
 | T2 | S1, S9 | inline | done | `f840ac3` (PR #9) — Secondary window, play/pause, frame slider, independent clock mirrored into the preview scene. RED/GREEN: `clock.frame_at` tests (advance, truncate, wrap, non-zero range start, no rate, empty and single-frame ranges); smoke checks the frame range/rate binding and that the working scene comes back at 24 fps / 1-250 / frame 7 after an import. The window itself is a manual check. |
-| T3 | S4 | inline | pending | Mapping `CollectionProperty`, click-to-map modal picking (bones and empties), grey/pending/green colours, persistence. |
+| T3 | S4 | inline | in progress | Mapping `CollectionProperty`, click-to-map modal picking (bones and empties), grey/pending/green colours, persistence. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. Done: pure `picking.py` (10 RED->GREEN tests) and the mapping RNA in `props.py`. Remaining: `mapping.py` (session, colours, links, choices, operators), panel wiring, colour refresh on load, smoke, docs. |
 | T4 | S5, S6 | inline | pending | Pure `retarget_math`, `Transpose` operator, sparse bake, root motion. |
 | T5 | S8 | inline | pending | Return bake onto the production skeleton + export. |
 
@@ -402,4 +424,72 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
   `ruff check .` clean; full pytest green (the known flaky
   `test_ai_hmr2_adapter` timeout fails on `main` too, not ours). S2 rewritten;
   spec.md v0.7.4.
+- **L16.** Interaction decision for T3, put to the user verbatim in the
+  conversation ("¿cómo elegís el control del rig que se le conecta?" with three
+  options and their real costs), answered: **"Buscador en el visor"** —
+  *"Clic en el bone de la captura (ventana del visor) → aparece un popup con
+  buscador listando TODOS los controles de tu rig (bones + empties) → escribís
+  'hand', Enter, listo."* Chosen over click+click+Link and over cross-window
+  direct clicking, which depends on unverified modal routing (a modal only
+  receives mouse events from the window it started in). T3 started, inline
+  route, save point at the user's request:
+  1. Pure `blender_addon/aimation_transpose/picking.py` — segment/segment
+     closest-point ray-to-bone picking (Ericson RTCD ch. 5), `bpy`-free;
+     RED observed, then GREEN: `tests/test_blender_addon_picking.py` 10/10.
+     Two of the original test drafts were themselves wrong and were fixed as
+     part of GREEN, not the code: two segments lying exactly ON the ray tie
+     at distance zero (nearest must win by distance, not by order), and a
+     segment parallel to the ray at `y=0.5, z=2` is 2.06 away, never 0.5.
+     The code fix was real: a bone whose closest point lies behind the ray
+     origin must return `inf`, and `ray_point_distance` must divide by
+     `dot(d, d)`, not by its square root.
+  2. Mapping RNA in `props.py`: `MappingItem` (`name` = capture bone, `kind`
+     BONE|EMPTY, `object`, `target_bone`), `scene.mapping_items`,
+     `mapping_active`, `mapping_pending`, `mapping_choice`, and `link_of`.
+     Registered on every scene copy like the rest; the smoke passes with it
+     (66 checks), `ruff check .` clean.
+  Not yet written: `mapping.py` (session activate/finish, grey/pending/green
+  colours, links, the `build_choices` collection for the search popup, the
+  modal `aimation.map_bones`, `aimation.pick_target`, `aimation.finish_mapping`),
+  the panel box and Target-rig field, the colour refresh on
+  `preview.load_capture`, the smoke additions, and the S4/S7 acceptance
+  rewrite with this picker flow. **Uncommitted working-tree state — the next
+  session resumes here, not from scratch.**
+- **L17.** T3 completed in the next session. Measured facts that shaped it:
+  1. **`BoneColor.custom` is a read-only pointer**, not an assignable colour:
+     `color.custom.normal = (r, g, b)` after `color.palette = "CUSTOM"`
+     (`is_custom` is read-only and follows the palette; values round-trip
+     through 8-bit theme storage, so 0.35 reads back as 0.3529). Both the
+     `Bone` and the `PoseBone` side are painted.
+  2. **The search popup pattern is Blender's own**: `bl_property` +
+     `EnumProperty(items=<dynamic callback>)` + `window_manager.invoke_search_popup(self)`
+     returning `RUNNING_MODAL` (read from the bundled
+     `addons_core/ui_translate/update_addon.py`, not guessed). One builder
+     (`_targets`) feeds both the popup list and the identifier→target table, so
+     confirming a choice never parses the identifier back into parts.
+  3. **A modal cannot be invoked headless**: `bpy.ops.aimation.map_bones("INVOKE_DEFAULT")`
+     prints *"Invalid operator call"* and returns `{'PASS_THROUGH'}` without
+     ever reaching `invoke` (no window manager in `--background`). The window
+     condition is therefore a plain function, `_refusal(context)`, exercised
+     directly by the smoke; the popup and the click gestures stay manual checks,
+     like the window itself.
+  Design as built: `mapping.py` holds the session (`activate` refusing by name
+  without a capture or a rig, forcing `preview_rest` and `show_bone_colors`,
+  `finish` returning the viewer to POSE), the colour refresh (grey / amber
+  pending / green linked, repainted from links keyed by source bone name), the
+  link store (`MappingItem`: kind BONE|EMPTY, object name, target bone), the
+  choice builder (target rig pose bones + every EMPTY), and the three operators
+  (`aimation.map_bones` modal: click → pending → `aimation.pick_target`
+  `INVOKE_DEFAULT`; Esc/right-click or the panel's Finish ends it;
+  `aimation.finish_mapping`). The panel gained a Mapping box (target rig field,
+  linked count, missing-control count, pending status) and disables the Bind
+  pose toggle for the duration of a session; `preview._bind_clock` refreshes
+  the colours after every capture load, so a link survives a reload and repaints
+  on whichever armature is showing.
+  Evidence: smoke 66 -> **90 checks** green, `ruff check .` clean, full pytest
+  suite green (including the flaky `test_ai_hmr2_adapter` this run).
+  Mutation-tested three ways in one run — removing the `_bind_clock` colour
+  refresh, painting pending bones grey, and not forcing REST each failed its
+  exact check (`a link repaints green on the reloaded skeleton`, `the bone
+  awaiting its control turns amber`, `mapping forces the bind pose`).
 

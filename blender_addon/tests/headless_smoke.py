@@ -34,7 +34,7 @@ for _entry in (str(REPO), str(REPO / "blender_addon")):
 
 import aimation_transpose as addon  # noqa: E402
 import bpy  # noqa: E402
-from aimation_transpose import operators, preview, props, ui  # noqa: E402
+from aimation_transpose import mapping, operators, preview, props, ui  # noqa: E402
 
 from aimation_actor.adapters.io.fbx import binary, document  # noqa: E402
 from aimation_actor.core.models import (  # noqa: E402
@@ -57,6 +57,14 @@ def check(label: str, condition: bool, detail: str = "") -> None:
         return
     _FAILURES.append(label)
     print(f"  FAIL {label}" + (f" — {detail}" if detail else ""))
+
+
+def near(colour, expected, tolerance: float = 0.02) -> bool:
+    """Custom bone colours round-trip through 8-bit theme storage, not floats."""
+    return all(
+        abs(actual - wanted) <= tolerance
+        for actual, wanted in zip(colour, expected, strict=True)
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -191,6 +199,14 @@ def main() -> None:
 
     addon.register()
     scene = bpy.context.scene
+
+    # -- S4: nothing to map before a capture exists -------------------------- #
+    ok, message = mapping.activate(scene)
+    check(
+        "mapping refuses without a capture, by name",
+        not ok and "capture" in message.lower(),
+        message,
+    )
 
     # -- S2: the list ------------------------------------------------------ #
     count = props.refresh_captures(scene, bpy.context)
@@ -501,6 +517,148 @@ def main() -> None:
         "a refresh re-lists a removed folder file",
         count == 3 and "a_take.fbx" in [row.name for row in scene.capture_items],
         f"count={count}",
+    )
+
+    # -- S4/S7: the mapping surface ------------------------------------------ #
+    # The smoke owns no rig, so one is built by hand: the mapping only needs an
+    # armature to point at (and an empty to be offered by the popup).
+    rig_data = bpy.data.armatures.new("Test Rig")
+    rig = bpy.data.objects.new("Test Rig", rig_data)
+    scene.collection.objects.link(rig)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    edit_bone = rig_data.edit_bones.new("hand_ik")
+    edit_bone.head = (0.0, 0.0, 0.0)
+    edit_bone.tail = (0.0, 10.0, 0.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    ctrl = bpy.data.objects.new("ctrl_hand", None)
+    scene.collection.objects.link(ctrl)
+
+    ok, message = mapping.activate(scene)  # still no rig
+    check(
+        "mapping refuses without a target rig, by name",
+        not ok and "rig" in message.lower(),
+        message,
+    )
+    scene.target_rig = rig
+    ok, message = mapping.activate(scene)
+    check("mapping starts with a capture and a rig", ok, message)
+    armature = preview.source_armature()
+    check(
+        "mapping forces the bind pose",
+        scene.preview_rest is True and armature.data.pose_position == "REST",
+        f"rest={scene.preview_rest} pos={armature.data.pose_position}",
+    )
+    check("mapping turns bone colours on", armature.data.show_bone_colors is True)
+    check(
+        "an unmapped bone is grey",
+        near(armature.data.bones["L_Ankle"].color.custom.normal, mapping.GREY),
+        str(tuple(armature.data.bones["L_Ankle"].color.custom.normal)),
+    )
+
+    choices = list(mapping.build_choices(scene))
+    check(
+        "the popup lists the rig's bones",
+        any(identifier.startswith("BONE:Test Rig:hand_ik") for identifier, _ in choices),
+        str(choices),
+    )
+    check(
+        "the popup lists the empties in the file",
+        any(identifier.startswith("EMPTY:ctrl_hand:") for identifier, _ in choices),
+        str(choices),
+    )
+
+    scene.mapping_pending = "L_Ankle"
+    mapping.refresh_colours(scene)
+    check(
+        "the bone awaiting its control turns amber",
+        near(armature.data.bones["L_Ankle"].color.custom.normal, mapping.PENDING),
+    )
+
+    mapping.link(scene, "L_Ankle", "BONE", "Test Rig", "hand_ik")
+    scene.mapping_pending = ""
+    mapping.refresh_colours(scene)
+    check(
+        "a linked bone turns green",
+        near(armature.data.bones["L_Ankle"].color.custom.normal, mapping.GREEN),
+    )
+    stored = props.link_of(scene, "L_Ankle")
+    check(
+        "the link is stored by source bone name",
+        stored is not None
+        and (stored.kind, stored.object, stored.target_bone) == ("BONE", "Test Rig", "hand_ik"),
+    )
+    scene.mapping_pending = "L_Ankle"
+    labels = [label for _identifier, label in mapping.build_choices(scene)]
+    check("a mapped bone offers to remove its link", "Remove link" in labels, str(labels))
+    scene.mapping_pending = ""
+    check("a resolvable link is not reported missing", mapping.unresolved(scene) == 0)
+
+    # A link names a control, not an object pointer: reloading another capture
+    # must repaint it on the skeleton that is showing now (S7).
+    scene.capture_index = 0
+    preview._deferred_load()
+    reloaded = preview.source_armature()
+    check("the mapping survives a capture reload", props.link_of(scene, "L_Ankle") is not None)
+    check(
+        "a link repaints green on the reloaded skeleton",
+        reloaded is not None
+        and near(reloaded.data.bones["L_Ankle"].color.custom.normal, mapping.GREEN),
+    )
+
+    check("a link can be removed", mapping.unlink(scene, "L_Ankle"))
+    check(
+        "an unlinked bone returns to grey",
+        reloaded is not None
+        and near(reloaded.data.bones["L_Ankle"].color.custom.normal, mapping.GREY),
+    )
+    check("unlinking a missing link fails", not mapping.unlink(scene, "L_Ankle"))
+
+    mapping.link(scene, "Main", "EMPTY", "ghost_control")
+    check("a link to a vanished control is counted", mapping.unresolved(scene) == 1)
+    check(
+        "a link to a vanished control is not painted green",
+        reloaded is not None
+        and not near(reloaded.data.bones["Main"].color.custom.normal, mapping.GREEN),
+    )
+    mapping.unlink(scene, "Main")
+
+    mapping.finish(scene)
+    check(
+        "finishing mapping returns the viewer to the pose",
+        scene.mapping_active is False and reloaded.data.pose_position == "POSE",
+    )
+    check(
+        "the mapping operators are registered",
+        registered("map_bones") and registered("pick_target") and registered("finish_mapping"),
+    )
+    # Headless cannot invoke a modal (the operator call is invalid without a
+    # window manager), so the refusal condition is exercised directly: no
+    # window, a window on the animator's scene, and the viewer's own window.
+    check(
+        "the map modal refuses a window that is not the viewer",
+        "viewer" in (mapping._refusal(types.SimpleNamespace(scene=scene, window=None)) or ""),
+    )
+    check(
+        "the map modal refuses the animator's own window",
+        "viewer"
+        in (
+            mapping._refusal(
+                types.SimpleNamespace(
+                    scene=scene, window=types.SimpleNamespace(scene=scene)
+                )
+            )
+            or ""
+        ),
+    )
+    check(
+        "the map modal accepts the viewer window",
+        mapping._refusal(
+            types.SimpleNamespace(
+                scene=preview_scene, window=types.SimpleNamespace(scene=preview_scene)
+            )
+        )
+        is None,
     )
 
     # -- the viewer's write surface ----------------------------------------- #
