@@ -47,6 +47,9 @@ aimation_actor/
     └── ai/                     # hmr2_adapter.py, condmdi_adapter.py
 tests/                          # unit tests for core and ports
 assets/                         # icons, styles, sample data
+blender_addon/                  # GPL Blender extension: the retarget tool
+└── aimation_transpose/         # capture viewer + control-rig transposition (FR-RET)
+    └── tests/                  # headless bpy smoke (needs a Blender install)
 ```
 
 ## Tech stack
@@ -99,6 +102,32 @@ splitting the read and write paths:
   fcurve keyframe times, each recorded as a full pose snapshot.
 - **Precision:** Blender keeps transforms in float32, so a read/write round trip
   is exact only to ~1 ULP of the magnitude (~1.2e-4 at 1000 cm).
+- **Stepped tangents do not survive a Blender import.** The writer emits
+  `KeyAttrFlags = 24836` (CONSTANT), and the file is genuinely stepped, but
+  Blender's importer never reads that field: its own source says *"Currently,
+  linear interpolation is assumed, but FBX does store how keyframes should be
+  interpolated"* (`import_fbx.py:716`). Anything that imports a capture into
+  Blender must re-assert `interpolation = 'CONSTANT'` on the loaded keyframes
+  (the add-on does this in `preview._make_stepped`) or it will display
+  in-between poses the animator never keyed. Reading keyed frames directly, as
+  the read bridge does, is unaffected.
+- **Two import conventions, on purpose.** The add-on imports captures through
+  the legacy importer (`bpy.ops.import_scene.fbx`) with
+  `automatic_bone_orientation=True`, because at its default the importer keeps
+  the FBX-authored axes and draws the skeleton inside-out (measured on a
+  synthetic capture: the `Pelvis` bone, whose rest offset goes down from the
+  hips, spans y 90 → 170 with the flag off and y 90 → 10 with it on). The
+  application's read bridge (`adapters/io/fbx/blender_import.py`) keeps the
+  importer's defaults: every documented round trip (FR-IMP-01/02, FR-EXP-02) was
+  validated against the armature-space basis that convention produces, so
+  changing the bridge means re-validating `transform.py`, not just flipping a
+  flag. **PR 4's return bake must respect this split** — the bake writes into the
+  production skeleton and exports through the application's writer, and the two
+  paths do not agree on bone axes by design.
+- **`bpy.ops.wmf.fbx_import` is a name without an operator** in 5.2.3
+  (factory-startup): the attribute exists but resolving its RNA raises
+  `KeyError: get_rna_type("WMF_OT_fbx_import") not found`. The legacy importer is
+  the one that runs, and the only one carrying `automatic_bone_orientation`.
 - **Limitation:** `JointData.rest_translation` is a parent-frame `Lcl` offset and
   the domain assumes identity bind rotations. Animation round-trips exactly, but a
   foreign rig with rotated bind orientations has no faithful bind *pose* here.
@@ -228,6 +257,20 @@ need to activate:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+The Blender add-on's `bpy` shell cannot run under that interpreter. Its logical
+halves (`captures.py`, `picking.py`) are covered by the normal pytest run; the
+rest is a headless smoke against a real Blender install:
+
+```powershell
+& "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" `
+    --background --factory-startup --python-exit-code 1 `
+    --python blender_addon\tests\headless_smoke.py
+```
+
+It is self-contained (it writes its own captures with the repository's writer).
+A secondary window cannot be opened in `--background`, so the viewer window
+itself stays a manual check — the same posture as the FBX read bridge.
+
 ## Engineering principles (required)
 
 Every change must respect these principles. They are not optional polish — they
@@ -291,3 +334,67 @@ are the bar for a change to be acceptable.
 - `tests/` covers `core/`, `ports/`, and the pure-Python parts of the FBX
   adapter (codec, node tree, conversions, JSON → domain). The Blender subprocess
   path needs a Blender install, so it is exercised manually, not in CI.
+- The Blender add-on follows the same split: `blender_addon/aimation_transpose/`
+  keeps `bpy`-free modules (`captures.py`, `picking.py`, and the retarget math)
+  importable by path so `tests/` covers them without Blender, while everything
+  touching `bpy` is proven by `blender_addon/tests/headless_smoke.py`. Never
+  import the add-on package as a package from pytest — its `__init__` imports
+  `bpy`.
+- **Blender window facts the add-on depends on** (all measured on 5.2.3):
+  `Window.scene` and `Window.view_layer` are writable; `Window.width`, `height`,
+  `x` and `y` are **read-only** and there is no resize operator, so a script
+  cannot size a window. `bpy.data.screens.new` and `Screen.copy` do not exist,
+  so a second window cannot be given a private layout — and because `Area`
+  objects belong to the `Screen`, not the `Window`, anything that changes
+  shading or `region_3d` of a shared screen rewrites the animator's own
+  viewport. The classes are `View3DShading` / `View3DOverlay` (not
+  `SpaceShading` / `SpaceOverlay`). In `--background` there is one window and
+  `wm.window_new` fails its poll, so window behaviour is only ever a manual
+  check.
+- **A panel can never host the 3D view.** Panels draw inside a region of type
+  `UI`; `VIEW_3D` is an **area** type and areas own their regions, so an
+  embedded viewport at any sidebar width is not a missing feature but a platform
+  impossibility (`bpy.types.Panel` has no `maximized` property either). What a
+  panel *can* own is the viewer's controls, and what it cannot do is scale the
+  3D view with the tab. `wm.window_fullscreen_toggle` exists
+  (`WM_OT_window_fullscreen_toggle`) and `screen.screen_full_area`
+  (`SCREEN_OT_screen_full_area`) exists for areas, but `Window` exposes **no
+  readable fullscreen state**, so any maximize control is a blind toggle.
+- **Bone colours and the search popup, measured on 5.2.3** (they shape the
+  click-to-map surface): `BoneColor` exposes `palette` (writable, including
+  `CUSTOM`), `is_custom` (**read-only**) and `custom` — a **read-only pointer**
+  to a `ThemeBoneColorSet`, whose `.normal` is what actually takes the colour:
+  `bone.color.palette = "CUSTOM"; bone.color.custom.normal = (r, g, b)`.
+  Colours round-trip through 8-bit theme storage (0.35 reads back 0.3529), so
+  comparisons need a tolerance. `Bone.color` and `PoseBone.color` are separate
+  storages. `Armature.show_bone_colors` gates the display. A searchable popup is
+  `window_manager.invoke_search_popup(self)` on an operator carrying
+  `bl_property` + a dynamic `EnumProperty(items=callback)` (the pattern Blender's
+  own `ui_translate/update_addon.py` uses — and that file's own comment warns the
+  callback's `self` is not the operator's `self`). Freeze the list in `invoke`
+  and let the callback only read that snapshot: the context Blender hands an
+  enum callback is not the one `invoke` ran with, so anything the callback
+  re-resolves from it (an owning scene, for instance) can come back empty and
+  the popup draws no rows. In `--background` a dynamic enum is never evaluated
+  at all — the callback is not called and `enum_items` reads empty — so popup
+  contents are only ever a manual check, and refusal logic belongs in a plain
+  function the smoke can call. **`from __future__ import annotations` breaks any
+  callback written inside a property annotation**: the annotation stays a
+  *string*, and the function Blender builds from it runs in a namespace that does
+  not carry the module's own bindings, so
+  `items=lambda self, context: _items(self, context)` raises
+  `NameError: name '_items' is not defined` every time it runs. Blender swallows
+  it, so the surface draws nothing while Python-side checks stay green — a search
+  popup opened with zero rows for three sessions because of exactly this
+  (measured on 5.2.3). Names resolved while the annotation is *evaluated*
+  (`default=SOME_CONSTANT`, `update=_on_folder`) are fine either way, and
+  definition order does not matter: a helper defined *above* the class fails like
+  one defined below it, so the future import is the whole story. A module whose
+  property annotation needs a callback must therefore either drop the future
+  import or pass a module-level function reference instead of a lambda, and
+  `tests/test_blender_addon_annotations.py` enforces it without Blender. And a
+  modal operator can only be
+  invoked interactively: in `--background`,
+  `bpy.ops.<id>('INVOKE_DEFAULT')` prints *"Invalid operator call"* and returns
+  `{'PASS_THROUGH'}` without ever reaching `invoke`, so modal refusal conditions
+  belong in a plain, directly-testable function.

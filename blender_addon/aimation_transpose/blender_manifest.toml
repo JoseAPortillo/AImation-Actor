@@ -1,0 +1,10 @@
+schema_version = "1.0.0"
+id = "aimation_transpose"
+version = "0.1.0"
+name = "AImation Transpose"
+tagline = "Retarget captured sparse animation onto a control rig"
+maintainer = "AImation Actor"
+type = "add-on"
+tags = ["Animation", "Rigging"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
