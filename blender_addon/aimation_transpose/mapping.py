@@ -15,7 +15,15 @@ Everything here is ``bpy`` shell. The ray mathematics is pure and lives in
 :mod:`picking`, which the repository's pytest run covers.
 """
 
-from __future__ import annotations
+# NOTE: no ``from __future__ import annotations`` here, and that is load-bearing.
+# Blender reads operator properties from class annotations. Under the future
+# import every annotation stays a *string*, and Blender evaluates it later in a
+# restricted namespace that holds ``bpy`` but not this module's globals. The
+# picker's ``items`` callback is a lambda that calls the module-level ``_items``,
+# so it became ``NameError: name '_items' is not defined`` at draw time, which
+# Blender swallows: the search popup opened with no rows and the console was the
+# only place the error appeared (measured on 5.2.3). Without the future import
+# the annotation is evaluated in the class body, where module globals exist.
 
 import bpy
 from bpy_extras import view3d_utils

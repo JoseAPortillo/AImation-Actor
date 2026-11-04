@@ -593,6 +593,30 @@ def main() -> None:
         and all(identifier != mapping._NO_CHOICE for identifier, _, _ in served),
         str(served),
     )
+    # The trap that kept the popup empty: with ``from __future__ import
+    # annotations`` the property annotation is a string, and Blender evaluates
+    # it in a namespace without this module's globals, so the lambda's call to
+    # ``_items`` raised NameError at draw time and Blender drew no rows.
+    annotation = mapping.AIMATION_OT_pick_target.__annotations__["choice"]
+    check(
+        "the picker's enum annotation is not a postponed string",
+        not isinstance(annotation, str),
+        type(annotation).__name__,
+    )
+    items_callback = (
+        annotation.keywords.get("items") if not isinstance(annotation, str) else None
+    )
+    resolved = items_callback(None, types.SimpleNamespace()) if items_callback else []
+    check(
+        "the enum callback Blender holds resolves _items in real globals",
+        len(resolved) == len(choices),
+        f"{len(resolved)} vs {len(choices)}",
+    )
+    check(
+        "the enum callback Blender holds resolves _items in real globals",
+        len(resolved) == len(choices),
+        f"{len(resolved)} vs {len(choices)}",
+    )
     kept_rig, scene.target_rig = scene.target_rig, None
     # Without a rig mapping cannot start, but an empty is still a legal target:
     # the count says what the popup would list, the message says what blocks
