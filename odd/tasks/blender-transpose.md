@@ -148,7 +148,7 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
 | -- | ---- | ----- | ------ | ------ |
 | T1 | S1, S2, S9 | inline | done | `f840ac3` (PR #9) — Add-on package: extension manifest, preferences, capture listing, preview scene, import/refresh into it, panel + UIList. RED/GREEN: pure `captures`/`clock` tests; `headless_smoke.py` checks the preview scene owns the only armature, the working scene owns none, and a missing folder/capture fails named. |
 | T2 | S1, S9 | inline | done | `964f8ea` + `3973574` + `2a719b7` (PR #9) — Viewer controls moved into the tool panel, the viewer window's own timeline plays/scrubs the capture, `Import Capture` single-file, capture-list `Remove`. Also `dccef35` (viewer animates, panel reachable from it) and `da89a8b` (legacy importer + `automatic_bone_orientation`). The timer clock, play button, frame slider and maximize toggle were removed by user decision (L14). RED/GREEN: `clock.frame_at` tests (advance, truncate, wrap, non-zero range start, no rate, empty and single-frame ranges); smoke checks the frame range/rate binding, the working scene restored to 24 fps / 1-250 / frame 7 after an import, and that removing a row never schedules a load of the row the clamp lands on. The window itself is a manual check. |
-| T3 | S4, S7 | inline | in progress | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). Follow-up `00bea55` (PR #9, L18): the picker's list is frozen when the popup opens, `invoke` refuses an empty picker by name, and the Mapping box reports the control count or the blockage; smoke 91 -> 96 checks. **Reopened (L19):** the user's retest still shows an empty popup, so S4's acceptance is not met and T3 is `in progress` again — the picker's Python side is green, the RNA/interactive side is the open defect. |
+| T3 | S4, S7 | inline | in progress | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). Follow-up `00bea55` (PR #9, L18): the picker's list is frozen when the popup opens, `invoke` refuses an empty picker by name, and the Mapping box reports the control count or the blockage; smoke 91 -> 96 checks. **Reopened (L19):** the user's retest still shows an empty popup, so S4's acceptance is not met. L20 measured the real root cause and `b044320` fixes it: `from __future__ import annotations` in `mapping.py` turned the operator's `choice` annotation into a string, which Blender evaluates without this module's globals, so the `items` lambda raised `NameError: name '_items' is not defined` at every draw and Blender drew no rows; the future import is gone, two smoke checks guard the annotation shape and the callback's globals (smoke 96 -> 99 checks), and a GUI probe that invokes the operator now reports `NameError count: 0`. Still `in progress` until the user's interactive retest confirms the popup lists controls. |
 | T4 | S5, S6 | inline | pending | Pure `retarget_math`, `Transpose` operator, sparse bake, root motion. |
 | T5 | S8 | inline | pending | Return bake onto the production skeleton + export. |
 
@@ -546,4 +546,52 @@ L19 (2026-11-01, user retest) — **the L18 fix did NOT resolve the report.**
   ``--background``, so none of these three can be settled by the smoke.
   Commits this session: ``00bea55`` (freeze), ``d93f619`` + ``db53811`` (docs);
   pushed to ``feat/blender-transpose``, PR #9 body current.
+
+L20 (2026-11-04, measured root cause + fix `b044320`) — **the popup was empty
+  because the enum callback raised at draw time.**
+  Root cause, measured with a GUI probe that invokes the operator the way the
+  modal does and quits itself: ``mapping.py`` carried
+  ``from __future__ import annotations``. Under that import an operator property
+  annotation stays a **string**; Blender evaluates the string later in a
+  restricted namespace that holds ``bpy`` but **not this module's globals**, so
+  ``items=lambda self, context: _items(self, context)`` raised
+  ``NameError: name '_items' is not defined`` on every draw. Blender swallowed it
+  and drew zero rows, which is why Python-side evidence was green while the popup
+  was empty — the traceback is ``File "<string>", line 1, in <lambda>``, i.e. not
+  ``mapping.py``, and that is the whole tell.
+  Isolated with an A/B of two throwaway modules: the same operator annotated
+  ``choice: bpy.props.EnumProperty(..., items=lambda ...)`` reads as ``str`` with
+  the future import and as ``_PropertyDeferred`` without it.
+  Fix: the future import is gone from ``mapping.py``, with a comment saying it is
+  load-bearing. Every annotation there stays runtime-evaluable (`str | None`,
+  `tuple[bool, str]`, builtin generics), so nothing else needed the import.
+  Guards: two smoke checks — ``the picker's enum annotation is not a postponed
+  string`` and ``the enum callback Blender holds resolves _items in real globals``
+  (reads ``annotation.keywords["items"]``; ``_PropertyDeferred`` exposes
+  ``.function``/``.keywords`` and is **not** subscriptable, which is what the first
+  attempt got wrong). Smoke 96 -> **99 checks** green, ``ruff check .`` clean.
+  Mutation test: re-adding the future import fails 3 checks, including both new
+  ones. GUI probe after the fix: ``NameError count: 0`` (was 1); snapshot still
+  ``2`` entries, status ``{'RUNNING_MODAL'}``.
+  **Refuted by measurement, do not revisit:** (a) RNA rejects the identifiers —
+  a static enum registered and listed ``A:1``, ``B C``, ``D<E`` and the literal
+  ``BONE:Rig_RocketGirl <---------- PROXY:root``, 6/6 kept, so colon-free
+  identifiers are unnecessary; (b) ``enum_items`` reading 0 implicates the
+  declaration — a minimal hardcoded dynamic enum also reads 0 outside a draw, so
+  that measurement proves nothing either way.
+  Also measured (L21 groundwork): the user's rig and the capture share one world
+  space — both Z-up, origin ``(0,0,0)``, feet at z=0 — ``metarig`` 166 bones /
+  2.129 m, ``Rig_RocketGirl <---------- PROXY`` 677 bones / 2.145 m,
+  ``AImation Capture Rig`` 25 bones / 1.598 m; ratio ≈ 0.745. The preview scene
+  holds **only** the capture armature, so showing the rig there needs an explicit
+  link.
+  Platform fact recorded in ``AGENTS.md`` (Blender facts block).
+  Review: native assess over ``c09447f..HEAD`` (``--base-ref c09447f
+  --committed-only``) returned tier **medium**, ``review_due: false``
+  (``under_budget``), so the slice stays open and these commits remain pending in
+  it.
+  Full pytest this session: **1 failed, 492 passed** —
+  ``tests/test_ai_hmr2_adapter.py::test_shutdown_terminates_the_worker``, the known
+  flaky family, unrelated to the add-on; it **passes standalone**, so the failure
+  is not caused by this change.
 

@@ -378,7 +378,15 @@ are the bar for a change to be acceptable.
   the popup draws no rows. In `--background` a dynamic enum is never evaluated
   at all — the callback is not called and `enum_items` reads empty — so popup
   contents are only ever a manual check, and refusal logic belongs in a plain
-  function the smoke can call. And a modal operator can only be
+  function the smoke can call. **`from __future__ import annotations` silently
+  breaks every operator property in the module**: the annotation stays a *string*
+  and Blender evaluates it later in a restricted namespace that holds `bpy` but
+  not the module's globals, so a callback written as
+  `items=lambda self, context: _items(self, context)` raises
+  `NameError: name '_items' is not defined` at every draw, Blender swallows it,
+  and a search popup opens with zero rows while Python-side checks stay green
+  (measured on 5.2.3; the module where a property annotation names a module-level
+  helper must not carry that future import). And a modal operator can only be
   invoked interactively: in `--background`,
   `bpy.ops.<id>('INVOKE_DEFAULT')` prints *"Invalid operator call"* and returns
   `{'PASS_THROUGH'}` without ever reaching `invoke`, so modal refusal conditions
