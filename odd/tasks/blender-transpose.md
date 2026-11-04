@@ -148,7 +148,7 @@ Contract: production joint names (`core/production_skeleton.py`), FBX convention
 | -- | ---- | ----- | ------ | ------ |
 | T1 | S1, S2, S9 | inline | done | `f840ac3` (PR #9) — Add-on package: extension manifest, preferences, capture listing, preview scene, import/refresh into it, panel + UIList. RED/GREEN: pure `captures`/`clock` tests; `headless_smoke.py` checks the preview scene owns the only armature, the working scene owns none, and a missing folder/capture fails named. |
 | T2 | S1, S9 | inline | done | `964f8ea` + `3973574` + `2a719b7` (PR #9) — Viewer controls moved into the tool panel, the viewer window's own timeline plays/scrubs the capture, `Import Capture` single-file, capture-list `Remove`. Also `dccef35` (viewer animates, panel reachable from it) and `da89a8b` (legacy importer + `automatic_bone_orientation`). The timer clock, play button, frame slider and maximize toggle were removed by user decision (L14). RED/GREEN: `clock.frame_at` tests (advance, truncate, wrap, non-zero range start, no rate, empty and single-frame ranges); smoke checks the frame range/rate binding, the working scene restored to 24 fps / 1-250 / frame 7 after an import, and that removing a row never schedules a load of the row the clamp lands on. The window itself is a manual check. |
-| T3 | S4, S7 | inline | in progress | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). Follow-up `00bea55` (PR #9, L18): the picker's list is frozen when the popup opens, `invoke` refuses an empty picker by name, and the Mapping box reports the control count or the blockage; smoke 91 -> 96 checks. **Reopened (L19):** the user's retest still shows an empty popup, so S4's acceptance is not met. L20 measured the real root cause and `b044320` fixes it: `from __future__ import annotations` in `mapping.py` turned the operator's `choice` annotation into a string, which Blender evaluates without this module's globals, so the `items` lambda raised `NameError: name '_items' is not defined` at every draw and Blender drew no rows; the future import is gone, two smoke checks guard the annotation shape and the callback's globals (smoke 96 -> 99 checks), and a GUI probe that invokes the operator now reports `NameError count: 0`. Still `in progress` until the user's interactive retest confirms the popup lists controls. |
+| T3 | S4, S7 | inline | in progress | `a87a8a1` (PR #9) — Click-to-map surface: `picking.py` (pure ray↔segment picking, 10 RED->GREEN tests), `mapping.py` (session, grey/amber/green colours, link store, target-control choices, `map_bones`/`pick_target`/`finish_mapping`), the Mapping box + Target-rig field, the colour refresh on every capture load, and the S4/S7 acceptance rewrite. Route evidence: understood from L4 platform facts plus bounded reads; one independent piece of behavior, no Writer trigger reason. RED/GREEN: smoke 66 -> 91 checks, one mutation test per claimed hook (colour refresh on reload, pending amber, forced REST). Follow-up `00bea55` (PR #9, L18): the picker's list is frozen when the popup opens, `invoke` refuses an empty picker by name, and the Mapping box reports the control count or the blockage; smoke 91 -> 96 checks. **Reopened (L19):** the user's retest still shows an empty popup, so S4's acceptance is not met. L20 measured the real root cause and `b044320` fixes it: `from __future__ import annotations` in `mapping.py` turned the operator's `choice` annotation into a string, which Blender evaluates without this module's globals, so the `items` lambda raised `NameError: name '_items' is not defined` at every draw and Blender drew no rows; the future import is gone, two smoke checks guard the annotation shape and the callback's globals (smoke 96 -> 99 checks), and a GUI probe that invokes the operator now reports `NameError count: 0`. Still `in progress` until the user's interactive retest confirms the popup lists controls. L21 also lands the rig in the viewer for the session (`16a0333`: linked into `AImation Target`, forced `REST`, unlinked and restored on finish), so both changes await the same interactive retest. |
 | T4 | S5, S6 | inline | pending | Pure `retarget_math`, `Transpose` operator, sparse bake, root motion. |
 | T5 | S8 | inline | pending | Return bake onto the production skeleton + export. |
 
@@ -594,4 +594,72 @@ L20 (2026-11-04, measured root cause + fix `b044320`) — **the popup was empty
   ``tests/test_ai_hmr2_adapter.py::test_shutdown_terminates_the_worker``, the known
   flaky family, unrelated to the add-on; it **passes standalone**, so the failure
   is not caused by this change.
+
+L21 (2026-11-04, user-approved order: picker first, then the rig in the viewer) —
+  **Two things: the mechanism was narrower than L20 claimed, and option A is
+  built.**
+  (a) **Corrected mechanism, measured in four combinations.** L20 said the future
+  import breaks "every operator property". It does not. A throwaway probe
+  registered the same class with and without the future import and with the helper
+  defined above and below the class:
+  ``future_above`` and ``future_below`` both raise
+  ``NameError: name '_items_ref' is not defined`` **when the callback runs**, and
+  both register cleanly; ``plain_above`` and ``plain_below`` both work. So
+  definition order is irrelevant — the future import is the whole cause — and what
+  breaks is a **callback written inside the annotation** (a lambda): Blender builds
+  it from a namespace without the module's bindings. Names resolved while the
+  annotation is *evaluated* are fine, proven twice: a postponed
+  ``default=A_DEFAULT, update=_on_folder`` registers, while a postponed
+  ``default=THIS_NAME_DOES_NOT_EXIST`` raises at ``register_class``. That is why
+  ``prefs.py`` and ``operators.py`` carry the future import harmlessly today, and
+  why L20's fix stands but its explanation was tightened in ``AGENTS.md`` and in
+  the ``mapping.py`` note.
+  (b) **New guard, no Blender needed**:
+  ``tests/test_blender_addon_annotations.py`` parses every add-on module and fails
+  if a module postpones annotations while a property annotation's callback names a
+  module-level global. 10 tests green. Mutation-tested: re-adding the future import
+  to ``mapping.py`` fails both the parametrized check and the explicit
+  ``test_the_picker_keeps_its_annotation_evaluated_eagerly``.
+  (c) **Option A — the target rig is now visible in the viewer during mapping**
+  (S4). ``preview.show_target_rig``/``hide_target_rig`` link the rig into the
+  preview scene's own ``AImation Target`` collection and force ``REST``;
+  ``mapping.activate`` calls it (and refuses with the named reason if it fails) and
+  ``mapping.finish`` unlinks it and restores ``pose_position``/``hide_viewport``.
+  The rig is linked **in addition** to the animator's collection, never moved, so
+  their own viewport keeps drawing it; its mesh stays out because the animator
+  needs the control skeleton, not a body that hides it. ``frame_viewer`` now frames
+  the union of capture and rig (the rig is taller: 2.136 m against 1.515 m, so
+  capture-only framing cut the head off). The Rig field is locked while a session
+  runs — switching it mid-session would leave the viewer showing a different rig
+  than the picker offers — and the Mapping box states
+  ``<rig> is next to the capture, in bind pose``.
+  Measured against the user's real file (``RocketGirl_V009.blend`` +
+  ``104_2220_070_JACE_REF_04.fbx``): after linking, the PROXY rig's world transform
+  is **identical** (translation delta 0.000000, rotation delta 0.000000 deg — it
+  has no parent, so no parent-space surprise), both skeletons have feet at z=0, and
+  after ``finish`` the rig is out of the preview scene, back in ``POSE``, still in
+  the animator's scene.
+  Honest caveat: ``pose_position`` is armature-data, not per-scene, so the rig also
+  shows bind pose in the animator's own viewport for the duration of a session, and
+  a ``.blend`` saved mid-session would keep the extra collection. ``show_target_rig``
+  sweeps anything in that collection that is not the current target, so a stale rig
+  never survives into the next session, but the pose mode of a rig saved mid-session
+  is not knowable and is left alone.
+  Evidence: smoke **99 -> 103 checks** green, ``ruff check .`` clean, full pytest
+  1 failed / 492 passed where the failure
+  (``test_a_timed_out_worker_is_terminated_not_orphaned``, another test of the same
+  flaky HMR2 worker-termination family) **reproduces at the pre-session commit
+  ``5a4b610``** in a throwaway worktree — pre-existing, not caused by this change.
+  Mutation-tested four ways, each caught by exactly one check: not linking the rig,
+  not forcing REST, not restoring pose mode, not unlinking at the end.
+  Risk lines: both units ``Risk: none`` — display state, restored, with smoke
+  coverage. Status: built and green headless, **not yet retested by the animator in
+  interactive Blender**, which is also the pending confirmation for L20's picker
+  fix.
+  Delivery: the open slice (``c09447f..HEAD``) now holds **523 authored code lines**
+  (plus 129 doc lines), past the ~400 heuristic, but PR #9 already carries the
+  ``size:exception`` the user granted for this feature, so this is one PR as
+  decided and no new chain question is raised. Native assess over the same range
+  returned tier **medium**, ``review_due: false`` (``under_budget``): the slice
+  boundary stays at ``c09447f``.
 
