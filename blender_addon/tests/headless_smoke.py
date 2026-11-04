@@ -550,6 +550,25 @@ def main() -> None:
         f"rest={scene.preview_rest} pos={armature.data.pose_position}",
     )
     check("mapping turns bone colours on", armature.data.show_bone_colors is True)
+    # S4: the rig joins the viewer for the session — one window shows one scene,
+    # so seeing a control next to the capture bone requires linking it there.
+    shown_rig = bpy.data.scenes[props.PREVIEW_SCENE].objects.get(rig.name)
+    check(
+        "the target rig joins the viewer while mapping",
+        shown_rig is not None and rig.name in scene.objects,
+        f"preview={shown_rig is not None} working={rig.name in scene.objects}",
+    )
+    check(
+        "the rig is shown in bind pose, not in its own animation",
+        rig.data.pose_position == "REST",
+        rig.data.pose_position,
+    )
+    check(
+        "the rig is not mistaken for the capture",
+        preview.source_armature() is not None
+        and preview.source_armature().name == props.SOURCE_NAME,
+        str(preview.source_armature()),
+    )
     check(
         "an unmapped bone is grey",
         near(armature.data.bones["L_Ankle"].color.custom.normal, mapping.GREY),
@@ -607,11 +626,6 @@ def main() -> None:
         annotation.keywords.get("items") if not isinstance(annotation, str) else None
     )
     resolved = items_callback(None, types.SimpleNamespace()) if items_callback else []
-    check(
-        "the enum callback Blender holds resolves _items in real globals",
-        len(resolved) == len(choices),
-        f"{len(resolved)} vs {len(choices)}",
-    )
     check(
         "the enum callback Blender holds resolves _items in real globals",
         len(resolved) == len(choices),
@@ -687,6 +701,17 @@ def main() -> None:
     check(
         "finishing mapping returns the viewer to the pose",
         scene.mapping_active is False and reloaded.data.pose_position == "POSE",
+    )
+    check(
+        "finishing takes the rig back out of the viewer",
+        bpy.data.scenes[props.PREVIEW_SCENE].objects.get(rig.name) is None
+        and rig.name in scene.objects,
+        f"preview={bpy.data.scenes[props.PREVIEW_SCENE].objects.get(rig.name)}",
+    )
+    check(
+        "the rig's own pose mode comes back with it",
+        rig.data.pose_position == "POSE",
+        rig.data.pose_position,
     )
     check(
         "the mapping operators are registered",

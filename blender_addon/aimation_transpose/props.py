@@ -17,6 +17,7 @@ __all__ = [
     "PREVIEW_SCENE",
     "SOURCE_MARKER",
     "SOURCE_NAME",
+    "TARGET_COLLECTION",
     "CaptureItem",
     "MappingItem",
     "explicit_path",
@@ -36,6 +37,10 @@ PREVIEW_SCENE = "AImation Capture"
 SOURCE_NAME = "AImation Capture Rig"
 #: Custom property marking the source armature, so a rename never breaks it.
 SOURCE_MARKER = "aimation_capture_source"
+#: The preview scene's own collection holding the target rig while mapping runs.
+#: Kept separate from the scene's objects so unlinking the rig never touches the
+#: capture, and so a stale entry from a saved session is easy to find.
+TARGET_COLLECTION = "AImation Target"
 
 #: Guards the RNA update callbacks while the capture list is being rebuilt.
 _RESTORING = False

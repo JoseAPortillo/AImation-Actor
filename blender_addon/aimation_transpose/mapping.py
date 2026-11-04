@@ -17,13 +17,16 @@ Everything here is ``bpy`` shell. The ray mathematics is pure and lives in
 
 # NOTE: no ``from __future__ import annotations`` here, and that is load-bearing.
 # Blender reads operator properties from class annotations. Under the future
-# import every annotation stays a *string*, and Blender evaluates it later in a
-# restricted namespace that holds ``bpy`` but not this module's globals. The
-# picker's ``items`` callback is a lambda that calls the module-level ``_items``,
-# so it became ``NameError: name '_items' is not defined`` at draw time, which
-# Blender swallows: the search popup opened with no rows and the console was the
-# only place the error appeared (measured on 5.2.3). Without the future import
-# the annotation is evaluated in the class body, where module globals exist.
+# import every annotation stays a *string*, and the callback Blender builds from
+# that string runs in a namespace that does NOT carry this module's bindings:
+# ``items=lambda self, context: _items(self, context)`` raised
+# ``NameError: name '_items' is not defined`` every time the popup drew, which
+# Blender swallowed, so the search popup opened with no rows and the console was
+# the only place the error appeared (measured on 5.2.3). Definition order is not
+# the cause — a helper above the class fails the same way — and names resolved
+# while the annotation is *evaluated* (``name=``, ``description=``) are fine
+# either way. Without the future import the annotation is evaluated in the class
+# body, where ``_items`` resolves at call time like any module function.
 
 import bpy
 from bpy_extras import view3d_utils
@@ -97,6 +100,14 @@ def activate(owner) -> tuple[bool, str]:
     # current frame.
     owner.preview_rest = True
     armature.data.show_bone_colors = True
+    # The rig joins the viewer, in bind pose too, so a control and a capture bone
+    # can be compared in one view (S4). A failure is a named reason, never a
+    # silently empty viewport (S9).
+    shown, message = preview.show_target_rig(rig)
+    if not shown:
+        owner.mapping_active = False
+        owner.preview_rest = False
+        return False, message
     refresh_colours(owner)
     return True, f"Mapping: click a capture bone ({len(owner.mapping_items)} linked)"
 
@@ -105,6 +116,9 @@ def finish(owner) -> None:
     """End the mapping session: playback back, amber cleared (S4)."""
     owner.mapping_active = False
     owner.mapping_pending = ""
+    # The rig leaves the viewer with the session: it belongs to the animator's
+    # own scene, and leaving it here would draw it in their capture preview too.
+    preview.hide_target_rig()
     # Finishing returns the viewer to the animation; bind pose stays available
     # in the panel as an explicit choice.
     owner.preview_rest = False
@@ -123,6 +137,8 @@ def refresh_colours(owner) -> None:
     if armature is None:
         if owner.mapping_active:
             owner.mapping_active = False
+            # No capture means no session; the rig must not outlive it.
+            preview.hide_target_rig()
         return
     armature.data.show_bone_colors = True
     pending = owner.mapping_pending

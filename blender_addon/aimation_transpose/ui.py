@@ -102,7 +102,11 @@ class AIMATION_PT_transpose(bpy.types.Panel):
 
         mapping_box = layout.box()
         mapping_box.label(text="Mapping", icon="BONE_DATA")
-        mapping_box.prop(scene, "target_rig", text="Rig")
+        rig_field = mapping_box.row()
+        # Locked while a session runs: the viewer is showing THIS rig in bind
+        # pose, and switching it mid-session would leave the two out of step.
+        rig_field.enabled = not scene.mapping_active
+        rig_field.prop(scene, "target_rig", text="Rig")
         rig = scene.target_rig
         if rig is None:
             mapping_box.label(text="Pick the rig the animation drives", icon="INFO")
@@ -137,6 +141,11 @@ class AIMATION_PT_transpose(bpy.types.Panel):
                 )
             else:
                 mapping_box.label(text="Click a capture bone in the viewer", icon="INFO")
+            if rig is not None:
+                mapping_box.label(
+                    text=f"{rig.name} is next to the capture, in bind pose",
+                    icon="BONE_DATA",
+                )
             mapping_box.label(text="Esc or right-click finishes", icon="INFO")
             mapping_box.operator("aimation.finish_mapping", text="Finish", icon="CHECKMARK")
         else:

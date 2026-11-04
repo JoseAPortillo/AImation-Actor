@@ -19,11 +19,14 @@ from . import captures, props
 
 __all__ = [
     "apply_rest",
+    "frame_viewer",
+    "hide_target_rig",
     "load_capture",
     "open_window",
     "preview_scene",
     "schedule_load",
     "show_frame",
+    "show_target_rig",
     "source_armature",
     "viewer_window",
 ]
@@ -32,6 +35,11 @@ _MIN_VIEW_DISTANCE = 2.0
 
 #: Coalesces rapid listbox clicks into one deferred load.
 _pending: tuple[str, str] | None = None
+
+#: What ``show_target_rig`` changed, by name (never a datablock reference: the
+#: animator can delete the rig while the session runs), so the session can put it
+#: back. ``None`` means the viewer is not showing a rig.
+_shown: dict | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -92,6 +100,97 @@ def apply_rest(owner) -> None:
     if armature is None:
         return
     armature.data.pose_position = "REST" if owner.preview_rest else "POSE"
+
+
+# --------------------------------------------------------------------------- #
+# The rig, shown next to the capture
+# --------------------------------------------------------------------------- #
+
+
+def _target_collection(scene, create: bool):
+    """The preview scene's collection for the rig, created only when asked."""
+    for child in scene.collection.children:
+        if child.name == props.TARGET_COLLECTION:
+            return child
+    if not create:
+        return None
+    collection = bpy.data.collections.new(props.TARGET_COLLECTION)
+    scene.collection.children.link(collection)
+    return collection
+
+
+def show_target_rig(rig) -> tuple[bool, str]:
+    """Link ``rig`` into the preview scene so its controls can be seen (S4).
+
+    A window shows one scene, so the rig cannot be drawn next to the capture
+    unless it lives in that same scene. It is linked **in addition** to the
+    animator's own collection, never moved out of it: their viewport keeps
+    drawing the rig, and ``hide_target_rig`` only unlinks this one collection.
+    The rig's mesh is deliberately not linked — the animator needs the control
+    skeleton, not a body that would hide it.
+
+    The rig goes to its bind pose for the duration. The capture is mapped in
+    bind pose too, so the two skeletons are compared like against like, and the
+    rig's own animation cannot move a control away from where it actually sits.
+    """
+    global _shown
+    scene = preview_scene()
+    collection = _target_collection(scene, create=True)
+    # A .blend saved mid-session keeps this collection. Whatever is in it that
+    # is not the current target must not stay in the viewer.
+    for other in list(collection.objects):
+        if other != rig:
+            collection.objects.unlink(other)
+
+    if _shown is not None and _shown["name"] != rig.name:
+        hide_target_rig()
+        collection = _target_collection(scene, create=True)
+    if _shown is None:
+        _shown = {
+            "name": rig.name,
+            "pose_position": rig.data.pose_position,
+            "hide_viewport": rig.hide_viewport,
+        }
+    rig.data.pose_position = "REST"
+    rig.hide_viewport = False
+    if rig.name not in collection.objects:
+        collection.objects.link(rig)
+    collection.hide_viewport = False
+    _reveal_layer(scene, collection)
+    frame_viewer()
+    return True, f"{rig.name} is shown in bind pose"
+
+
+def hide_target_rig() -> None:
+    """Unlink the rig from the viewer and restore the state the session changed.
+
+    Safe to call when nothing is shown: a session that ended twice, or one whose
+    rig the animator deleted, must not raise.
+    """
+    global _shown
+    record, _shown = _shown, None
+    scene = bpy.data.scenes.get(props.PREVIEW_SCENE)
+    if scene is None:
+        return
+    collection = _target_collection(scene, create=False)
+    if collection is None:
+        return
+    if record is not None:
+        rig = bpy.data.objects.get(record["name"])
+        if rig is not None:
+            rig.data.pose_position = record["pose_position"]
+            rig.hide_viewport = record["hide_viewport"]
+    for obj in list(collection.objects):
+        collection.objects.unlink(obj)
+
+
+def _reveal_layer(scene, collection) -> None:
+    """Make sure no view-layer flag hides the collection the rig sits in."""
+    for layer in scene.view_layers:
+        child = layer.layer_collection.children.get(collection.name)
+        if child is not None:
+            child.exclude = False
+            child.hide_viewport = False
 
 
 # --------------------------------------------------------------------------- #
@@ -356,7 +455,7 @@ def _bind_clock(owner, source: bpy.types.Object, action, fps: float) -> None:
     scene.frame_set(first)
     owner.preview_frame = first
     apply_rest(owner)
-    _frame_armature(source)
+    frame_viewer()
     # The capture was replaced or re-adopted: the mapping links are keyed by
     # bone name and must repaint on whichever armature is showing now (S7).
     from . import mapping
@@ -413,7 +512,7 @@ def open_window() -> tuple[bool, str]:
             "the tool did not change your viewport shading or framing"
         )
     _configure_viewports(window)
-    _frame_armature(source_armature())
+    frame_viewer()
     return True, "3D viewer opened"
 
 
@@ -438,18 +537,33 @@ def _configure_viewports(window) -> None:
         space.overlay.show_relationship_lines = False
 
 
-def _frame_armature(armature: bpy.types.Object | None) -> None:
-    """Point every preview viewport at the armature without an operator."""
-    if armature is None:
-        return
-    points = [armature.matrix_world @ point for point in _extent_points(armature)]
+def frame_viewer() -> None:
+    """Frame the capture and, while mapping, the rig shown next to it.
+
+    Framing the capture alone would leave a taller rig partly out of view, so the
+    union of both is used whenever the rig is in the preview scene.
+    """
+    objects = [source_armature()]
+    scene = bpy.data.scenes.get(props.PREVIEW_SCENE)
+    collection = None if scene is None else _target_collection(scene, create=False)
+    if collection is not None:
+        objects.extend(collection.objects)
+    _frame_objects([obj for obj in objects if obj is not None])
+
+
+def _frame_objects(objects) -> None:
+    """Point every preview viewport at these objects without an operator."""
+    points = []
+    for obj in objects:
+        points.extend(obj.matrix_world @ point for point in _extent_points(obj))
     if not points:
         return
     center = sum(points, Vector()) / len(points)
     size = max((point - center).length for point in points) * 2.0
     distance = max(size, _MIN_VIEW_DISTANCE) * 1.4
+    scene = bpy.data.scenes.get(props.PREVIEW_SCENE)
     for window in bpy.context.window_manager.windows:
-        if window.scene != preview_scene() or _shares_layout(window):
+        if window.scene != scene or _shares_layout(window):
             continue
         for area in window.screen.areas:
             if area.type != "VIEW_3D":
@@ -461,11 +575,15 @@ def _frame_armature(armature: bpy.types.Object | None) -> None:
                 region.view_perspective = "PERSP"
 
 
-def _extent_points(armature: bpy.types.Object):
-    if armature.data.pose_position == "REST":
-        bones = ((bone.head_local, bone.tail_local) for bone in armature.data.bones)
+def _extent_points(obj):
+    """The points that bound ``obj`` on screen, in its own space."""
+    if obj.type != "ARMATURE":
+        yield obj.location
+        return
+    if obj.data.pose_position == "REST":
+        bones = ((bone.head_local, bone.tail_local) for bone in obj.data.bones)
     else:
-        bones = ((bone.head, bone.tail) for bone in armature.pose.bones)
+        bones = ((bone.head, bone.tail) for bone in obj.pose.bones)
     for head, tail in bones:
         yield head
         yield tail
