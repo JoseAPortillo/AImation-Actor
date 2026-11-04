@@ -378,15 +378,22 @@ are the bar for a change to be acceptable.
   the popup draws no rows. In `--background` a dynamic enum is never evaluated
   at all — the callback is not called and `enum_items` reads empty — so popup
   contents are only ever a manual check, and refusal logic belongs in a plain
-  function the smoke can call. **`from __future__ import annotations` silently
-  breaks every operator property in the module**: the annotation stays a *string*
-  and Blender evaluates it later in a restricted namespace that holds `bpy` but
-  not the module's globals, so a callback written as
+  function the smoke can call. **`from __future__ import annotations` breaks any
+  callback written inside a property annotation**: the annotation stays a
+  *string*, and the function Blender builds from it runs in a namespace that does
+  not carry the module's own bindings, so
   `items=lambda self, context: _items(self, context)` raises
-  `NameError: name '_items' is not defined` at every draw, Blender swallows it,
-  and a search popup opens with zero rows while Python-side checks stay green
-  (measured on 5.2.3; the module where a property annotation names a module-level
-  helper must not carry that future import). And a modal operator can only be
+  `NameError: name '_items' is not defined` every time it runs. Blender swallows
+  it, so the surface draws nothing while Python-side checks stay green — a search
+  popup opened with zero rows for three sessions because of exactly this
+  (measured on 5.2.3). Names resolved while the annotation is *evaluated*
+  (`default=SOME_CONSTANT`, `update=_on_folder`) are fine either way, and
+  definition order does not matter: a helper defined *above* the class fails like
+  one defined below it, so the future import is the whole story. A module whose
+  property annotation needs a callback must therefore either drop the future
+  import or pass a module-level function reference instead of a lambda, and
+  `tests/test_blender_addon_annotations.py` enforces it without Blender. And a
+  modal operator can only be
   invoked interactively: in `--background`,
   `bpy.ops.<id>('INVOKE_DEFAULT')` prints *"Invalid operator call"* and returns
   `{'PASS_THROUGH'}` without ever reaching `invoke`, so modal refusal conditions
